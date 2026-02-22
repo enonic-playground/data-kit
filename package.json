@@ -1,0 +1,48 @@
+{
+    "private": true,
+    "packageManager": "pnpm@10.30.0",
+    "engines": {
+        "node": ">=24.13.1",
+        "pnpm": ">=10.30.0"
+    },
+    "type": "module",
+    "scripts": {
+        "build": "pnpm build:dev",
+        "build:prod": "pnpm --color /^build:prod:.*$/",
+        "build:prod:js": "cross-env BUILD_TARGET=js vite build --mode production",
+        "build:prod:css": "cross-env BUILD_TARGET=css vite build --mode production",
+        "build:prod:server": "cross-env NODE_ENV=production node esbuild.server.js",
+        "build:dev": "pnpm --color /^build:dev:.*$/",
+        "build:dev:js": "cross-env BUILD_TARGET=js vite build --mode development",
+        "build:dev:css": "cross-env BUILD_TARGET=css vite build --mode development",
+        "build:dev:server": "cross-env NODE_ENV=development node esbuild.server.js",
+        "check": "pnpm check:lint && pnpm check:types && pnpm test",
+        "check:lint": "biome check .",
+        "check:types": "tsc --noEmit -p src/main/resources/tsconfig.json && tsc --noEmit",
+        "test": "vitest run",
+        "fix": "biome check . --fix",
+        "prepare": "husky"
+    },
+    "devDependencies": {
+        "@biomejs/biome": "~2.4.4",
+        "@enonic-types/core": "~7.16.2",
+        "@enonic-types/global": "~7.16.2",
+        "@enonic-types/lib-admin": "~7.16.2",
+        "@enonic-types/lib-portal": "~7.16.2",
+        "@tailwindcss/vite": "~4.2.0",
+        "@types/react": "~19.2.14",
+        "@types/react-dom": "~19.2.3",
+        "@vitejs/plugin-react": "~5.1.4",
+        "cross-env": "~10.1.0",
+        "esbuild": "~0.27.3",
+        "husky": "~9.1.7",
+        "tailwindcss": "~4.2.0",
+        "typescript": "~5.9.3",
+        "vite": "~7.3.1",
+        "vitest": "~4.0.18"
+    },
+    "dependencies": {
+        "react": "~19.2.4",
+        "react-dom": "~19.2.4"
+    }
+}

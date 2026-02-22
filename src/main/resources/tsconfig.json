@@ -1,0 +1,21 @@
+{
+    "compilerOptions": {
+        "target": "ES2015",
+        "module": "CommonJS",
+        "moduleResolution": "node",
+        "lib": ["ES2015"],
+        "noEmit": true,
+        "strict": true,
+        "skipLibCheck": true,
+        "esModuleInterop": true,
+        "forceConsistentCasingInFileNames": true,
+        "isolatedModules": true,
+        "paths": {
+            "/lib/xp/*": ["../../../node_modules/@enonic-types/lib-*"],
+            "/lib/mustache": ["./types/mustache"]
+        },
+        "types": ["@enonic-types/global"]
+    },
+    "include": ["**/*.ts"],
+    "exclude": ["assets/**"]
+}

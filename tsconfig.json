@@ -1,0 +1,19 @@
+{
+    "compilerOptions": {
+        "module": "ES2022",
+        "moduleResolution": "bundler",
+        "target": "ES2023",
+        "lib": ["ES2023", "DOM"],
+        "jsx": "react-jsx",
+        "allowSyntheticDefaultImports": true,
+        "forceConsistentCasingInFileNames": true,
+        "useDefineForClassFields": false,
+        "skipLibCheck": true,
+        "isolatedModules": true
+    },
+    "include": [
+        "src/main/resources/assets/**/*.ts",
+        "src/main/resources/assets/**/*.tsx"
+    ],
+    "exclude": ["**/*.d.ts"]
+}

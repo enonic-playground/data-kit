@@ -1,0 +1,9 @@
+[versions]
+enonicDefaults = "2.1.6"
+enonicXpGradle = "4.0.0-A2"
+nodeGradle = "7.1.0"
+
+[plugins]
+enonic-defaults = { id = "com.enonic.defaults", version.ref = "enonicDefaults" }
+enonic-xp-app = { id = "com.enonic.xp.app", version.ref = "enonicXpGradle" }
+node-gradle = { id = "com.github.node-gradle.node", version.ref = "nodeGradle" }

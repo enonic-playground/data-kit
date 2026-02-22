@@ -1,0 +1,88 @@
+plugins {
+    alias( libs.plugins.enonic.defaults )
+    alias( libs.plugins.enonic.xp.app )
+    alias( libs.plugins.node.gradle )
+}
+
+app {
+    name = "${appName}"
+    displayName = "${appDisplayName}"
+    vendorName = "${vendorName}"
+    vendorUrl = "${vendorUrl}"
+    systemVersion = "${xpVersion}"
+}
+
+dependencies {
+    implementation "com.enonic.xp:core-api:${xpVersion}"
+    implementation "com.enonic.xp:admin-api:${xpVersion}"
+    implementation "com.enonic.xp:portal-api:${xpVersion}"
+    include "com.enonic.xp:lib-admin:${xpVersion}"
+    include "com.enonic.xp:lib-portal:${xpVersion}"
+    include "com.enonic.lib:lib-mustache:2.1.1"
+}
+
+repositories {
+    mavenLocal()
+    mavenCentral()
+    xp.enonicRepo( 'snapshot' )
+    xp.enonicRepo()
+}
+
+node {
+    download = true
+    version = '24.13.1'
+    pnpmVersion = '10.30.0'
+}
+
+def isProd() {
+    return providers.gradleProperty('env').getOrElse('prod') in ['p', 'prod', 'production']
+}
+
+def environmentShort() {
+    return isProd() ? 'prod' : 'dev'
+}
+
+def nodeEnvironment() {
+    return isProd() ? 'production' : 'development'
+}
+
+tasks.register( 'pnpmBuild', PnpmTask ) {
+    dependsOn tasks.named( 'pnpmInstall' )
+    description = 'Build UI assets with Vite'
+    args = ['run', "build:${environmentShort()}"]
+    environment = [
+        'FORCE_COLOR': 'true',
+        'NODE_ENV'   : nodeEnvironment()
+    ]
+    inputs.dir 'src/main/resources'
+    outputs.dir 'build/resources/main'
+    outputs.upToDateWhen { false }
+}
+
+tasks.register( 'pnpmCheck', PnpmTask ) {
+    dependsOn tasks.named( 'pnpmInstall' )
+    args = ['run', 'check']
+    environment = ['FORCE_COLOR': 'true']
+}
+
+tasks.named( 'jar' ).configure {
+    dependsOn tasks.named( 'pnpmBuild' )
+}
+
+tasks.named( 'check' ).configure {
+    dependsOn tasks.named( 'pnpmCheck' )
+}
+
+tasks.named( 'processResources' ).configure {
+    exclude '**/.gitkeep'
+    exclude 'assets/js/**'
+    exclude 'assets/styles/**'
+    exclude '**/*.ts'
+    exclude '**/*.tsx'
+    exclude '**/tsconfig.json'
+    includeEmptyDirs = false
+}
+
+tasks.withType( Copy ).configureEach {
+    includeEmptyDirs = false
+}
