@@ -23,6 +23,7 @@ await build({
     external: [
         '/lib/xp/*',
         '/lib/mustache',
+        '/lib/http-client',
     ],
     sourcemap: !isProduction,
     minify: false, // intentional: keep server code readable for debugging errors in XP logs
