@@ -78,8 +78,7 @@ Conventional commit format throughout. Types: `feat`, `fix`, `docs`, `chore`, `r
 ### Issues
 
 - **Title**: `<type>: <description>` — e.g. `feat: add export dialog`
-- **Body**:
-
+- **Body**: concisely explain what and why, skip trivial details
   ```
   <4–8 sentence description: what, what's affected, how to reproduce, impact>
 
@@ -100,17 +99,14 @@ Conventional commit format throughout. Types: `feat`, `fix`, `docs`, `chore`, `r
 
 ### Pull Requests
 
-- **Title**: `<Issue Title> #<number>`
-- **Body**:
-
+- **Title**: `<type>: <description> #<number>` — use the primary change type (commit format)
+- **Body**: concisely explain what and why, skip trivial details. No emojis. Separate all sections with one blank line.
   ```
-  ## Changes
-  - <change 1>
-  - <change 2>
+  <summary of changes>
 
   Closes #<number>
 
+  [Claude Code session](<link>)
+
   <sub>*Drafted with AI assistance*</sub>
   ```
-
-- No emojis. Factual, no verbose explanations.
