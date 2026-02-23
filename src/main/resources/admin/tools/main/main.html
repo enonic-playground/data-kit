@@ -8,8 +8,7 @@
 </head>
 <body>
     <div id="app"></div>
-    <script defer src="{{assetsUri}}/js/bundle.js"
-            data-admin-url="{{adminUrl}}"
-            data-tool-url="{{toolUrl}}"></script>
+    <script type="application/json" id="datakit-config">{{{config}}}</script>
+    <script defer src="{{assetsUri}}/js/bundle.js"></script>
 </body>
 </html>

@@ -1,16 +1,25 @@
+import type { ReactElement } from 'react';
 import { createRoot } from 'react-dom/client';
+import { ThemeProvider } from './components/theme-provider';
+import { getConfig } from './lib/config';
 
-const scriptEl = document.currentScript as HTMLScriptElement | null;
-const adminUrl = scriptEl?.dataset.adminUrl ?? '';
-const toolUrl = scriptEl?.dataset.toolUrl ?? '';
+const APP_NAME = 'App';
 
-function App() {
-    return <h1>Data Kit</h1>;
-}
+const App = (): ReactElement => {
+    return (
+        <ThemeProvider>
+            <h1>Data Kit</h1>
+        </ThemeProvider>
+    );
+};
 
+App.displayName = APP_NAME;
+
+const config = getConfig();
 const container = document.getElementById('app');
+
 if (container) {
     createRoot(container).render(<App />);
 }
 
-console.debug('Data Kit ready', { adminUrl, toolUrl });
+console.debug('Data Kit ready', { appId: config.appId });
