@@ -7,4 +7,6 @@ declare module '/lib/xp/admin' {
         extension: string;
         params?: Record<string, string>;
     }): string;
+
+    export function getVersion(): string;
 }
