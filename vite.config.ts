@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import tailwindcss from '@tailwindcss/vite';
+import { TanStackRouterVite } from '@tanstack/router-plugin/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig, type UserConfig } from 'vite';
 
@@ -27,7 +28,14 @@ export default defineConfig(({ mode }) => {
             ...(isProduction && { logLevel: 'warn' }),
             root: IN_PATH,
             base: './',
-            plugins: [react()],
+            plugins: [
+                TanStackRouterVite({
+                    routesDirectory: path.join(IN_PATH, 'js/routes'),
+                    generatedRouteTree: path.join(IN_PATH, 'js/routeTree.gen.ts'),
+                    quoteStyle: 'single',
+                }),
+                react(),
+            ],
             build: {
                 outDir: OUT_PATH,
                 emptyOutDir: false,

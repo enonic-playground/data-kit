@@ -8,8 +8,10 @@
         "allowSyntheticDefaultImports": true,
         "forceConsistentCasingInFileNames": true,
         "useDefineForClassFields": false,
+        "strict": true,
         "skipLibCheck": true,
-        "isolatedModules": true
+        "isolatedModules": true,
+        "types": ["vite/client"]
     },
     "include": [
         "src/main/resources/assets/**/*.ts",

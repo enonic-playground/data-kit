@@ -8,6 +8,7 @@
     "files": {
         "includes": [
             "src/main/resources/**/*.{ts,tsx,css}",
+            "!src/main/resources/assets/js/routeTree.gen.ts",
             "*.{ts,js,mjs}"
         ]
     },
