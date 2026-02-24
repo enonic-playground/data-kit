@@ -1,6 +1,6 @@
 import type { Request, Response } from '@enonic-types/core';
 import { render } from '/lib/mustache';
-import { getLauncherUrl, getToolUrl } from '/lib/xp/admin';
+import { extensionUrl, getToolUrl } from '/lib/xp/admin';
 import { getUser } from '/lib/xp/auth';
 import { assetUrl, serviceUrl } from '/lib/xp/portal';
 
@@ -24,7 +24,10 @@ function buildConfig(): DataKitConfig {
         assetsUri: assetUrl({ path: '' }),
         toolUri: getToolUrl(app.name, 'main'),
         apiUri: serviceUrl({ service: 'api', type: 'server' }),
-        launcherUri: getLauncherUrl(),
+        launcherUri: extensionUrl({
+            application: 'com.enonic.xp.app.main',
+            extension: 'launcher',
+        }),
         user: currentUser
             ? {
                   key: currentUser.key,
