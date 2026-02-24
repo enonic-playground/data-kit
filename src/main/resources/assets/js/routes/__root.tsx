@@ -13,6 +13,14 @@ const TanStackRouterDevtools = import.meta.env.PROD
           })),
       );
 
+const ReactQueryDevtools = import.meta.env.PROD
+    ? () => null
+    : lazy(() =>
+          import('@tanstack/react-query-devtools').then((mod) => ({
+              default: mod.ReactQueryDevtools,
+          })),
+      );
+
 const ROOT_LAYOUT_NAME = 'RootLayout';
 
 const RootLayout = (): ReactElement => {
@@ -27,6 +35,9 @@ const RootLayout = (): ReactElement => {
             </div>
             <Suspense>
                 <TanStackRouterDevtools position="bottom-right" />
+            </Suspense>
+            <Suspense>
+                <ReactQueryDevtools buttonPosition="bottom-left" />
             </Suspense>
         </div>
     );

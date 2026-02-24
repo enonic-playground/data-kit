@@ -2,7 +2,7 @@ import type { Request, Response } from '@enonic-types/core';
 import { render } from '/lib/mustache';
 import { extensionUrl, getToolUrl } from '/lib/xp/admin';
 import { getUser } from '/lib/xp/auth';
-import { assetUrl, serviceUrl } from '/lib/xp/portal';
+import { apiUrl, assetUrl } from '/lib/xp/portal';
 
 type DataKitConfig = {
     appId: string;
@@ -23,7 +23,7 @@ function buildConfig(): DataKitConfig {
         appId: app.name,
         assetsUri: assetUrl({ path: '' }),
         toolUri: getToolUrl(app.name, 'main'),
-        apiUri: serviceUrl({ service: 'api', type: 'server' }),
+        apiUri: apiUrl({ api: 'system', type: 'server' }).replace(/\/system\/?$/, ''),
         launcherUri: extensionUrl({
             application: 'com.enonic.xp.app.main',
             extension: 'launcher',
