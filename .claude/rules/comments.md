@@ -1,3 +1,7 @@
+---
+paths:
+  - "**/*.{ts,tsx}"
+---
 # Commenting Rules
 
 _Read and apply these guidelines when adding comments to source files._
@@ -90,20 +94,9 @@ function binarySearch(haystack: number[], needle: number): number {
 
   // Standard binary-search implementation…
 }
-
-function toBeImplemented(): void {
-  /* empty */
-}
 ```
 
-## 3. Style & Tone
-
-- Write complete sentences, start with a capital letter.
-- Be concise: aim for <= 80 characters per line.
-- No emojis or casual slang.
-- Use present tense for facts ("Returns cached value").
-
-## 4. Extensive Explanatory Blocks
+## 3. Extensive Explanatory Blocks
 
 _When asked to "explain in detail" or produce teaching code:_
 
@@ -112,15 +105,8 @@ _When asked to "explain in detail" or produce teaching code:_
 3. End with a summary of side-effects or complexity, if helpful.
 4. Do not duplicate obvious code; focus on **why**, not **what**.
 
-## 5. Maintenance Etiquette
+## 4. Maintenance Etiquette
 
 - Update or delete comments when code changes; stale comments are worse than none.
 - Promote resolved `// TODO:` items to commits and remove the tag.
 - Convert answered `// ?` questions into documentation or ADRs once clarified.
-
-## Pre-Commit Checklist
-
-1. Did you avoid over-commenting obvious code?
-2. Does each prefix match the intended severity?
-3. Are large files organized with `// *` section headers?
-4. Are lines <= 80 characters and free of emojis?

@@ -1,3 +1,7 @@
+---
+paths:
+  - "src/test/**/*.test.ts"
+---
 # Testing Standards
 
 ## Test Structure
@@ -31,21 +35,6 @@ describe('userService', () => {
         email: userData.email,
       });
     });
-
-    it('should return error for invalid email', async () => {
-      // Arrange
-      const invalidData: UserData = {
-        email: 'invalid-email',
-        password: 'pass123!',
-      };
-
-      // Act
-      const result = await userService.createUser(invalidData);
-
-      // Assert
-      expect(result.success).toBe(false);
-      expect(result.error.code).toBe('VALIDATION_ERROR');
-    });
   });
 });
 ```
@@ -56,22 +45,6 @@ Use builder functions (factory functions with overrides) to construct test data.
 
 ```typescript
 // ✅ Builder with sensible defaults and optional overrides
-function buildUser(overrides?: Partial<User>): User {
-  return {
-    id: 'user_123',
-    email: 'test@example.com',
-    firstName: 'Test',
-    lastName: 'User',
-    createdAt: new Date('2024-01-01'),
-    ...overrides,
-  };
-}
-
-// ✅ Named variants for common test scenarios
-const activeUser = buildUser({ status: 'active' });
-const adminUser = buildUser({ role: 'admin', email: 'admin@example.com' });
-
-// ✅ Nested builders for complex types
 function buildFormValue(overrides?: Partial<FormValue>): FormValue {
   return {
     value: '',
@@ -86,14 +59,6 @@ function buildFormValue(overrides?: Partial<FormValue>): FormValue {
 
 ```typescript
 import { vi } from 'vitest';
-
-// ✅ Mock external dependencies with vi.mock
-vi.mock('../services/EmailService', () => ({
-  EmailService: {
-    sendWelcomeEmail: vi.fn().mockResolvedValue(true),
-    sendPasswordReset: vi.fn().mockResolvedValue(true),
-  },
-}));
 
 // ✅ Spy on methods for assertion
 vi.spyOn(service, 'method').mockReturnValue(expectedResult);
@@ -124,16 +89,6 @@ describe('ClassName', () => {
     it('should handle edge case correctly', () => { /* ... */ });
   });
 });
-
-// ✅ Use toEqual for deep equality, toBe for reference/primitive equality
-expect(result).toEqual({ id: '1', name: 'Test' });
-expect(flag).toBe(true);
-
-// ✅ Use toThrow for error assertions
-expect(() => parseValue(null)).toThrow('Value cannot be null');
-
-// ✅ Use toMatchObject for partial object matching
-expect(result).toMatchObject({ id: expect.any(String) });
 ```
 
 ## Environment Notes

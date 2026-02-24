@@ -1,3 +1,7 @@
+---
+paths:
+  - "**/*.tsx"
+---
 # Tailwind CSS & Styling Standards
 
 ## Class Name Utilities
@@ -41,8 +45,6 @@ const buttonVariants = cva('px-4 py-2 rounded font-medium transition-colors', {
     variant: {
       primary: 'bg-blue-500 text-white hover:bg-blue-600',
       secondary: 'bg-gray-200 text-gray-900 hover:bg-gray-300',
-      ghost: 'bg-transparent hover:bg-gray-100',
-      danger: 'bg-red-500 text-white hover:bg-red-600',
     },
     size: {
       sm: 'text-sm px-3 py-1',
@@ -81,16 +83,6 @@ const badVariants = cva('base', {
 
 // ✅ Consistent gap usage in flex/grid
 <div className="flex gap-4" /> // Not space-x-4
-```
-
-### Responsive Design
-
-```typescript
-// ✅ Mobile-first approach
-<div className="text-sm md:text-base lg:text-lg" />
-
-// ❌ Don't mix breakpoint orders
-<div className="lg:text-lg text-sm md:text-base" /> // Confusing order
 ```
 
 ### Performance Patterns
@@ -151,27 +143,6 @@ const cardStyles = 'rounded-lg border bg-card p-6 shadow-sm';
 - Follow the flow: hooks → logic → styles → render
 
 ## Component Styling Patterns
-
-### Base Component Structure
-
-```typescript
-export function Component({ className, ...props }: ComponentProps) {
-  // ✅ Always allow className override as last argument
-  return (
-    <div
-      className={cn(
-        // Base styles first
-        'relative flex items-center gap-2',
-        // Conditional styles
-        props.disabled && 'pointer-events-none select-none opacity-30',
-        // User overrides last
-        className,
-      )}
-      {...props}
-    />
-  );
-}
-```
 
 ### State Management with Data Attributes
 

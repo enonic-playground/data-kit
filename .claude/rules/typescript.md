@@ -1,30 +1,12 @@
+---
+paths:
+  - "**/*.{ts,tsx}"
+---
 # TypeScript Coding Standards
 
 ## Code Style
 
 ```typescript
-// ✅ Spaces inside `{}` in imports, types, objects, or destructuring
-import { Data } from './components/Button';
-type IdBad = { id: string };
-const bar = { foo: 1; };
-function getIdBad({ id }: IdBad): string {
-  const { foo } = bar;
-  return id;
-}
-
-// ❌ Avoid absence of spaces inside `{}`
-import {Data } from './components/Button';
-type Id = {id: string};
-const bar = {foo: 1;};
-function getId({id}: Id): string {
-  const {foo} = bar;
-  return id;
-}
-
-// ✅ Prefer single quotes over double quotes
-import { atom } from 'nanostores';
-const $note = atom(`Time: ${Date.now()}`);
-
 // ✅ Check for both null and undefined with `!= null`
 if (response != null) {
   // safe to use response
@@ -42,9 +24,6 @@ const len = items?.length ?? 0;
 settings.debug ||= false;
 cache?.clear();
 const size = 1_000;
-
-// ✅ Prefer `const` over `let` if variable won't change
-const max = 100;
 
 // ✅ Prefer destructing assignment
 const [body, headers = {}] = request;
@@ -66,8 +45,6 @@ if (!isEnabled) {
 const result = doSomething();
 
 updateAnotherThing();
-
-// ✅ End every source file with a single trailing newline
 ```
 
 ## Naming Standards
@@ -203,23 +180,11 @@ function findUser(id: string): Maybe<User> {
   // ...
 }
 
-// ✅ Prefer `undefined` over `null` for unset values
+// ✅ Prefer `undefined` over `null` for unset values (refs are the exception)
 const [activeId, setActiveId] = useState<string | undefined>(undefined);
 const context = createContext<MenuContextValue | undefined>(undefined);
-
-// ❌ Avoid `null` for optional/unset values
-const [activeId, setActiveId] = useState<string | null>(null); // Bad
-const context = createContext<MenuContextValue | null>(null); // Bad
-
-// ✅ Exception: refs use `null` (React convention)
-const ref = useRef<HTMLDivElement | null>(null);
+const ref = useRef<HTMLDivElement | null>(null); // refs use null by convention
 ```
-
-**Rationale for `undefined` over `null`:**
-- `undefined` is JavaScript's default for uninitialized values
-- More semantically correct for "not set" vs "intentionally empty"
-- Consistent with TypeScript optional properties (`prop?: string`)
-- Exception: React refs use `null` by convention
 
 - Prefer one file per type
 - Define types in the same file if one type is used inside another
@@ -268,50 +233,20 @@ export type RadioItemProps = RadioItemOwnProps; // Clean
 ```
 
 **Rationale:**
-- Inline type imports (`import('...').Type`) are harder to read, refactor, and don't show up in "Find References"
 - Composition (`Base & Extensions`) is clearer than subtraction (`Full - Removed`)
 - IDE hover shows actual properties instead of computed `Omit<...>` types
-- TypeScript errors reference real property names, not derived types
-- Nested `Omit<X, keyof Omit<Y, 'z'>>` is a code smell - restructure the types
-
-## Function Signatures
-
-```typescript
-// ✅ Explicit return types for public functions
-export function calculateTotal(items: OrderItem[]): number {
-  return items.reduce((sum, item) => sum + item.price, 0);
-}
-
-// ✅ Prefer arrow functions without explicit return type in handlers
-export function add2(values: number[]): number[] {
-  return values.map(v => v + 2);
-}
-
-// ✅ Prefer arrow functions with return type in one-line helpers
-const isEven = (value: number): boolean => value % 2 === 0;
-
-// ✅ Use generic constraints
-function updateEntity<T extends { id: string }>(entity: T, updates: Partial<T>): T {
-  return { ...entity, ...updates };
-}
-```
+- Nested `Omit<X, keyof Omit<Y, 'z'>>` is a code smell — restructure the types
 
 ## Import/Export Standards
 
 ```typescript
-// ✅ Named exports preferred
+// ✅ Named exports preferred; no default exports from component files
 export { UserService, ProductService };
 
-// ✅ Group imports by source
+// ✅ Group imports: external → internal → types; use relative paths within project
 import React, { useState, useEffect } from 'react';
-import { Router } from 'express';
 
 import { UserService } from '../services/UserService';
-import { validateEmail } from '../utils/validation';
 
 import type { User, CreateUserInput } from '../types';
-
-// ✅ Use relative paths for all imports within the project
-import { MyComponent } from './MyComponent';
-import { SiblingUtil } from '../utils/sibling';
 ```

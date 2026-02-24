@@ -1,3 +1,7 @@
+---
+paths:
+  - "**/*.tsx"
+---
 # React Component Standards
 
 ## Component Structure
@@ -197,51 +201,6 @@ Input.displayName = INPUT_NAME;
 ## useEffect Best Practices
 
 ```typescript
-// ❌ DON'T: Transform data for rendering
-function TodoList({ todos, filter }) {
-  const [visibleTodos, setVisibleTodos] = useState([]);
-  useEffect(() => {
-    setVisibleTodos(todos.filter(todo => todo.status === filter));
-  }, [todos, filter]); // Unnecessary effect!
-}
-
-// ✅ DO: Calculate during render
-function TodoList({ todos, filter }) {
-  const visibleTodos = todos.filter(todo => todo.status === filter);
-  // Or useMemo if expensive: useMemo(() => todos.filter(...), [todos, filter])
-}
-
-// ❌ DON'T: Handle user events
-function Form() {
-  const [submitted, setSubmitted] = useState(false);
-  useEffect(() => {
-    if (submitted) {
-      sendAnalytics('form_submit');
-    }
-  }, [submitted]); // Wrong pattern!
-}
-
-// ✅ DO: Use event handlers directly
-function Form() {
-  const handleSubmit = () => {
-    sendAnalytics('form_submit');
-  };
-}
-
-// ❌ DON'T: Reset state when prop changes
-function ProfilePage({ userId }) {
-  const [comment, setComment] = useState('');
-  useEffect(() => {
-    setComment(''); // Reset comment when user changes
-  }, [userId]);
-}
-
-// ✅ DO: Use key prop to reset component state
-function ProfilePage({ userId }) {
-  return <Profile key={userId} userId={userId} />;
-  // Component remounts, state resets automatically
-}
-
 // ❌ DON'T: Early return that blocks re-execution
 function ComboBox({ items }) {
   const instanceRef = useRef(null);
@@ -277,43 +236,6 @@ useEffect(() => {
     .then(res => res.json())
     .then(setUser);
 }, [userId]);
-```
-
-## useCallback Best Practices
-
-```typescript
-// ❌ DON'T use useCallback when:
-// - Not passed to memo() components
-// - Not used as dependency in hooks
-// - Function doesn't capture scope values
-const handleClick = useCallback(() => console.log('click'), []); // Unnecessary!
-
-// ✅ DO use useCallback when:
-// - Passing to memo() components
-const handleClick = useCallback(() => setCount(c => c + 1), []);
-return <MemoizedButton onClick={handleClick} />;
-
-// - Function is dependency of other hooks
-const fetchData = useCallback(() => fetch(url), [url]);
-useEffect(() => { fetchData() }, [fetchData]);
-```
-
-## useMemo Best Practices
-
-```typescript
-// ❌ DON'T use useMemo for:
-// - Simple calculations
-const sum = useMemo(() => a + b, [a, b]); // Overkill!
-// - Primitives that aren't dependencies
-const name = useMemo(() => user.name, [user.name]); // Unnecessary!
-
-// ✅ DO use useMemo for:
-// - Expensive calculations (filtering/sorting large arrays)
-const filtered = useMemo(() => bigArray.filter(...).sort(...), [bigArray]);
-
-// - Objects/arrays passed to memo() children or used as dependencies
-const options = useMemo(() => ({ sort: true, filter }), [filter]);
-return <MemoizedList options={options} />;
 ```
 
 ## Refs in Dependency Arrays
@@ -371,27 +293,6 @@ type BadProps = { value: string } & ComponentProps<'input'>; // Avoid
 ## Performance Patterns
 
 ```typescript
-// ✅ Split UI into small, pure components; wrap heavy ones in React.memo
-const ImageGrid = React.memo(function ImageGrid({ images }: { images: Image[] }) {
-  return images.map(img => <img key={img.id} src={img.src} />);
-});
-
-// ✅ useMemo only for expensive calculations or reference-equality
-const sorted = useMemo(() => heavySort(list), [list]);
-
-// ✅ useCallback only when a child/hook depends on function identity
-const handleSave = useCallback((u: User) => onSave(u), [onSave]);
-<SaveButton onClick={handleSave} />;
-
-// ✅ Prefer useEffect; reserve useLayoutEffect for sync DOM reads/writes
-useLayoutEffect(() => {
-  const rect = ref.current!.getBoundingClientRect();
-  setPos(rect.top);
-}, []);
-
-// ✅ Throttle/debounce high-frequency events (scroll, resize)
-const throttledScroll = useCallback(throttle(handleScroll, 100), [handleScroll]);
-
 // ✅ If store is a map, listen for the used keys only
 const { account } = useStore($application, { keys: ['account'] });
 ```
