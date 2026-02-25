@@ -19,6 +19,7 @@ import { Route as EventsRouteImport } from './routes/events'
 import { Route as DumpsRouteImport } from './routes/dumps'
 import { Route as AuditRouteImport } from './routes/audit'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as RepositoriesRepoIdRouteImport } from './routes/repositories.$repoId'
 
 const TasksRoute = TasksRouteImport.update({
   id: '/tasks',
@@ -70,6 +71,11 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const RepositoriesRepoIdRoute = RepositoriesRepoIdRouteImport.update({
+  id: '/$repoId',
+  path: '/$repoId',
+  getParentRoute: () => RepositoriesRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -77,11 +83,12 @@ export interface FileRoutesByFullPath {
   '/dumps': typeof DumpsRoute
   '/events': typeof EventsRoute
   '/exports': typeof ExportsRoute
-  '/repositories': typeof RepositoriesRoute
+  '/repositories': typeof RepositoriesRouteWithChildren
   '/search': typeof SearchRoute
   '/snapshots': typeof SnapshotsRoute
   '/system': typeof SystemRoute
   '/tasks': typeof TasksRoute
+  '/repositories/$repoId': typeof RepositoriesRepoIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -89,11 +96,12 @@ export interface FileRoutesByTo {
   '/dumps': typeof DumpsRoute
   '/events': typeof EventsRoute
   '/exports': typeof ExportsRoute
-  '/repositories': typeof RepositoriesRoute
+  '/repositories': typeof RepositoriesRouteWithChildren
   '/search': typeof SearchRoute
   '/snapshots': typeof SnapshotsRoute
   '/system': typeof SystemRoute
   '/tasks': typeof TasksRoute
+  '/repositories/$repoId': typeof RepositoriesRepoIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -102,11 +110,12 @@ export interface FileRoutesById {
   '/dumps': typeof DumpsRoute
   '/events': typeof EventsRoute
   '/exports': typeof ExportsRoute
-  '/repositories': typeof RepositoriesRoute
+  '/repositories': typeof RepositoriesRouteWithChildren
   '/search': typeof SearchRoute
   '/snapshots': typeof SnapshotsRoute
   '/system': typeof SystemRoute
   '/tasks': typeof TasksRoute
+  '/repositories/$repoId': typeof RepositoriesRepoIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -121,6 +130,7 @@ export interface FileRouteTypes {
     | '/snapshots'
     | '/system'
     | '/tasks'
+    | '/repositories/$repoId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -133,6 +143,7 @@ export interface FileRouteTypes {
     | '/snapshots'
     | '/system'
     | '/tasks'
+    | '/repositories/$repoId'
   id:
     | '__root__'
     | '/'
@@ -145,6 +156,7 @@ export interface FileRouteTypes {
     | '/snapshots'
     | '/system'
     | '/tasks'
+    | '/repositories/$repoId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -153,7 +165,7 @@ export interface RootRouteChildren {
   DumpsRoute: typeof DumpsRoute
   EventsRoute: typeof EventsRoute
   ExportsRoute: typeof ExportsRoute
-  RepositoriesRoute: typeof RepositoriesRoute
+  RepositoriesRoute: typeof RepositoriesRouteWithChildren
   SearchRoute: typeof SearchRoute
   SnapshotsRoute: typeof SnapshotsRoute
   SystemRoute: typeof SystemRoute
@@ -232,8 +244,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/repositories/$repoId': {
+      id: '/repositories/$repoId'
+      path: '/$repoId'
+      fullPath: '/repositories/$repoId'
+      preLoaderRoute: typeof RepositoriesRepoIdRouteImport
+      parentRoute: typeof RepositoriesRoute
+    }
   }
 }
+
+interface RepositoriesRouteChildren {
+  RepositoriesRepoIdRoute: typeof RepositoriesRepoIdRoute
+}
+
+const RepositoriesRouteChildren: RepositoriesRouteChildren = {
+  RepositoriesRepoIdRoute: RepositoriesRepoIdRoute,
+}
+
+const RepositoriesRouteWithChildren = RepositoriesRoute._addFileChildren(
+  RepositoriesRouteChildren,
+)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
@@ -241,7 +272,7 @@ const rootRouteChildren: RootRouteChildren = {
   DumpsRoute: DumpsRoute,
   EventsRoute: EventsRoute,
   ExportsRoute: ExportsRoute,
-  RepositoriesRoute: RepositoriesRoute,
+  RepositoriesRoute: RepositoriesRouteWithChildren,
   SearchRoute: SearchRoute,
   SnapshotsRoute: SnapshotsRoute,
   SystemRoute: SystemRoute,
