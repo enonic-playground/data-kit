@@ -12,3 +12,4 @@ apis:
   - "admin:status"
   - "system"
   - "repositories"
+  - "branches"
