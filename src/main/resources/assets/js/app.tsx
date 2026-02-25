@@ -3,6 +3,8 @@ import { RouterProvider } from '@tanstack/react-router';
 import type { ReactElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ThemeProvider } from './components/theme-provider';
+import { Toaster } from './components/ui/sonner';
+import { TooltipProvider } from './components/ui/tooltip';
 import { getConfig } from './lib/config';
 import { createAppRouter } from './router';
 
@@ -28,8 +30,11 @@ const App = (): ReactElement => {
     return (
         <ThemeProvider>
             <QueryClientProvider client={queryClient}>
-                <RouterProvider router={router} />
+                <TooltipProvider>
+                    <RouterProvider router={router} />
+                </TooltipProvider>
             </QueryClientProvider>
+            <Toaster />
         </ThemeProvider>
     );
 };
