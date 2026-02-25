@@ -10,6 +10,7 @@ export type DataKitConfig = {
     apiUris: {
         system: string;
         repositories: string;
+        branches: string;
     };
     launcherUri: string;
     user: UserConfig | null;
