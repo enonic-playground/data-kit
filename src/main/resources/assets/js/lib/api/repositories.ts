@@ -1,4 +1,5 @@
 import { queryOptions, useMutation, useQueryClient } from '@tanstack/react-query';
+import { getConfig } from '../config';
 import { apiFetch } from './client';
 
 export type Repository = {
@@ -7,18 +8,21 @@ export type Repository = {
 };
 
 export function fetchRepositories(): Promise<Repository[]> {
-    return apiFetch<Repository[]>('/repositories');
+    const { apiUris } = getConfig();
+    return apiFetch<Repository[]>(apiUris.repositories);
 }
 
 export function createRepository(id: string): Promise<Repository> {
-    return apiFetch<Repository>('/repositories', {
+    const { apiUris } = getConfig();
+    return apiFetch<Repository>(apiUris.repositories, {
         method: 'POST',
         body: { id },
     });
 }
 
 export function deleteRepository(id: string): Promise<{ id: string; deleted: boolean }> {
-    return apiFetch<{ id: string; deleted: boolean }>('/repositories', {
+    const { apiUris } = getConfig();
+    return apiFetch<{ id: string; deleted: boolean }>(apiUris.repositories, {
         method: 'DELETE',
         params: { id },
     });

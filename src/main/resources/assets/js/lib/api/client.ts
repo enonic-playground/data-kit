@@ -1,5 +1,4 @@
 import type { ApiError, ApiResponse } from '../../types/api';
-import { getConfig } from '../config';
 
 type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE';
 
@@ -9,9 +8,8 @@ type ApiFetchOptions = {
     params?: Record<string, string>;
 };
 
-function buildUrl(endpoint: string, params?: Record<string, string>): string {
-    const { apiUri } = getConfig();
-    const url = new URL(`${apiUri}${endpoint}`, window.location.origin);
+function buildUrl(apiUrl: string, params?: Record<string, string>): string {
+    const url = new URL(apiUrl, window.location.origin);
 
     if (params != null) {
         for (const [key, value] of Object.entries(params)) {
@@ -22,9 +20,9 @@ function buildUrl(endpoint: string, params?: Record<string, string>): string {
     return url.toString();
 }
 
-export async function apiFetch<T>(endpoint: string, options: ApiFetchOptions = {}): Promise<T> {
+export async function apiFetch<T>(apiUrl: string, options: ApiFetchOptions = {}): Promise<T> {
     const { method = 'GET', body, params } = options;
-    const url = buildUrl(endpoint, params);
+    const url = buildUrl(apiUrl, params);
 
     const headers: Record<string, string> = {
         Accept: 'application/json',

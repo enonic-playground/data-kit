@@ -7,7 +7,10 @@ export type DataKitConfig = {
     appId: string;
     assetsUri: string;
     toolUri: string;
-    apiUri: string;
+    apiUris: {
+        system: string;
+        repositories: string;
+    };
     launcherUri: string;
     user: UserConfig | null;
 };

@@ -1,4 +1,5 @@
 import { queryOptions } from '@tanstack/react-query';
+import { getConfig } from '../config';
 import { apiFetch } from './client';
 
 type SystemInfo = {
@@ -8,7 +9,8 @@ type SystemInfo = {
 };
 
 export function fetchSystemInfo(): Promise<SystemInfo> {
-    return apiFetch<SystemInfo>('/system');
+    const { apiUris } = getConfig();
+    return apiFetch<SystemInfo>(apiUris.system);
 }
 
 export function systemInfoQueryOptions() {

@@ -18,6 +18,7 @@ await build({
     bundle: true,
     format: 'cjs',
     target: 'es2015',
+    supported: { 'for-of': false }, // ? Nashorn doesn't handle `let` bindings in `for...of` correctly
     platform: 'neutral',
     mainFields: ['module', 'main'],
     external: [

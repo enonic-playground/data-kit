@@ -1,7 +1,5 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
 ## Project
 
 **data-kit** (`com.enonic.app.datakit`) is an Enonic XP admin tool for data management. It has no site components — only `admin/tools/main/`.
@@ -26,44 +24,27 @@ pnpm test           # vitest only
 pnpm fix            # auto-fix lint issues (Biome)
 ```
 
-> Gradle wrapper (`gradlew`) must be present. If missing, run `gradle wrapper --gradle-version 8.7` or copy from another Enonic project.
-
 ## Architecture
 
-**Build pipeline:** Two parallel build pipelines compile TypeScript sources into `build/resources/main/`:
+**Build pipeline:** Two parallel pipelines compile TypeScript into `build/resources/main/`:
 
-- **Client-side (Vite):** `src/main/resources/assets/` → `build/resources/main/assets/`
-  - Two build targets controlled by `BUILD_TARGET` env var:
-    - `js` — bundles `assets/js/app.tsx` → `assets/js/bundle.js` (React, ES2023, ESM format)
-    - `css` — processes `assets/styles/main.css` through Tailwind 4 (via Vite plugin) → `assets/styles/main.css`
-- **Server-side (esbuild):** `src/main/resources/**/*.ts` (excluding `assets/`) → `build/resources/main/`
-  - Compiles to CJS ES2015 (what XP's GraalJS engine expects)
-  - Auto-discovers all `.ts` entry points — future controllers/services work without config changes
-  - XP library imports (`/lib/xp/*`, `/lib/mustache`) are externalized (resolved at runtime by XP)
-  - Uses `@enonic-types/*@^7.16.x` for type-checking (XP 8 types not yet published; API is compatible)
-- **pnpmBuild Gradle task** calls `pnpm run build:dev` (or `build:prod` with `-Penv=prod`), which runs Vite and esbuild in parallel
-- **processResources** excludes `assets/js/**`, `assets/styles/**`, `**/*.ts`, `**/*.tsx`, and `**/tsconfig.json`
+- **Client-side (Vite):** `src/main/resources/assets/` — React app (`js` target) and Tailwind 4 CSS (`css` target), controlled by `BUILD_TARGET` env var
+- **Server-side (esbuild):** `src/main/resources/**/*.ts` (excluding `assets/`, `lib/`, `types/`) — CJS ES2015 for XP's Nashorn engine. Auto-discovers `.ts` entry points. XP imports (`/lib/xp/*`, `/lib/mustache`) are externalized.
+- Uses `@enonic-types/*@^7.16.x` for type-checking (XP 8 types not yet published; API is compatible)
 
 **Admin tool entry:**
-- `admin/tools/main/main.yml` — tool descriptor (YAML, i18n object format). `main.ts` renders `main.html` (Mustache) with asset URLs. The JS bundle (`assets/js/bundle.js`) is a React app.
-- The bundle reads `data-admin-url` and `data-tool-url` from `document.currentScript`.
+- `admin/tools/main/main.ts` renders `main.html` (Mustache) with asset URLs. The JS bundle (`assets/js/bundle.js`) is a React app.
 - Descriptor uses `admin:extension` API (XP 8 admin framework), not the old `admin:widget`.
-- `i18n/phrases.properties` — localization strings for the tool descriptor.
 
-**Linting & testing:**
-- **Biome** is the sole linter (no ESLint). Covers both client and server TS/TSX/CSS. Config in `biome.json`.
-- **Vitest** for unit tests. Test files in `src/test/**/*.test.ts`. Config in `vitest.config.ts`.
-- **Husky** pre-commit hook runs `biome check --staged`.
+## XP 8 Descriptors
 
-**Key files:**
-- `gradle.properties` — app key (`com.enonic.app.datakit`), XP version
-- `build.gradle` — Gradle + Node/pnpm plugin, `pnpmBuild` / `pnpmCheck` wiring, env detection
-- `biome.json` — Biome linter config (import sorting, Tailwind class sorting, strict rules)
-- `vitest.config.ts` — Vitest test runner config
-- `vite.config.ts` — dual-target (`js`/`css`) Vite config for client-side assets
-- `esbuild.server.js` — server-side TS build script (CJS output for XP)
-- `tsconfig.json` — client-side TypeScript config (`src/main/resources/assets/**/*.ts`, browser target)
-- `src/main/resources/tsconfig.json` — server-side TypeScript config (XP globals, CommonJS)
+XP 8 replaced XML descriptors with YAML across the board. All descriptors in this project use `.yml` — **never create `.xml` descriptors**. This applies to:
+
+- API descriptors (`apis/*/*.yml`)
+- Admin tool descriptors (`admin/tools/main/main.yml`)
+- Content types, mixins, x-data, etc.
+
+There is little official documentation on this yet, so don't rely on older XP docs that show XML examples.
 
 ## Adding XP Libraries
 

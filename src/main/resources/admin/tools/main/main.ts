@@ -8,7 +8,10 @@ type DataKitConfig = {
     appId: string;
     assetsUri: string;
     toolUri: string;
-    apiUri: string;
+    apiUris: {
+        system: string;
+        repositories: string;
+    };
     launcherUri: string;
     user: {
         key: string;
@@ -23,7 +26,10 @@ function buildConfig(): DataKitConfig {
         appId: app.name,
         assetsUri: assetUrl({ path: '' }),
         toolUri: getToolUrl(app.name, 'main'),
-        apiUri: apiUrl({ api: 'system', type: 'server' }).replace(/\/system\/?$/, ''),
+        apiUris: {
+            system: apiUrl({ api: 'system', type: 'server' }),
+            repositories: apiUrl({ api: 'repositories', type: 'server' }),
+        },
         launcherUri: extensionUrl({
             application: 'com.enonic.xp.app.main',
             extension: 'launcher',
