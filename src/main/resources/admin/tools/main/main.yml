@@ -11,3 +11,4 @@ apis:
   - "admin:event"
   - "admin:status"
   - "system"
+  - "repositories"
