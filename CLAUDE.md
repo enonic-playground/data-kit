@@ -56,6 +56,8 @@ There is little official documentation on this yet, so don't rely on older XP do
 
 Conventional commit format throughout. Types: `feat`, `fix`, `docs`, `chore`, `refactor`, `test`, `style`, `ci`.
 
+**`gh` CLI:** Do not assume the `gh` tool is available. If it is missing, the environment is likely a sandbox — do not attempt to install or download it. Use raw `git` commands instead.
+
 ### Issues
 
 - **Title**: `<type>: <description>` — e.g. `feat: add export dialog`
