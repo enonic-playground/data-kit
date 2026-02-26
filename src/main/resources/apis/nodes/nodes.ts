@@ -18,20 +18,22 @@ type NodesResult = {
 
 const DEFAULT_COUNT = 25;
 
-export function get(req: Request): Response {
-    const forbidden = requireAdmin();
-    if (forbidden != null) return forbidden;
+function getNodeDetail(_req: Request, repoId: string, branch: string, key: string): Response {
+    try {
+        const repo = connect({ repoId, branch });
+        const node = repo.get(key);
 
-    const repoId = getParam(req, 'repoId');
-    if (repoId == null) {
-        return errorResponse(400, 'Repository ID is required', 'VALIDATION_ERROR');
+        if (node == null) {
+            return errorResponse(404, `Node '${key}' not found`, 'NOT_FOUND');
+        }
+
+        return jsonResponse(node);
+    } catch (_e) {
+        return errorResponse(500, 'Failed to get node', 'INTERNAL_ERROR');
     }
+}
 
-    const branch = getParam(req, 'branch');
-    if (branch == null) {
-        return errorResponse(400, 'Branch is required', 'VALIDATION_ERROR');
-    }
-
+function getNodeList(req: Request, repoId: string, branch: string): Response {
     const parentPath = getParam(req, 'parentPath') || '/';
     const start = parseInt(getParam(req, 'start') || '0', 10);
     const count = parseInt(getParam(req, 'count') || String(DEFAULT_COUNT), 10);
@@ -86,4 +88,26 @@ export function get(req: Request): Response {
     } catch (_e) {
         return errorResponse(500, 'Failed to query nodes', 'INTERNAL_ERROR');
     }
+}
+
+export function get(req: Request): Response {
+    const forbidden = requireAdmin();
+    if (forbidden != null) return forbidden;
+
+    const repoId = getParam(req, 'repoId');
+    if (repoId == null) {
+        return errorResponse(400, 'Repository ID is required', 'VALIDATION_ERROR');
+    }
+
+    const branch = getParam(req, 'branch');
+    if (branch == null) {
+        return errorResponse(400, 'Branch is required', 'VALIDATION_ERROR');
+    }
+
+    const key = getParam(req, 'key');
+    if (key != null) {
+        return getNodeDetail(req, repoId, branch, key);
+    }
+
+    return getNodeList(req, repoId, branch);
 }

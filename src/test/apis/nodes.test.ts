@@ -233,3 +233,88 @@ describe('GET /nodes', () => {
         expect(body.data.nodes[0]._name).toBe('content');
     });
 });
+
+describe('GET /nodes?key=', () => {
+    test('returns full node when key param is provided', () => {
+        const fullNode = {
+            _id: 'id-1',
+            _name: 'content',
+            _path: '/content',
+            _nodeType: 'default',
+            _ts: '2026-01-01T00:00:00Z',
+            _childOrder: '_name ASC',
+            _state: 'DEFAULT',
+            _versionKey: 'v1',
+            _permissions: [
+                { principal: 'role:system.admin', allow: ['READ', 'CREATE', 'MODIFY', 'DELETE'], deny: [] },
+            ],
+            title: 'My Content',
+            data: { count: 42 },
+        };
+        const mockConn = createMockConnection({
+            get: vi.fn().mockReturnValue(fullNode),
+        });
+        mockedConnect.mockReturnValue(mockConn as never);
+
+        const response = get({
+            params: { repoId: 'my-repo', branch: 'master', key: 'id-1' },
+        } as unknown as Request);
+        const body = parseBody(response);
+
+        expect(response.status).toBe(200);
+        expect(body.data).toEqual(fullNode);
+        expect(mockConn.get).toHaveBeenCalledWith('id-1');
+        expect(mockConn.query).not.toHaveBeenCalled();
+    });
+
+    test('returns 404 when node not found', () => {
+        const mockConn = createMockConnection({
+            get: vi.fn().mockReturnValue(null),
+        });
+        mockedConnect.mockReturnValue(mockConn as never);
+
+        const response = get({
+            params: { repoId: 'my-repo', branch: 'master', key: 'nonexistent' },
+        } as unknown as Request);
+        const body = parseBody(response);
+
+        expect(response.status).toBe(404);
+        expect(body.code).toBe('NOT_FOUND');
+    });
+
+    test('returns 400 when repoId is missing', () => {
+        const response = get({
+            params: { branch: 'master', key: 'id-1' },
+        } as unknown as Request);
+        expect(response.status).toBe(400);
+        expect(parseBody(response).code).toBe('VALIDATION_ERROR');
+    });
+
+    test('returns 400 when branch is missing', () => {
+        const response = get({
+            params: { repoId: 'my-repo', key: 'id-1' },
+        } as unknown as Request);
+        expect(response.status).toBe(400);
+        expect(parseBody(response).code).toBe('VALIDATION_ERROR');
+    });
+
+    test('returns 403 for non-admin users', () => {
+        mockedHasRole.mockReturnValue(false);
+        const response = get({
+            params: { repoId: 'my-repo', branch: 'master', key: 'id-1' },
+        } as unknown as Request);
+        expect(response.status).toBe(403);
+    });
+
+    test('returns 500 when connection fails', () => {
+        mockedConnect.mockImplementation(() => {
+            throw new Error('Connection failed');
+        });
+
+        const response = get({
+            params: { repoId: 'my-repo', branch: 'master', key: 'id-1' },
+        } as unknown as Request);
+        expect(response.status).toBe(500);
+        expect(parseBody(response).code).toBe('INTERNAL_ERROR');
+    });
+});
