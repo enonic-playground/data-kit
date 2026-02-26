@@ -14,6 +14,7 @@ import { Route as SystemRouteImport } from './routes/system'
 import { Route as SnapshotsRouteImport } from './routes/snapshots'
 import { Route as SearchRouteImport } from './routes/search'
 import { Route as RepositoriesRouteImport } from './routes/repositories'
+import { Route as RepositoriesIndexRouteImport } from './routes/repositories.index'
 import { Route as ExportsRouteImport } from './routes/exports'
 import { Route as EventsRouteImport } from './routes/events'
 import { Route as DumpsRouteImport } from './routes/dumps'
@@ -73,6 +74,11 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const RepositoriesIndexRoute = RepositoriesIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => RepositoriesRoute,
+} as any)
 const RepositoriesRepoIdRoute = RepositoriesRepoIdRouteImport.update({
   id: '/$repoId',
   path: '/$repoId',
@@ -97,6 +103,7 @@ export interface FileRoutesByFullPath {
   '/events': typeof EventsRoute
   '/exports': typeof ExportsRoute
   '/repositories': typeof RepositoriesRouteWithChildren
+  '/repositories/': typeof RepositoriesIndexRoute
   '/search': typeof SearchRoute
   '/snapshots': typeof SnapshotsRoute
   '/system': typeof SystemRoute
@@ -111,7 +118,7 @@ export interface FileRoutesByTo {
   '/dumps': typeof DumpsRoute
   '/events': typeof EventsRoute
   '/exports': typeof ExportsRoute
-  '/repositories': typeof RepositoriesRouteWithChildren
+  '/repositories': typeof RepositoriesIndexRoute
   '/search': typeof SearchRoute
   '/snapshots': typeof SnapshotsRoute
   '/system': typeof SystemRoute
@@ -127,6 +134,7 @@ export interface FileRoutesById {
   '/events': typeof EventsRoute
   '/exports': typeof ExportsRoute
   '/repositories': typeof RepositoriesRouteWithChildren
+  '/repositories/': typeof RepositoriesIndexRoute
   '/search': typeof SearchRoute
   '/snapshots': typeof SnapshotsRoute
   '/system': typeof SystemRoute
@@ -144,6 +152,7 @@ export interface FileRouteTypes {
     | '/events'
     | '/exports'
     | '/repositories'
+    | '/repositories/'
     | '/search'
     | '/snapshots'
     | '/system'
@@ -173,6 +182,7 @@ export interface FileRouteTypes {
     | '/events'
     | '/exports'
     | '/repositories'
+    | '/repositories/'
     | '/search'
     | '/snapshots'
     | '/system'
@@ -267,6 +277,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/repositories/': {
+      id: '/repositories/'
+      path: '/'
+      fullPath: '/repositories/'
+      preLoaderRoute: typeof RepositoriesIndexRouteImport
+      parentRoute: typeof RepositoriesRoute
+    }
     '/repositories/$repoId': {
       id: '/repositories/$repoId'
       path: '/$repoId'
@@ -305,10 +322,12 @@ const RepositoriesRepoIdRouteWithChildren =
   RepositoriesRepoIdRoute._addFileChildren(RepositoriesRepoIdRouteChildren)
 
 interface RepositoriesRouteChildren {
+  RepositoriesIndexRoute: typeof RepositoriesIndexRoute
   RepositoriesRepoIdRoute: typeof RepositoriesRepoIdRouteWithChildren
 }
 
 const RepositoriesRouteChildren: RepositoriesRouteChildren = {
+  RepositoriesIndexRoute: RepositoriesIndexRoute,
   RepositoriesRepoIdRoute: RepositoriesRepoIdRouteWithChildren,
 }
 
