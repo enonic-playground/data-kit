@@ -20,6 +20,8 @@ import { Route as DumpsRouteImport } from './routes/dumps'
 import { Route as AuditRouteImport } from './routes/audit'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as RepositoriesRepoIdRouteImport } from './routes/repositories.$repoId'
+import { Route as RepositoriesRepoIdIndexRouteImport } from './routes/repositories.$repoId.index'
+import { Route as RepositoriesRepoIdBranchRouteImport } from './routes/repositories.$repoId.$branch'
 
 const TasksRoute = TasksRouteImport.update({
   id: '/tasks',
@@ -76,6 +78,17 @@ const RepositoriesRepoIdRoute = RepositoriesRepoIdRouteImport.update({
   path: '/$repoId',
   getParentRoute: () => RepositoriesRoute,
 } as any)
+const RepositoriesRepoIdIndexRoute = RepositoriesRepoIdIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => RepositoriesRepoIdRoute,
+} as any)
+const RepositoriesRepoIdBranchRoute =
+  RepositoriesRepoIdBranchRouteImport.update({
+    id: '/$branch',
+    path: '/$branch',
+    getParentRoute: () => RepositoriesRepoIdRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -88,7 +101,9 @@ export interface FileRoutesByFullPath {
   '/snapshots': typeof SnapshotsRoute
   '/system': typeof SystemRoute
   '/tasks': typeof TasksRoute
-  '/repositories/$repoId': typeof RepositoriesRepoIdRoute
+  '/repositories/$repoId': typeof RepositoriesRepoIdRouteWithChildren
+  '/repositories/$repoId/$branch': typeof RepositoriesRepoIdBranchRoute
+  '/repositories/$repoId/': typeof RepositoriesRepoIdIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -101,7 +116,8 @@ export interface FileRoutesByTo {
   '/snapshots': typeof SnapshotsRoute
   '/system': typeof SystemRoute
   '/tasks': typeof TasksRoute
-  '/repositories/$repoId': typeof RepositoriesRepoIdRoute
+  '/repositories/$repoId/$branch': typeof RepositoriesRepoIdBranchRoute
+  '/repositories/$repoId': typeof RepositoriesRepoIdIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -115,7 +131,9 @@ export interface FileRoutesById {
   '/snapshots': typeof SnapshotsRoute
   '/system': typeof SystemRoute
   '/tasks': typeof TasksRoute
-  '/repositories/$repoId': typeof RepositoriesRepoIdRoute
+  '/repositories/$repoId': typeof RepositoriesRepoIdRouteWithChildren
+  '/repositories/$repoId/$branch': typeof RepositoriesRepoIdBranchRoute
+  '/repositories/$repoId/': typeof RepositoriesRepoIdIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -131,6 +149,8 @@ export interface FileRouteTypes {
     | '/system'
     | '/tasks'
     | '/repositories/$repoId'
+    | '/repositories/$repoId/$branch'
+    | '/repositories/$repoId/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -143,6 +163,7 @@ export interface FileRouteTypes {
     | '/snapshots'
     | '/system'
     | '/tasks'
+    | '/repositories/$repoId/$branch'
     | '/repositories/$repoId'
   id:
     | '__root__'
@@ -157,6 +178,8 @@ export interface FileRouteTypes {
     | '/system'
     | '/tasks'
     | '/repositories/$repoId'
+    | '/repositories/$repoId/$branch'
+    | '/repositories/$repoId/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -251,15 +274,42 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RepositoriesRepoIdRouteImport
       parentRoute: typeof RepositoriesRoute
     }
+    '/repositories/$repoId/': {
+      id: '/repositories/$repoId/'
+      path: '/'
+      fullPath: '/repositories/$repoId/'
+      preLoaderRoute: typeof RepositoriesRepoIdIndexRouteImport
+      parentRoute: typeof RepositoriesRepoIdRoute
+    }
+    '/repositories/$repoId/$branch': {
+      id: '/repositories/$repoId/$branch'
+      path: '/$branch'
+      fullPath: '/repositories/$repoId/$branch'
+      preLoaderRoute: typeof RepositoriesRepoIdBranchRouteImport
+      parentRoute: typeof RepositoriesRepoIdRoute
+    }
   }
 }
 
+interface RepositoriesRepoIdRouteChildren {
+  RepositoriesRepoIdBranchRoute: typeof RepositoriesRepoIdBranchRoute
+  RepositoriesRepoIdIndexRoute: typeof RepositoriesRepoIdIndexRoute
+}
+
+const RepositoriesRepoIdRouteChildren: RepositoriesRepoIdRouteChildren = {
+  RepositoriesRepoIdBranchRoute: RepositoriesRepoIdBranchRoute,
+  RepositoriesRepoIdIndexRoute: RepositoriesRepoIdIndexRoute,
+}
+
+const RepositoriesRepoIdRouteWithChildren =
+  RepositoriesRepoIdRoute._addFileChildren(RepositoriesRepoIdRouteChildren)
+
 interface RepositoriesRouteChildren {
-  RepositoriesRepoIdRoute: typeof RepositoriesRepoIdRoute
+  RepositoriesRepoIdRoute: typeof RepositoriesRepoIdRouteWithChildren
 }
 
 const RepositoriesRouteChildren: RepositoriesRouteChildren = {
-  RepositoriesRepoIdRoute: RepositoriesRepoIdRoute,
+  RepositoriesRepoIdRoute: RepositoriesRepoIdRouteWithChildren,
 }
 
 const RepositoriesRouteWithChildren = RepositoriesRoute._addFileChildren(
