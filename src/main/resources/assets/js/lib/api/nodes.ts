@@ -59,3 +59,49 @@ export function nodesQueryOptions(params: NodesParams) {
         queryFn: () => fetchNodes(params),
     });
 }
+
+//
+// * Node Detail
+//
+
+export type AccessControlEntry = {
+    principal: string;
+    allow: string[];
+    deny: string[];
+};
+
+export type NodeDetail = Record<string, unknown> & {
+    _id: string;
+    _name: string;
+    _path: string;
+    _nodeType: string;
+    _childOrder: string;
+    _ts: string;
+    _state: string;
+    _versionKey: string;
+    _permissions: AccessControlEntry[];
+};
+
+export type NodeDetailParams = {
+    repoId: string;
+    branch: string;
+    key: string;
+};
+
+export function fetchNodeDetail(params: NodeDetailParams): Promise<NodeDetail> {
+    const { apiUris } = getConfig();
+    return apiFetch<NodeDetail>(apiUris.nodes, {
+        params: {
+            repoId: params.repoId,
+            branch: params.branch,
+            key: params.key,
+        },
+    });
+}
+
+export function nodeDetailQueryOptions(params: NodeDetailParams) {
+    return queryOptions({
+        queryKey: ['node-detail', params.repoId, params.branch, params.key],
+        queryFn: () => fetchNodeDetail(params),
+    });
+}

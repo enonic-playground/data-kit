@@ -6,10 +6,11 @@ import {
     getCoreRowModel,
     useReactTable,
 } from '@tanstack/react-table';
-import { ChevronLeft, ChevronRight, FileText, Folder, FolderOpen } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Eye, FileText, Folder, FolderOpen } from 'lucide-react';
 import type { ReactElement } from 'react';
 import { z } from 'zod';
 import { NodeBreadcrumbs } from '../components/node-breadcrumbs';
+import { NodeDetailPanel } from '../components/node-detail-panel';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { EmptyState } from '../components/ui/empty-state';
@@ -31,6 +32,7 @@ const searchSchema = z.object({
     path: z.string().default('/'),
     start: z.number().int().min(0).default(0),
     count: z.number().int().min(1).max(100).default(DEFAULT_COUNT),
+    nodeId: z.string().optional(),
 });
 
 const columnHelper = createColumnHelper<NodeEntry>();
@@ -57,7 +59,7 @@ function getParentPath(path: string): string {
 
 const NodeBrowserPage = (): ReactElement => {
     const { repoId, branch } = Route.useParams();
-    const { path, start, count } = Route.useSearch();
+    const { path, start, count, nodeId } = Route.useSearch();
     const navigate = useNavigate({ from: Route.fullPath });
 
     const { data } = useSuspenseQuery(
@@ -67,6 +69,21 @@ const NodeBrowserPage = (): ReactElement => {
     const navigateToPath = (newPath: string) => {
         navigate({
             search: { path: newPath, start: 0, count },
+        });
+    };
+
+    const openNodeDetail = (id: string) => {
+        navigate({
+            search: (prev: Record<string, unknown>) => ({ ...prev, nodeId: id }),
+        });
+    };
+
+    const closeNodeDetail = () => {
+        navigate({
+            search: (prev: Record<string, unknown>) => {
+                const { nodeId: _, ...rest } = prev;
+                return rest;
+            },
         });
     };
 
@@ -97,6 +114,23 @@ const NodeBrowserPage = (): ReactElement => {
                 <span className="text-muted-foreground text-sm">
                     {formatTimestamp(info.getValue())}
                 </span>
+            ),
+        }),
+        columnHelper.display({
+            id: 'actions',
+            header: '',
+            cell: info => (
+                <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-8"
+                    onClick={e => {
+                        e.stopPropagation();
+                        openNodeDetail(info.row.original._id);
+                    }}
+                >
+                    <Eye className="size-4 text-muted-foreground" />
+                </Button>
             ),
         }),
     ];
@@ -189,14 +223,12 @@ const NodeBrowserPage = (): ReactElement => {
                             {table.getRowModel().rows.map(row => (
                                 <TableRow
                                     key={row.id}
-                                    className={
-                                        row.original.hasChildren
-                                            ? 'cursor-pointer'
-                                            : undefined
-                                    }
+                                    className="cursor-pointer"
                                     onClick={() => {
                                         if (row.original.hasChildren) {
                                             navigateToPath(row.original._path);
+                                        } else {
+                                            openNodeDetail(row.original._id);
                                         }
                                     }}
                                 >
@@ -258,6 +290,13 @@ const NodeBrowserPage = (): ReactElement => {
                     )}
                 </>
             )}
+
+            <NodeDetailPanel
+                nodeId={nodeId ?? null}
+                repoId={repoId}
+                branch={branch}
+                onClose={closeNodeDetail}
+            />
         </div>
     );
 };
