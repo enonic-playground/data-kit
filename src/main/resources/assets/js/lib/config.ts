@@ -11,6 +11,7 @@ export type DataKitConfig = {
         system: string;
         repositories: string;
         branches: string;
+        nodes: string;
     };
     launcherUri: string;
     user: UserConfig | null;

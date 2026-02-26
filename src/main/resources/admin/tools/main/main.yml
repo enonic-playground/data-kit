@@ -13,3 +13,4 @@ apis:
   - "system"
   - "repositories"
   - "branches"
+  - "nodes"
