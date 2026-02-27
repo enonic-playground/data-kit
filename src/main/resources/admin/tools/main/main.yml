@@ -14,3 +14,4 @@ apis:
   - "repositories"
   - "branches"
   - "nodes"
+  - "search"
