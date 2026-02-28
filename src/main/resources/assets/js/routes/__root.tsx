@@ -41,7 +41,12 @@ const RootLayout = (): ReactElement => {
             </div>
             <StatusBar />
             <Suspense>
-                <TanStackRouterDevtools position="bottom-right" />
+                <TanStackRouterDevtools
+                    position="bottom-right"
+                    toggleButtonProps={{
+                        style: { bottom: '1.5rem' },
+                    }}
+                />
             </Suspense>
             <Suspense>
                 <ReactQueryDevtools buttonPosition="bottom-left" />

@@ -164,4 +164,14 @@
         background-color: hsl(var(--background));
         color: hsl(var(--foreground));
     }
+
+    button:not(:disabled),
+    [role="button"]:not(:disabled) {
+        cursor: pointer;
+    }
+}
+
+/* ? Dev-only: scale React Query devtools toggle to half size */
+.tsqd-parent-container {
+    zoom: 0.5;
 }
