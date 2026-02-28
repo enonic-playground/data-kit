@@ -58,6 +58,17 @@ Conventional commit format throughout. Types: `feat`, `fix`, `docs`, `chore`, `r
 
 **`gh` CLI:** Do not assume the `gh` tool is available. If it is missing, the environment is likely a sandbox — do not attempt to install or download it. Use raw `git` commands instead.
 
+### Issue Labels
+
+Each issue gets one **main** label + 0–2 **supportive** labels.
+
+- **Main** (exactly one): `bug`, `feature`, `improvement`, `epic` — or others inferred from context
+- **Supportive** (optional):
+  - `UI/UX` — changes primarily affecting frontend visuals/interactions (not logic-only or API)
+  - `DX` — build, tooling, or developer experience improvements
+  - `AI` — code assistant related
+  - `wontfix` — closing without changes
+
 ### Issues
 
 - **Title**: `<type>: <description>` — e.g. `feat: add export dialog`
