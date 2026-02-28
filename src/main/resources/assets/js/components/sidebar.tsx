@@ -98,11 +98,11 @@ export const Sidebar = ({ className }: SidebarProps): ReactElement => {
                     const Icon = item.icon;
 
                     const linkClasses = cn(
-                        'flex h-8 items-center rounded-md text-xs',
+                        'flex items-center rounded-md text-xs',
                         'overflow-hidden transition-colors',
                         collapsed
-                            ? 'justify-center'
-                            : 'gap-2 px-2',
+                            ? 'size-8 justify-center'
+                            : 'h-8 gap-2 px-2',
                         isActive
                             ? 'bg-accent font-medium text-foreground'
                             : 'text-muted-foreground hover:bg-row-hover',

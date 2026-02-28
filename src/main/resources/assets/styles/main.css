@@ -171,7 +171,10 @@
     }
 }
 
-/* ? Dev-only: scale React Query devtools toggle to half size */
-.tsqd-parent-container {
-    zoom: 0.5;
+/* ? Dev-only: attempt to resize React Query devtools open button.
+   tsqd-open-btn-container lives inside a shadow DOM, so this rule
+   will only work if the devtools renders without shadow isolation. */
+.tsqd-open-btn-container {
+    transform: scale(0.5);
+    transform-origin: bottom left;
 }
