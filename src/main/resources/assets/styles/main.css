@@ -175,6 +175,7 @@
    tsqd-open-btn-container lives inside a shadow DOM, so this rule
    will only work if the devtools renders without shadow isolation. */
 .tsqd-open-btn-container {
-    transform: scale(0.5);
+    transform: scale(0.75);
     transform-origin: bottom left;
+    margin-bottom: 12px;
 }
