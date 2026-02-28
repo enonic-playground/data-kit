@@ -26,7 +26,7 @@ export const ThemeToggle = ({ className }: ThemeToggleProps): ReactElement => {
         ) : theme === 'dark' ? (
             <Moon className="size-4" />
         ) : (
-            <SunMoon className="size-4" />
+            <SunMoon className="size-4.5" />
         );
 
     const label =
@@ -37,9 +37,10 @@ export const ThemeToggle = ({ className }: ThemeToggleProps): ReactElement => {
               : 'System';
 
     const classNames = cn(
-        'inline-flex items-center justify-center rounded-md p-2',
-        'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
-        'transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        'inline-flex size-8 items-center justify-center rounded-md',
+        'text-muted-foreground transition-colors',
+        'hover:bg-accent hover:text-accent-foreground',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
         className,
     );
 

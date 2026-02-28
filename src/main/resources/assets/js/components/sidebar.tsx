@@ -35,6 +35,10 @@ const NAV_ITEMS: NavItem[] = [
     { to: '/system', label: 'System', icon: Settings },
 ];
 
+// ? 45px = 44px content + 1px border-right. Gives exactly size-8 (32px) buttons
+// ? with px-1.5 (6px) padding on each side: 6 + 32 + 6 = 44.
+const COLLAPSED_WIDTH = 'w-[45px]';
+
 export type SidebarProps = {
     className?: string;
 };
@@ -50,19 +54,20 @@ export const Sidebar = ({ className }: SidebarProps): ReactElement => {
     const sidebarClasses = cn(
         'flex h-full flex-col border-border border-r bg-card',
         'transition-[width] duration-200 ease-[cubic-bezier(0.4,0,0.2,1)]',
-        collapsed ? 'w-11' : 'w-48',
+        collapsed ? COLLAPSED_WIDTH : 'w-48',
         className,
     );
 
-    const toggleClasses = cn(
-        'shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors',
+    const iconButtonClasses = cn(
+        'flex size-8 shrink-0 items-center justify-center rounded-md',
+        'text-muted-foreground transition-colors',
         'hover:bg-accent hover:text-accent-foreground',
     );
 
     return (
         <aside data-component={SIDEBAR_NAME} className={sidebarClasses}>
             {/* Header: logo + brand + collapse toggle */}
-            <div className="flex h-12 shrink-0 items-center gap-2 overflow-hidden border-border border-b px-2.5">
+            <div className="flex h-12 shrink-0 items-center gap-2 overflow-hidden border-border border-b px-1.5">
                 {!collapsed && (
                     <>
                         <div className="size-5 shrink-0 rounded bg-primary" />
@@ -74,7 +79,7 @@ export const Sidebar = ({ className }: SidebarProps): ReactElement => {
                 <button
                     type="button"
                     onClick={() => setCollapsed((prev) => !prev)}
-                    className={toggleClasses}
+                    className={iconButtonClasses}
                     aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
                     title={collapsed ? 'Expand' : 'Collapse'}
                 >
@@ -93,8 +98,11 @@ export const Sidebar = ({ className }: SidebarProps): ReactElement => {
                     const Icon = item.icon;
 
                     const linkClasses = cn(
-                        'flex items-center gap-2 rounded px-2.5 py-2 text-xs',
+                        'flex h-8 items-center rounded-md text-xs',
                         'overflow-hidden transition-colors',
+                        collapsed
+                            ? 'justify-center'
+                            : 'gap-2 px-2',
                         isActive
                             ? 'bg-accent font-medium text-foreground'
                             : 'text-muted-foreground hover:bg-row-hover',
