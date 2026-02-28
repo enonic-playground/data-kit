@@ -17,7 +17,7 @@ export type ConfirmDialogProps = {
     description: string;
     confirmLabel?: string;
     cancelLabel?: string;
-    variant?: 'default' | 'destructive';
+    variant?: 'primary' | 'destructive';
     onConfirm: () => void;
     onCancel?: () => void;
     open?: boolean;
@@ -32,7 +32,7 @@ export const ConfirmDialog = ({
     description,
     confirmLabel = 'Confirm',
     cancelLabel = 'Cancel',
-    variant = 'default',
+    variant = 'primary',
     onConfirm,
     onCancel,
     open,

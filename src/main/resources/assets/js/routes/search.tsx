@@ -202,9 +202,9 @@ const SearchPage = (): ReactElement => {
     const hasNext = end < total;
 
     return (
-        <div data-component={SEARCH_PAGE_NAME} className="flex flex-col gap-4 p-6">
+        <div data-component={SEARCH_PAGE_NAME} className="flex flex-col gap-4">
             {/* Filters + search bar */}
-            <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-3 px-4 pt-4">
                 <div className="flex items-end gap-3">
                     <div>
                         <Label htmlFor="search-repo" className="text-xs">
@@ -284,7 +284,7 @@ const SearchPage = (): ReactElement => {
             </div>
 
             {error != null && (
-                <div className="max-w-[460px] rounded-md border border-destructive/50 bg-destructive/10 p-3 text-destructive text-sm">
+                <div className="mx-4 max-w-[460px] rounded-md border border-destructive/50 bg-destructive/10 p-3 text-destructive text-sm">
                     {error}
                 </div>
             )}
@@ -299,7 +299,7 @@ const SearchPage = (): ReactElement => {
 
             {result != null && result.hits.length > 0 && (
                 <>
-                    <span className="font-mono text-muted-foreground text-xs">
+                    <span className="px-4 font-mono text-muted-foreground text-xs">
                         {total.toLocaleString()} result{total !== 1 ? 's' : ''} — {result.executionTimeMs}ms
                     </span>
 
@@ -337,13 +337,12 @@ const SearchPage = (): ReactElement => {
                     </Table>
 
                     {total > DEFAULT_COUNT && (
-                        <div className="flex items-center justify-between border-border border-t pt-3">
+                        <div className="flex items-center justify-between border-border border-t px-4 pt-3">
                             <span className="font-mono text-muted-foreground text-xs">
                                 {start + 1}&ndash;{end} of {total.toLocaleString()}
                             </span>
                             <div className="flex gap-2">
                                 <Button
-                                    variant="outline"
                                     size="sm"
                                     disabled={!hasPrev || searchMutation.isPending}
                                     onClick={() => doSearch(Math.max(0, start - DEFAULT_COUNT))}
@@ -352,7 +351,6 @@ const SearchPage = (): ReactElement => {
                                     Previous
                                 </Button>
                                 <Button
-                                    variant="outline"
                                     size="sm"
                                     disabled={!hasNext || searchMutation.isPending}
                                     onClick={() => doSearch(start + DEFAULT_COUNT)}

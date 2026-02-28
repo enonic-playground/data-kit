@@ -6,13 +6,21 @@ import {
     getCoreRowModel,
     useReactTable,
 } from '@tanstack/react-table';
-import { ArrowLeft, ChevronLeft, ChevronRight, Eye, FileText, Folder, FolderOpen } from 'lucide-react';
-import { Fragment, type ReactElement } from 'react';
+import { ArrowLeft, ChevronLeft, ChevronRight, Ellipsis, Eye, FileText, Folder, FolderOpen, LayoutGrid, LayoutList, Plus } from 'lucide-react';
+import { Fragment, type ReactElement, useState } from 'react';
 import { z } from 'zod';
 import { NodeDetailPanel } from '../components/node-detail-panel';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuGroup,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from '../components/ui/dropdown-menu';
 import { EmptyState } from '../components/ui/empty-state';
+import { Separator } from '../components/ui/separator';
 import {
     Table,
     TableBody,
@@ -134,6 +142,7 @@ const NodeBrowserPage = (): ReactElement => {
     const { repoId, branch } = Route.useParams();
     const { path, start, count, nodeId } = Route.useSearch();
     const navigate = useNavigate({ from: Route.fullPath });
+    const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
 
     const { data } = useSuspenseQuery(
         nodesQueryOptions({ repoId, branch, parentPath: path, start, count }),
@@ -177,12 +186,14 @@ const NodeBrowserPage = (): ReactElement => {
         }),
         columnHelper.accessor('_nodeType', {
             header: 'Type',
+            meta: { className: 'w-35' },
             cell: info => (
                 <Badge variant="secondary">{info.getValue()}</Badge>
             ),
         }),
         columnHelper.accessor('_ts', {
             header: 'Modified',
+            meta: { className: 'w-45' },
             cell: info => (
                 <span className="font-mono text-muted-foreground text-xs">
                     {formatTimestamp(info.getValue())}
@@ -192,18 +203,40 @@ const NodeBrowserPage = (): ReactElement => {
         columnHelper.display({
             id: 'actions',
             header: '',
+            meta: { className: 'w-20' },
             cell: info => (
-                <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-8"
-                    onClick={e => {
-                        e.stopPropagation();
-                        openNodeDetail(info.row.original._id);
-                    }}
-                >
-                    <Eye className="size-3.5 text-muted-foreground" />
-                </Button>
+                <div className="flex items-center justify-end gap-1">
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={e => e.stopPropagation()}
+                            >
+                                <Ellipsis className="size-4 text-muted-foreground" />
+                            </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                            <DropdownMenuGroup>
+                                <DropdownMenuItem
+                                    onClick={e => {
+                                        e.stopPropagation();
+                                        openNodeDetail(info.row.original._id);
+                                    }}
+                                >
+                                    <Eye className="size-4" />
+                                    Preview
+                                </DropdownMenuItem>
+                            </DropdownMenuGroup>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                    <ChevronRight className={cn(
+                        "size-4",
+                        info.row.original.hasChildren
+                            ? "text-muted-foreground"
+                            : "invisible"
+                    )} />
+                </div>
             ),
         }),
     ];
@@ -228,10 +261,110 @@ const NodeBrowserPage = (): ReactElement => {
                 onNavigate={navigateToPath}
             />
 
+            {/* Action toolbar */}
+            <div className="flex items-center gap-2 px-4 py-2">
+                <div className="flex-1" />
+                <Button disabled>
+                    <Plus className="size-4" />
+                    Create Node
+                </Button>
+                <Separator orientation="vertical" className="h-5" />
+                <div className="flex items-center gap-0.5">
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        className={cn(viewMode === 'list' && 'bg-accent')}
+                        onClick={() => setViewMode('list')}
+                    >
+                        <LayoutList className="size-4" />
+                    </Button>
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        className={cn(viewMode === 'grid' && 'bg-accent')}
+                        onClick={() => setViewMode('grid')}
+                    >
+                        <LayoutGrid className="size-4" />
+                    </Button>
+                </div>
+            </div>
+
             <div className="flex flex-1 overflow-hidden">
                 {/* Table area */}
                 <div className="flex flex-1 flex-col overflow-auto">
-                    {data.nodes.length === 0 && isRoot ? (
+                    <Table className="table-fixed">
+                        <TableHeader>
+                            {table.getHeaderGroups().map(headerGroup => (
+                                <TableRow key={headerGroup.id}>
+                                    {headerGroup.headers.map(header => {
+                                        const meta = header.column.columnDef.meta as { className?: string } | undefined;
+                                        return (
+                                            <TableHead key={header.id} className={meta?.className}>
+                                                {header.isPlaceholder
+                                                    ? null
+                                                    : flexRender(
+                                                          header.column.columnDef
+                                                              .header,
+                                                          header.getContext(),
+                                                      )}
+                                            </TableHead>
+                                        );
+                                    })}
+                                </TableRow>
+                            ))}
+                        </TableHeader>
+                        <TableBody>
+                            <TableRow
+                                className="cursor-pointer"
+                                onClick={() =>
+                                    isRoot
+                                        ? navigate({
+                                              to: '/repositories/$repoId',
+                                              params: { repoId },
+                                          })
+                                        : navigateToPath(getParentPath(path))
+                                }
+                            >
+                                <TableCell colSpan={columns.length}>
+                                    <span className="flex min-h-8 items-center gap-2 text-muted-foreground">
+                                        <ArrowLeft className="size-3.5 shrink-0" />
+                                        <span className="font-mono text-[13px]">..</span>
+                                    </span>
+                                </TableCell>
+                            </TableRow>
+                            {table.getRowModel().rows.map(row => {
+                                const isSelected = nodeId === row.original._id;
+
+                                return (
+                                    <TableRow
+                                        key={row.id}
+                                        className="cursor-pointer"
+                                        data-state={isSelected ? 'selected' : undefined}
+                                        onClick={() => {
+                                            if (row.original.hasChildren) {
+                                                navigateToPath(row.original._path);
+                                            } else {
+                                                openNodeDetail(row.original._id);
+                                            }
+                                        }}
+                                    >
+                                        {row.getVisibleCells().map(cell => {
+                                            const meta = cell.column.columnDef.meta as { className?: string } | undefined;
+                                            return (
+                                                <TableCell key={cell.id} className={meta?.className}>
+                                                    {flexRender(
+                                                        cell.column.columnDef.cell,
+                                                        cell.getContext(),
+                                                    )}
+                                                </TableCell>
+                                            );
+                                        })}
+                                    </TableRow>
+                                );
+                            })}
+                        </TableBody>
+                    </Table>
+                    {data.nodes.length === 0 ? (
                         <div className="flex flex-1 items-center justify-center">
                             <EmptyState
                                 icon={FolderOpen}
@@ -240,116 +373,50 @@ const NodeBrowserPage = (): ReactElement => {
                             />
                         </div>
                     ) : (
-                        <>
-                            <Table>
-                                <TableHeader>
-                                    {table.getHeaderGroups().map(headerGroup => (
-                                        <TableRow key={headerGroup.id}>
-                                            {headerGroup.headers.map(header => (
-                                                <TableHead key={header.id}>
-                                                    {header.isPlaceholder
-                                                        ? null
-                                                        : flexRender(
-                                                              header.column.columnDef
-                                                                  .header,
-                                                              header.getContext(),
-                                                          )}
-                                                </TableHead>
-                                            ))}
-                                        </TableRow>
-                                    ))}
-                                </TableHeader>
-                                <TableBody>
-                                    {!isRoot && (
-                                        <TableRow
-                                            className="cursor-pointer"
-                                            onClick={() => navigateToPath(getParentPath(path))}
-                                        >
-                                            <TableCell colSpan={columns.length}>
-                                                <span className="flex items-center gap-2 text-muted-foreground">
-                                                    <ArrowLeft className="size-3.5 shrink-0" />
-                                                    <span className="font-mono text-[13px]">..</span>
-                                                </span>
-                                            </TableCell>
-                                        </TableRow>
-                                    )}
-                                    {table.getRowModel().rows.map(row => {
-                                        const isSelected = nodeId === row.original._id;
-
-                                        return (
-                                            <TableRow
-                                                key={row.id}
-                                                className="cursor-pointer"
-                                                data-state={isSelected ? 'selected' : undefined}
-                                                onClick={() => {
-                                                    if (row.original.hasChildren) {
-                                                        navigateToPath(row.original._path);
-                                                    } else {
-                                                        openNodeDetail(row.original._id);
-                                                    }
-                                                }}
-                                            >
-                                                {row.getVisibleCells().map(cell => (
-                                                    <TableCell key={cell.id}>
-                                                        {flexRender(
-                                                            cell.column.columnDef.cell,
-                                                            cell.getContext(),
-                                                        )}
-                                                    </TableCell>
-                                                ))}
-                                            </TableRow>
-                                        );
-                                    })}
-                                </TableBody>
-                            </Table>
-
-                            {data.total > 0 && (
-                                <div className={cn(
-                                    'flex shrink-0 items-center justify-between px-4 py-3',
-                                    'border-border border-t',
-                                )}>
-                                    <span className="font-mono text-muted-foreground text-xs">
-                                        {start + 1}&ndash;{end} of {data.total}
-                                    </span>
-                                    <div className="flex gap-2">
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            disabled={!hasPrev}
-                                            onClick={() =>
-                                                navigate({
-                                                    search: {
-                                                        path,
-                                                        start: Math.max(0, start - count),
-                                                        count,
-                                                    },
-                                                })
-                                            }
-                                        >
-                                            <ChevronLeft className="size-4" />
-                                            Previous
-                                        </Button>
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            disabled={!hasNext}
-                                            onClick={() =>
-                                                navigate({
-                                                    search: {
-                                                        path,
-                                                        start: start + count,
-                                                        count,
-                                                    },
-                                                })
-                                            }
-                                        >
-                                            Next
-                                            <ChevronRight className="size-4" />
-                                        </Button>
-                                    </div>
+                        data.total > 0 && (
+                            <div className={cn(
+                                'flex shrink-0 items-center justify-between px-4 py-3',
+                                'border-border border-t',
+                            )}>
+                                <span className="font-mono text-muted-foreground text-xs">
+                                    {start + 1}&ndash;{end} of {data.total}
+                                </span>
+                                <div className="flex gap-2">
+                                    <Button
+                                        size="sm"
+                                        disabled={!hasPrev}
+                                        onClick={() =>
+                                            navigate({
+                                                search: {
+                                                    path,
+                                                    start: Math.max(0, start - count),
+                                                    count,
+                                                },
+                                            })
+                                        }
+                                    >
+                                        <ChevronLeft className="size-4" />
+                                        Previous
+                                    </Button>
+                                    <Button
+                                        size="sm"
+                                        disabled={!hasNext}
+                                        onClick={() =>
+                                            navigate({
+                                                search: {
+                                                    path,
+                                                    start: start + count,
+                                                    count,
+                                                },
+                                            })
+                                        }
+                                    >
+                                        Next
+                                        <ChevronRight className="size-4" />
+                                    </Button>
                                 </div>
-                            )}
-                        </>
+                            </div>
+                        )
                     )}
                 </div>
 

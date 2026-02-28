@@ -6,7 +6,17 @@ import {
     getCoreRowModel,
     useReactTable,
 } from '@tanstack/react-table';
-import { ChevronRight, GitBranch, Plus, Trash2 } from 'lucide-react';
+import {
+    ArrowLeft,
+    ChevronRight,
+    Ellipsis,
+    Eye,
+    GitBranch,
+    LayoutGrid,
+    LayoutList,
+    Plus,
+    Trash2,
+} from 'lucide-react';
 import { type ReactElement, useState } from 'react';
 import { z } from 'zod';
 import { Button } from '../components/ui/button';
@@ -21,9 +31,18 @@ import {
     DialogTitle,
     DialogTrigger,
 } from '../components/ui/dialog';
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuGroup,
+    DropdownMenuItem,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from '../components/ui/dropdown-menu';
 import { EmptyState } from '../components/ui/empty-state';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
+import { Separator } from '../components/ui/separator';
 import { toast } from '../components/ui/sonner';
 import {
     Table,
@@ -39,6 +58,7 @@ import {
     useCreateBranch,
     useDeleteBranch,
 } from '../lib/api/branches';
+import { cn } from '../lib/utils';
 
 const BRANCH_LIST_PAGE_NAME = 'BranchListPage';
 
@@ -56,26 +76,27 @@ const branchIdSchema = z
 const columnHelper = createColumnHelper<Branch>();
 
 //
-// * DeleteAction
+// * RowActions
 //
 
-type DeleteActionProps = {
+type RowActionsProps = {
     repoId: string;
     branch: Branch;
 };
 
-const DeleteAction = ({ repoId, branch }: DeleteActionProps): ReactElement => {
-    const [open, setOpen] = useState(false);
+const RowActions = ({ repoId, branch }: RowActionsProps): ReactElement => {
+    const [deleteOpen, setDeleteOpen] = useState(false);
+    const navigate = useNavigate();
     const deleteMutation = useDeleteBranch();
     const isProtected = PROTECTED_BRANCHES.includes(branch.id);
 
-    const handleConfirm = () => {
+    const handleDelete = () => {
         deleteMutation.mutate(
             { repoId, branchId: branch.id },
             {
                 onSuccess: () => {
                     toast.success(`Branch '${branch.id}' deleted`);
-                    setOpen(false);
+                    setDeleteOpen(false);
                 },
                 onError: () => {
                     toast.error(`Failed to delete branch '${branch.id}'`);
@@ -84,50 +105,64 @@ const DeleteAction = ({ repoId, branch }: DeleteActionProps): ReactElement => {
         );
     };
 
-    if (isProtected) {
-        return (
-            <ConfirmDialog
-                title="Protected Branch"
-                description={`'${branch.id}' is a default branch and cannot be deleted.`}
-                confirmLabel="OK"
-                cancelLabel="Close"
-                variant="default"
-                onConfirm={() => setOpen(false)}
-                open={open}
-                onOpenChange={setOpen}
-            >
-                <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-8"
-                    onClick={e => e.stopPropagation()}
-                >
-                    <Trash2 className="size-4 text-muted-foreground" />
-                </Button>
-            </ConfirmDialog>
-        );
-    }
-
     return (
-        <ConfirmDialog
-            title="Delete Branch"
-            description={`Are you sure you want to delete '${branch.id}'? This action cannot be undone.`}
-            confirmLabel="Delete"
-            cancelLabel="Cancel"
-            variant="destructive"
-            onConfirm={handleConfirm}
-            open={open}
-            onOpenChange={setOpen}
-        >
-            <Button
-                variant="ghost"
-                size="icon"
-                className="size-8"
-                onClick={e => e.stopPropagation()}
-            >
-                <Trash2 className="size-4 text-muted-foreground" />
-            </Button>
-        </ConfirmDialog>
+        <>
+            <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={e => e.stopPropagation()}
+                    >
+                        <Ellipsis className="size-4 text-muted-foreground" />
+                    </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                    <DropdownMenuGroup>
+                        <DropdownMenuItem
+                            onClick={e => {
+                                e.stopPropagation();
+                                navigate({
+                                    to: '/repositories/$repoId/$branch',
+                                    params: { repoId, branch: branch.id },
+                                });
+                            }}
+                        >
+                            <Eye className="size-4" />
+                            Preview
+                        </DropdownMenuItem>
+                    </DropdownMenuGroup>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuGroup>
+                        <DropdownMenuItem
+                            className="text-destructive focus:text-destructive"
+                            onClick={e => {
+                                e.stopPropagation();
+                                setDeleteOpen(true);
+                            }}
+                        >
+                            <Trash2 className="size-4" />
+                            Delete
+                        </DropdownMenuItem>
+                    </DropdownMenuGroup>
+                </DropdownMenuContent>
+            </DropdownMenu>
+
+            <ConfirmDialog
+                title={isProtected ? 'Protected Branch' : 'Delete Branch'}
+                description={
+                    isProtected
+                        ? `'${branch.id}' is a default branch and cannot be deleted.`
+                        : `Are you sure you want to delete '${branch.id}'? This action cannot be undone.`
+                }
+                confirmLabel={isProtected ? 'OK' : 'Delete'}
+                cancelLabel={isProtected ? 'Close' : 'Cancel'}
+                variant={isProtected ? 'primary' : 'destructive'}
+                onConfirm={isProtected ? () => setDeleteOpen(false) : handleDelete}
+                open={deleteOpen}
+                onOpenChange={setDeleteOpen}
+            />
+        </>
     );
 };
 
@@ -212,9 +247,10 @@ const CreateBranchDialog = ({ repoId }: CreateBranchDialogProps): ReactElement =
                 </div>
                 <DialogFooter>
                     <DialogClose asChild>
-                        <Button variant="outline">Cancel</Button>
+                        <Button>Cancel</Button>
                     </DialogClose>
                     <Button
+                        variant="primary"
                         onClick={handleSubmit}
                         disabled={createMutation.isPending}
                     >
@@ -233,20 +269,25 @@ const CreateBranchDialog = ({ repoId }: CreateBranchDialogProps): ReactElement =
 const BranchListPage = (): ReactElement => {
     const { repoId } = Route.useParams();
     const navigate = useNavigate();
+    const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
     const { data: branches } = useSuspenseQuery(
         branchesQueryOptions(repoId),
     );
+
     const columns = [
         columnHelper.accessor('id', {
             header: 'Name',
-            cell: info => (
-                <span className="font-medium">{info.getValue()}</span>
-            ),
+            cell: info => info.getValue(),
         }),
         columnHelper.display({
             id: 'actions',
             header: '',
-            cell: info => <DeleteAction repoId={repoId} branch={info.row.original} />,
+            cell: info => (
+                <div className="flex items-center justify-end gap-1">
+                    <RowActions repoId={repoId} branch={info.row.original} />
+                    <ChevronRight className="size-4 text-muted-foreground" />
+                </div>
+            ),
         }),
     ];
 
@@ -257,80 +298,104 @@ const BranchListPage = (): ReactElement => {
     });
 
     return (
-        <div data-component={BRANCH_LIST_PAGE_NAME} className="p-6">
-            <div className="mb-6 flex items-center justify-between">
-                <div>
-                    <div className="mb-1 flex items-center gap-1.5 text-muted-foreground text-sm">
-                        <Link
-                            to="/repositories"
-                            className="hover:text-foreground"
-                        >
-                            Repositories
-                        </Link>
-                        <ChevronRight className="size-3.5" />
-                        <span className="text-foreground">{repoId}</span>
-                    </div>
-                    <h2 className="font-semibold text-2xl">Branches</h2>
-                    <p className="mt-1 text-muted-foreground text-sm">
-                        Manage branches in <span className="font-medium">{repoId}</span>.
-                    </p>
-                </div>
-                <CreateBranchDialog repoId={repoId} />
+        <div data-component={BRANCH_LIST_PAGE_NAME} className="flex flex-col">
+            {/* Breadcrumb bar */}
+            <div className="flex h-10 shrink-0 items-center gap-1.5 overflow-x-auto border-border border-b bg-card px-4">
+                <Link to="/repositories" className="font-mono text-muted-foreground text-xs hover:text-foreground">
+                    Repositories
+                </Link>
+                <ChevronRight className="size-2.5 shrink-0 text-text-dimmed" />
+                <span className="font-medium font-mono text-foreground text-xs">{repoId}</span>
             </div>
 
-            {branches.length === 0 ? (
+            {/* Action toolbar */}
+            <div className="flex items-center gap-2 px-4 py-2">
+                <div className="flex-1" />
+                <CreateBranchDialog repoId={repoId} />
+                <Separator orientation="vertical" className="h-5" />
+                <div className="flex items-center gap-0.5">
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        className={cn(viewMode === 'list' && 'bg-accent')}
+                        onClick={() => setViewMode('list')}
+                    >
+                        <LayoutList className="size-4" />
+                    </Button>
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        className={cn(viewMode === 'grid' && 'bg-accent')}
+                        onClick={() => setViewMode('grid')}
+                    >
+                        <LayoutGrid className="size-4" />
+                    </Button>
+                </div>
+            </div>
+
+            <Table>
+                <TableHeader>
+                    {table.getHeaderGroups().map(headerGroup => (
+                        <TableRow key={headerGroup.id}>
+                            {headerGroup.headers.map(header => (
+                                <TableHead key={header.id}>
+                                    {header.isPlaceholder
+                                        ? null
+                                        : flexRender(
+                                              header.column.columnDef
+                                                  .header,
+                                              header.getContext(),
+                                          )}
+                                </TableHead>
+                            ))}
+                        </TableRow>
+                    ))}
+                </TableHeader>
+                <TableBody>
+                    {/* Back row */}
+                    <TableRow
+                        className="cursor-pointer"
+                        onClick={() => navigate({ to: '/repositories' })}
+                    >
+                        <TableCell colSpan={columns.length}>
+                            <span className="flex min-h-8 items-center gap-2 text-muted-foreground">
+                                <ArrowLeft className="size-3.5 shrink-0" />
+                                <span className="text-[13px]">..</span>
+                            </span>
+                        </TableCell>
+                    </TableRow>
+                    {table.getRowModel().rows.map(row => (
+                        <TableRow
+                            key={row.id}
+                            className="cursor-pointer"
+                            onClick={() =>
+                                navigate({
+                                    to: '/repositories/$repoId/$branch',
+                                    params: {
+                                        repoId,
+                                        branch: row.original.id,
+                                    },
+                                })
+                            }
+                        >
+                            {row.getVisibleCells().map(cell => (
+                                <TableCell key={cell.id}>
+                                    {flexRender(
+                                        cell.column.columnDef.cell,
+                                        cell.getContext(),
+                                    )}
+                                </TableCell>
+                            ))}
+                        </TableRow>
+                    ))}
+                </TableBody>
+            </Table>
+            {branches.length === 0 && (
                 <EmptyState
                     icon={GitBranch}
                     title="No branches"
                     description="No branches found. Create one to get started."
-                    action={<CreateBranchDialog repoId={repoId} />}
                 />
-            ) : (
-                <Table>
-                    <TableHeader>
-                        {table.getHeaderGroups().map(headerGroup => (
-                            <TableRow key={headerGroup.id}>
-                                {headerGroup.headers.map(header => (
-                                    <TableHead key={header.id}>
-                                        {header.isPlaceholder
-                                            ? null
-                                            : flexRender(
-                                                  header.column.columnDef
-                                                      .header,
-                                                  header.getContext(),
-                                              )}
-                                    </TableHead>
-                                ))}
-                            </TableRow>
-                        ))}
-                    </TableHeader>
-                    <TableBody>
-                        {table.getRowModel().rows.map(row => (
-                            <TableRow
-                                key={row.id}
-                                className="cursor-pointer"
-                                onClick={() =>
-                                    navigate({
-                                        to: '/repositories/$repoId/$branch',
-                                        params: {
-                                            repoId,
-                                            branch: row.original.id,
-                                        },
-                                    })
-                                }
-                            >
-                                {row.getVisibleCells().map(cell => (
-                                    <TableCell key={cell.id}>
-                                        {flexRender(
-                                            cell.column.columnDef.cell,
-                                            cell.getContext(),
-                                        )}
-                                    </TableCell>
-                                ))}
-                            </TableRow>
-                        ))}
-                    </TableBody>
-                </Table>
             )}
         </div>
     );
