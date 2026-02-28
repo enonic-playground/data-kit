@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 @import "tailwindcss";
 
 @custom-variant dark (&:where(.dark, .dark *));
@@ -5,67 +6,113 @@
 /*
  * Theme tokens (HSL channel values)
  *
+ * Colors derived from the data-kit reference design.
+ * Blue-gray palette with #e63946 red accent.
+ *
  * Usage: `background-color: hsl(var(--background));`
  * Tailwind: `bg-background`, `text-foreground`, etc.
  */
 
 :root {
-    --background: 0 0% 100%;
-    --foreground: 240 10% 3.9%;
+    /* Base */
+    --background: 240 13% 95%;
+    --foreground: 240 17% 8%;
 
+    /* Surface (sidebar, header, cards) */
     --card: 0 0% 100%;
-    --card-foreground: 240 10% 3.9%;
+    --card-foreground: 240 17% 8%;
 
-    --primary: 240 5.9% 10%;
-    --primary-foreground: 0 0% 98%;
+    /* Primary (brand accent — red) */
+    --primary: 355 78% 56%;
+    --primary-foreground: 0 0% 100%;
 
-    --secondary: 240 4.8% 95.9%;
-    --secondary-foreground: 240 5.9% 10%;
+    /* Secondary (badges, tags) */
+    --secondary: 240 21% 94%;
+    --secondary-foreground: 240 12% 40%;
 
-    --muted: 240 4.8% 95.9%;
-    --muted-foreground: 240 3.8% 46.1%;
+    /* Muted (elevated surfaces, table headers) */
+    --muted: 240 23% 97%;
+    --muted-foreground: 240 12% 40%;
 
-    --accent: 240 4.8% 95.9%;
-    --accent-foreground: 240 5.9% 10%;
+    /* Accent (nav active, hover highlight) */
+    --accent: 240 38% 94%;
+    --accent-foreground: 240 17% 8%;
 
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 0 0% 98%;
+    /* Destructive */
+    --destructive: 355 78% 56%;
+    --destructive-foreground: 0 0% 100%;
 
-    --border: 240 5.9% 90%;
-    --input: 240 5.9% 90%;
-    --ring: 240 5.9% 10%;
+    /* Borders & inputs */
+    --border: 240 17% 91%;
+    --input: 240 17% 91%;
+    --ring: 355 78% 56%;
 
     --radius: 0.5rem;
+
+    /* Extended tokens */
+    --border-accent: 240 20% 82%;
+    --accent-muted: 355 86% 97%;
+    --text-dimmed: 240 12% 70%;
+    --row-hover: 240 25% 95%;
+
+    /* Status colors */
+    --success: 142 76% 36%;
+    --warning: 32 95% 44%;
+    --info: 221 83% 53%;
 }
 
 .dark {
-    --background: 240 10% 3.9%;
-    --foreground: 0 0% 98%;
+    /* Base */
+    --background: 240 8% 5%;
+    --foreground: 240 15% 95%;
 
-    --card: 240 10% 3.9%;
-    --card-foreground: 0 0% 98%;
+    /* Surface */
+    --card: 240 8% 7%;
+    --card-foreground: 240 15% 95%;
 
-    --primary: 0 0% 98%;
-    --primary-foreground: 240 5.9% 10%;
+    /* Primary */
+    --primary: 355 78% 56%;
+    --primary-foreground: 0 0% 100%;
 
-    --secondary: 240 3.7% 15.9%;
-    --secondary-foreground: 0 0% 98%;
+    /* Secondary */
+    --secondary: 240 12% 13%;
+    --secondary-foreground: 240 20% 53%;
 
-    --muted: 240 3.7% 15.9%;
-    --muted-foreground: 240 5% 64.9%;
+    /* Muted */
+    --muted: 240 8% 10%;
+    --muted-foreground: 240 11% 58%;
 
-    --accent: 240 3.7% 15.9%;
-    --accent-foreground: 0 0% 98%;
+    /* Accent */
+    --accent: 240 12% 13%;
+    --accent-foreground: 240 15% 95%;
 
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 0 0% 98%;
+    /* Destructive */
+    --destructive: 355 78% 56%;
+    --destructive-foreground: 0 0% 100%;
 
-    --border: 240 3.7% 15.9%;
-    --input: 240 3.7% 15.9%;
-    --ring: 240 4.9% 83.9%;
+    /* Borders & inputs */
+    --border: 240 7% 15%;
+    --input: 240 7% 15%;
+    --ring: 355 78% 56%;
+
+    /* Extended tokens */
+    --border-accent: 240 8% 20%;
+    --accent-muted: 350 25% 9%;
+    --text-dimmed: 240 14% 31%;
+    --row-hover: 0 0% 100% / 0.045;
+
+    /* Status colors */
+    --success: 142 71% 45%;
+    --warning: 38 92% 50%;
+    --info: 217 91% 60%;
 }
 
 @theme inline {
+    /* Fonts */
+    --font-sans: 'Inter', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+
+    /* Standard shadcn colors */
     --color-background: hsl(var(--background));
     --color-foreground: hsl(var(--foreground));
 
@@ -91,6 +138,17 @@
     --color-input: hsl(var(--input));
     --color-ring: hsl(var(--ring));
 
+    /* Extended colors */
+    --color-border-accent: hsl(var(--border-accent));
+    --color-accent-muted: hsl(var(--accent-muted));
+    --color-text-dimmed: hsl(var(--text-dimmed));
+    --color-row-hover: hsl(var(--row-hover));
+
+    --color-success: hsl(var(--success));
+    --color-warning: hsl(var(--warning));
+    --color-info: hsl(var(--info));
+
+    /* Radii */
     --radius-sm: calc(var(--radius) - 4px);
     --radius-md: calc(var(--radius) - 2px);
     --radius-lg: var(--radius);
