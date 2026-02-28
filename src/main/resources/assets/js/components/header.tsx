@@ -35,20 +35,16 @@ export const Header = ({ className }: HeaderProps): ReactElement => {
     const pageTitle = getPageTitle(routerState.location.pathname);
 
     const headerClasses = cn(
-        'flex h-14 shrink-0 items-center justify-between border-border border-b bg-card px-6',
+        'flex h-12 shrink-0 items-center justify-between border-border border-b bg-card px-5',
         className,
     );
 
     return (
         <header data-component={HEADER_NAME} className={headerClasses}>
-            <div className="flex items-center gap-2">
-                <h1 className="font-semibold text-foreground text-lg">
-                    {pageTitle}
-                </h1>
-            </div>
-            <div className="flex items-center gap-2">
-                <ThemeToggle />
-            </div>
+            <h1 className="font-semibold text-foreground text-sm">
+                {pageTitle}
+            </h1>
+            <ThemeToggle />
         </header>
     );
 };

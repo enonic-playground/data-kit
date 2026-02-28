@@ -63,18 +63,18 @@ describe('Sidebar', () => {
 
         const sidebar = within(getSidebar());
 
-        // Collapse
+        // Collapse — nav labels should disappear
         await user.click(sidebar.getByRole('button', { name: 'Collapse sidebar' }));
 
         await waitFor(() => {
-            expect(sidebar.queryByText('Collapse')).not.toBeInTheDocument();
+            expect(sidebar.queryByText('Repositories')).not.toBeInTheDocument();
         });
 
-        // Expand
+        // Expand — nav labels should reappear
         await user.click(sidebar.getByRole('button', { name: 'Expand sidebar' }));
 
         await waitFor(() => {
-            expect(sidebar.getByText('Collapse')).toBeInTheDocument();
+            expect(sidebar.getByText('Repositories')).toBeInTheDocument();
         });
     });
 
