@@ -1,15 +1,21 @@
 import { createFileRoute } from '@tanstack/react-router';
+import { ListTodo } from 'lucide-react';
 import type { ReactElement } from 'react';
+import { EmptyState } from '../components/ui/empty-state';
 
 const TASKS_PAGE_NAME = 'TasksPage';
 
 const TasksPage = (): ReactElement => {
     return (
-        <div data-component={TASKS_PAGE_NAME} className="p-6">
-            <h2 className="font-semibold text-2xl">Tasks</h2>
-            <p className="mt-2 text-muted-foreground">
-                Monitor running tasks here.
-            </p>
+        <div
+            data-component={TASKS_PAGE_NAME}
+            className="flex h-full items-center justify-center"
+        >
+            <EmptyState
+                icon={ListTodo}
+                title="Tasks"
+                description="Task monitoring coming soon."
+            />
         </div>
     );
 };

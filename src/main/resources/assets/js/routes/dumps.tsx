@@ -1,15 +1,21 @@
 import { createFileRoute } from '@tanstack/react-router';
+import { HardDrive } from 'lucide-react';
 import type { ReactElement } from 'react';
+import { EmptyState } from '../components/ui/empty-state';
 
 const DUMPS_PAGE_NAME = 'DumpsPage';
 
 const DumpsPage = (): ReactElement => {
     return (
-        <div data-component={DUMPS_PAGE_NAME} className="p-6">
-            <h2 className="font-semibold text-2xl">Dumps</h2>
-            <p className="mt-2 text-muted-foreground">
-                Manage dumps here.
-            </p>
+        <div
+            data-component={DUMPS_PAGE_NAME}
+            className="flex h-full items-center justify-center"
+        >
+            <EmptyState
+                icon={HardDrive}
+                title="Dumps"
+                description="Dump management coming soon."
+            />
         </div>
     );
 };

@@ -1,15 +1,21 @@
 import { createFileRoute } from '@tanstack/react-router';
+import { FileOutput } from 'lucide-react';
 import type { ReactElement } from 'react';
+import { EmptyState } from '../components/ui/empty-state';
 
 const EXPORTS_PAGE_NAME = 'ExportsPage';
 
 const ExportsPage = (): ReactElement => {
     return (
-        <div data-component={EXPORTS_PAGE_NAME} className="p-6">
-            <h2 className="font-semibold text-2xl">Exports</h2>
-            <p className="mt-2 text-muted-foreground">
-                Manage exports and imports here.
-            </p>
+        <div
+            data-component={EXPORTS_PAGE_NAME}
+            className="flex h-full items-center justify-center"
+        >
+            <EmptyState
+                icon={FileOutput}
+                title="Exports"
+                description="Export and import management coming soon."
+            />
         </div>
     );
 };

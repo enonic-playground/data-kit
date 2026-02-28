@@ -1,15 +1,21 @@
 import { createFileRoute } from '@tanstack/react-router';
+import { Shield } from 'lucide-react';
 import type { ReactElement } from 'react';
+import { EmptyState } from '../components/ui/empty-state';
 
 const AUDIT_PAGE_NAME = 'AuditPage';
 
 const AuditPage = (): ReactElement => {
     return (
-        <div data-component={AUDIT_PAGE_NAME} className="p-6">
-            <h2 className="font-semibold text-2xl">Audit</h2>
-            <p className="mt-2 text-muted-foreground">
-                View audit logs here.
-            </p>
+        <div
+            data-component={AUDIT_PAGE_NAME}
+            className="flex h-full items-center justify-center"
+        >
+            <EmptyState
+                icon={Shield}
+                title="Audit"
+                description="Audit log viewer coming soon."
+            />
         </div>
     );
 };

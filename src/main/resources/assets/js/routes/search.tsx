@@ -27,7 +27,6 @@ import {
     TableHeader,
     TableRow,
 } from '../components/ui/table';
-import { Textarea } from '../components/ui/textarea';
 import { type Repository, repositoriesQueryOptions } from '../lib/api/repositories';
 import { executeSearch, type SearchHit, type SearchParams, type SearchResponse } from '../lib/api/search';
 
@@ -120,8 +119,8 @@ const SearchPage = (): ReactElement => {
         setBranch('');
     };
 
-    const handleKeyDown = (e: React.KeyboardEvent) => {
-        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+    const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (e.key === 'Enter') {
             handleSubmit();
         }
     };
@@ -131,7 +130,7 @@ const SearchPage = (): ReactElement => {
             columnHelper.accessor('_score', {
                 header: 'Score',
                 cell: info => (
-                    <span className="font-mono text-muted-foreground text-sm">
+                    <span className="font-mono text-muted-foreground text-xs">
                         {info.getValue().toFixed(2)}
                     </span>
                 ),
@@ -139,7 +138,7 @@ const SearchPage = (): ReactElement => {
             columnHelper.accessor('_name', {
                 header: 'Name',
                 cell: info => (
-                    <span className="font-medium">
+                    <span className="font-mono text-[13px]">
                         {info.getValue() ?? '\u2014'}
                     </span>
                 ),
@@ -159,7 +158,7 @@ const SearchPage = (): ReactElement => {
                                 branch: hit._branch,
                             }}
                             search={{ path: getParentPath(path), nodeId: hit._id }}
-                            className="text-primary underline-offset-4 hover:underline"
+                            className="font-mono text-[13px] text-primary underline-offset-4 hover:underline"
                             onClick={e => e.stopPropagation()}
                         >
                             {path}
@@ -203,20 +202,16 @@ const SearchPage = (): ReactElement => {
     const hasNext = end < total;
 
     return (
-        <div data-component={SEARCH_PAGE_NAME} className="p-6">
-            <div className="mb-6">
-                <h2 className="font-semibold text-2xl">Search</h2>
-                <p className="mt-1 text-muted-foreground text-sm">
-                    Search nodes across repositories using NoQL.
-                </p>
-            </div>
-
-            <div className="mb-6 space-y-4">
-                <div className="flex gap-4">
-                    <div className="w-60">
-                        <Label htmlFor="search-repo">Repository</Label>
+        <div data-component={SEARCH_PAGE_NAME} className="flex flex-col gap-4 p-6">
+            {/* Filters + search bar */}
+            <div className="flex flex-col gap-3">
+                <div className="flex items-end gap-3">
+                    <div>
+                        <Label htmlFor="search-repo" className="text-xs">
+                            Repository
+                        </Label>
                         <Select value={repoId} onValueChange={handleRepoChange}>
-                            <SelectTrigger id="search-repo" className="mt-1.5">
+                            <SelectTrigger id="search-repo" className="mt-1 h-9 w-48">
                                 <SelectValue placeholder="All repositories" />
                             </SelectTrigger>
                             <SelectContent>
@@ -231,13 +226,15 @@ const SearchPage = (): ReactElement => {
                     </div>
 
                     {repoId !== ALL_REPOS && branches.length > 0 && (
-                        <div className="w-48">
-                            <Label htmlFor="search-branch">Branch</Label>
+                        <div>
+                            <Label htmlFor="search-branch" className="text-xs">
+                                Branch
+                            </Label>
                             <Select
                                 value={branch || branches[0]}
                                 onValueChange={setBranch}
                             >
-                                <SelectTrigger id="search-branch" className="mt-1.5">
+                                <SelectTrigger id="search-branch" className="mt-1 h-9 w-36">
                                     <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -252,45 +249,42 @@ const SearchPage = (): ReactElement => {
                     )}
                 </div>
 
-                <div>
-                    <Label htmlFor="search-query">NoQL Query</Label>
-                    <Textarea
-                        id="search-query"
-                        value={query}
-                        onChange={e => setQuery(e.target.value)}
-                        onKeyDown={handleKeyDown}
-                        placeholder="_name LIKE '*test*'"
-                        className="mt-1.5 font-mono text-sm"
-                        rows={3}
-                    />
-                    <p className="mt-1 text-muted-foreground text-xs">
-                        Press Ctrl+Enter to search
-                    </p>
-                </div>
-
-                <div className="flex items-center gap-2">
-                    <Button
+                {/* Search bar */}
+                <div className="flex max-w-[460px] items-center rounded-md border border-input bg-background px-3 focus-within:ring-2 focus-within:ring-ring">
+                    <button
+                        type="button"
                         onClick={handleSubmit}
                         disabled={query.trim() === '' || searchMutation.isPending}
+                        className="shrink-0 text-muted-foreground disabled:opacity-40"
                     >
                         {searchMutation.isPending ? (
                             <Loader2 className="size-4 animate-spin" />
                         ) : (
                             <Search className="size-4" />
                         )}
-                        Search
-                    </Button>
-                    {(result != null || error != null) && (
-                        <Button variant="outline" onClick={handleClear}>
+                    </button>
+                    <input
+                        aria-label="NoQL query"
+                        value={query}
+                        onChange={e => setQuery(e.target.value)}
+                        onKeyDown={handleKeyDown}
+                        placeholder="_name LIKE '*test*'"
+                        className="h-10 flex-1 bg-transparent px-3 font-mono text-sm placeholder:text-muted-foreground focus:outline-none"
+                    />
+                    {query !== '' && (
+                        <button
+                            type="button"
+                            onClick={handleClear}
+                            className="shrink-0 text-muted-foreground hover:text-foreground"
+                        >
                             <X className="size-4" />
-                            Clear
-                        </Button>
+                        </button>
                     )}
                 </div>
             </div>
 
             {error != null && (
-                <div className="mb-4 rounded-md border border-destructive/50 bg-destructive/10 p-3 text-destructive text-sm">
+                <div className="max-w-[460px] rounded-md border border-destructive/50 bg-destructive/10 p-3 text-destructive text-sm">
                     {error}
                 </div>
             )}
@@ -305,12 +299,9 @@ const SearchPage = (): ReactElement => {
 
             {result != null && result.hits.length > 0 && (
                 <>
-                    <div className="mb-3 flex items-center justify-between">
-                        <span className="text-muted-foreground text-sm">
-                            {total.toLocaleString()} result{total !== 1 ? 's' : ''} in{' '}
-                            {result.executionTimeMs}ms
-                        </span>
-                    </div>
+                    <span className="font-mono text-muted-foreground text-xs">
+                        {total.toLocaleString()} result{total !== 1 ? 's' : ''} — {result.executionTimeMs}ms
+                    </span>
 
                     <Table>
                         <TableHeader>
@@ -346,8 +337,8 @@ const SearchPage = (): ReactElement => {
                     </Table>
 
                     {total > DEFAULT_COUNT && (
-                        <div className="mt-4 flex items-center justify-between">
-                            <span className="text-muted-foreground text-sm">
+                        <div className="flex items-center justify-between border-border border-t pt-3">
+                            <span className="font-mono text-muted-foreground text-xs">
                                 {start + 1}&ndash;{end} of {total.toLocaleString()}
                             </span>
                             <div className="flex gap-2">
