@@ -6,10 +6,9 @@ import {
     getCoreRowModel,
     useReactTable,
 } from '@tanstack/react-table';
-import { ChevronLeft, ChevronRight, Eye, FileText, Folder, FolderOpen } from 'lucide-react';
-import type { ReactElement } from 'react';
+import { ArrowLeft, ChevronLeft, ChevronRight, Eye, FileText, Folder, FolderOpen } from 'lucide-react';
+import { Fragment, type ReactElement } from 'react';
 import { z } from 'zod';
-import { NodeBreadcrumbs } from '../components/node-breadcrumbs';
 import { NodeDetailPanel } from '../components/node-detail-panel';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
@@ -23,6 +22,7 @@ import {
     TableRow,
 } from '../components/ui/table';
 import { type NodeEntry, nodesQueryOptions } from '../lib/api/nodes';
+import { cn } from '../lib/utils';
 
 const NODE_BROWSER_PAGE_NAME = 'NodeBrowserPage';
 
@@ -52,6 +52,79 @@ function getParentPath(path: string): string {
     segments.pop();
     return segments.length === 0 ? '/' : `/${segments.join('/')}`;
 }
+
+//
+// * BreadcrumbToolbar
+//
+
+type BreadcrumbToolbarProps = {
+    repoId: string;
+    branch: string;
+    path: string;
+    onNavigate: (path: string) => void;
+};
+
+const BREADCRUMB_TOOLBAR_NAME = 'BreadcrumbToolbar';
+
+const crumbClasses = 'font-mono text-xs text-muted-foreground hover:text-foreground';
+const crumbActiveClasses = 'font-medium font-mono text-xs text-foreground';
+const separatorClasses = 'size-2.5 shrink-0 text-text-dimmed';
+
+const BreadcrumbToolbar = ({
+    repoId,
+    branch,
+    path,
+    onNavigate,
+}: BreadcrumbToolbarProps): ReactElement => {
+    const segments = path === '/' ? [] : path.split('/').filter(Boolean);
+    const isRootPath = segments.length === 0;
+
+    return (
+        <div
+            data-component={BREADCRUMB_TOOLBAR_NAME}
+            className="flex h-10 shrink-0 items-center gap-1.5 overflow-x-auto border-border border-b bg-card px-4"
+        >
+            <Link to="/repositories" className={crumbClasses}>
+                Repositories
+            </Link>
+            <ChevronRight className={separatorClasses} />
+            <Link
+                to="/repositories/$repoId"
+                params={{ repoId }}
+                className={crumbClasses}
+            >
+                {repoId}
+            </Link>
+            <ChevronRight className={separatorClasses} />
+            <button
+                type="button"
+                className={isRootPath ? crumbActiveClasses : crumbClasses}
+                onClick={() => onNavigate('/')}
+            >
+                {branch}
+            </button>
+            {segments.map((segment, index) => {
+                const segmentPath = `/${segments.slice(0, index + 1).join('/')}`;
+                const isLast = index === segments.length - 1;
+
+                return (
+                    <Fragment key={segmentPath}>
+                        <ChevronRight className={separatorClasses} />
+                        <button
+                            type="button"
+                            className={isLast ? crumbActiveClasses : crumbClasses}
+                            onClick={() => onNavigate(segmentPath)}
+                        >
+                            {segment}
+                        </button>
+                    </Fragment>
+                );
+            })}
+        </div>
+    );
+};
+
+BreadcrumbToolbar.displayName = BREADCRUMB_TOOLBAR_NAME;
 
 //
 // * NodeBrowserPage
@@ -96,8 +169,8 @@ const NodeBrowserPage = (): ReactElement => {
 
                 return (
                     <span className="flex items-center gap-2">
-                        <Icon className="size-4 shrink-0 text-muted-foreground" />
-                        <span className="font-medium">{node._name}</span>
+                        <Icon className="size-3.5 shrink-0 text-muted-foreground" />
+                        <span className="font-mono text-[13px]">{node._name}</span>
                     </span>
                 );
             },
@@ -111,7 +184,7 @@ const NodeBrowserPage = (): ReactElement => {
         columnHelper.accessor('_ts', {
             header: 'Modified',
             cell: info => (
-                <span className="text-muted-foreground text-sm">
+                <span className="font-mono text-muted-foreground text-xs">
                     {formatTimestamp(info.getValue())}
                 </span>
             ),
@@ -129,7 +202,7 @@ const NodeBrowserPage = (): ReactElement => {
                         openNodeDetail(info.row.original._id);
                     }}
                 >
-                    <Eye className="size-4 text-muted-foreground" />
+                    <Eye className="size-3.5 text-muted-foreground" />
                 </Button>
             ),
         }),
@@ -147,156 +220,149 @@ const NodeBrowserPage = (): ReactElement => {
     const hasNext = end < data.total;
 
     return (
-        <div data-component={NODE_BROWSER_PAGE_NAME} className="p-6">
-            <div className="mb-6">
-                <div className="mb-1 flex items-center gap-1.5 text-muted-foreground text-sm">
-                    <Link
-                        to="/repositories"
-                        className="hover:text-foreground"
-                    >
-                        Repositories
-                    </Link>
-                    <ChevronRight className="size-3.5" />
-                    <Link
-                        to="/repositories/$repoId"
-                        params={{ repoId }}
-                        className="hover:text-foreground"
-                    >
-                        {repoId}
-                    </Link>
-                    <ChevronRight className="size-3.5" />
-                    <span className="text-foreground">{branch}</span>
-                    <NodeBreadcrumbs
-                        path={path}
-                        onNavigate={navigateToPath}
-                    />
-                </div>
-                <h2 className="font-semibold text-2xl">Nodes</h2>
-                <p className="mt-1 text-muted-foreground text-sm">
-                    Browse nodes in{' '}
-                    <span className="font-medium">{repoId}</span>
-                    {' / '}
-                    <span className="font-medium">{branch}</span>
-                </p>
-            </div>
-
-            {data.nodes.length === 0 && isRoot ? (
-                <EmptyState
-                    icon={FolderOpen}
-                    title="No nodes"
-                    description="This branch has no nodes yet."
-                />
-            ) : (
-                <>
-                    <Table>
-                        <TableHeader>
-                            {table.getHeaderGroups().map(headerGroup => (
-                                <TableRow key={headerGroup.id}>
-                                    {headerGroup.headers.map(header => (
-                                        <TableHead key={header.id}>
-                                            {header.isPlaceholder
-                                                ? null
-                                                : flexRender(
-                                                      header.column.columnDef
-                                                          .header,
-                                                      header.getContext(),
-                                                  )}
-                                        </TableHead>
-                                    ))}
-                                </TableRow>
-                            ))}
-                        </TableHeader>
-                        <TableBody>
-                            {!isRoot && (
-                                <TableRow
-                                    className="cursor-pointer"
-                                    onClick={() => navigateToPath(getParentPath(path))}
-                                >
-                                    <TableCell colSpan={columns.length}>
-                                        <span className="flex items-center gap-2 text-muted-foreground">
-                                            <Folder className="size-4 shrink-0" />
-                                            <span>..</span>
-                                        </span>
-                                    </TableCell>
-                                </TableRow>
-                            )}
-                            {table.getRowModel().rows.map(row => (
-                                <TableRow
-                                    key={row.id}
-                                    className="cursor-pointer"
-                                    onClick={() => {
-                                        if (row.original.hasChildren) {
-                                            navigateToPath(row.original._path);
-                                        } else {
-                                            openNodeDetail(row.original._id);
-                                        }
-                                    }}
-                                >
-                                    {row.getVisibleCells().map(cell => (
-                                        <TableCell key={cell.id}>
-                                            {flexRender(
-                                                cell.column.columnDef.cell,
-                                                cell.getContext(),
-                                            )}
-                                        </TableCell>
-                                    ))}
-                                </TableRow>
-                            ))}
-                        </TableBody>
-                    </Table>
-
-                    {data.total > 0 && (
-                        <div className="mt-4 flex items-center justify-between">
-                            <span className="text-muted-foreground text-sm">
-                                {start + 1}&ndash;{end} of {data.total}
-                            </span>
-                            <div className="flex gap-2">
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    disabled={!hasPrev}
-                                    onClick={() =>
-                                        navigate({
-                                            search: {
-                                                path,
-                                                start: Math.max(0, start - count),
-                                                count,
-                                            },
-                                        })
-                                    }
-                                >
-                                    <ChevronLeft className="size-4" />
-                                    Previous
-                                </Button>
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    disabled={!hasNext}
-                                    onClick={() =>
-                                        navigate({
-                                            search: {
-                                                path,
-                                                start: start + count,
-                                                count,
-                                            },
-                                        })
-                                    }
-                                >
-                                    Next
-                                    <ChevronRight className="size-4" />
-                                </Button>
-                            </div>
-                        </div>
-                    )}
-                </>
-            )}
-
-            <NodeDetailPanel
-                nodeId={nodeId ?? null}
+        <div data-component={NODE_BROWSER_PAGE_NAME} className="flex h-full flex-col">
+            <BreadcrumbToolbar
                 repoId={repoId}
                 branch={branch}
-                onClose={closeNodeDetail}
+                path={path}
+                onNavigate={navigateToPath}
             />
+
+            <div className="flex flex-1 overflow-hidden">
+                {/* Table area */}
+                <div className="flex flex-1 flex-col overflow-auto">
+                    {data.nodes.length === 0 && isRoot ? (
+                        <div className="flex flex-1 items-center justify-center">
+                            <EmptyState
+                                icon={FolderOpen}
+                                title="No nodes"
+                                description="This branch has no nodes yet."
+                            />
+                        </div>
+                    ) : (
+                        <>
+                            <Table>
+                                <TableHeader>
+                                    {table.getHeaderGroups().map(headerGroup => (
+                                        <TableRow key={headerGroup.id}>
+                                            {headerGroup.headers.map(header => (
+                                                <TableHead key={header.id}>
+                                                    {header.isPlaceholder
+                                                        ? null
+                                                        : flexRender(
+                                                              header.column.columnDef
+                                                                  .header,
+                                                              header.getContext(),
+                                                          )}
+                                                </TableHead>
+                                            ))}
+                                        </TableRow>
+                                    ))}
+                                </TableHeader>
+                                <TableBody>
+                                    {!isRoot && (
+                                        <TableRow
+                                            className="cursor-pointer"
+                                            onClick={() => navigateToPath(getParentPath(path))}
+                                        >
+                                            <TableCell colSpan={columns.length}>
+                                                <span className="flex items-center gap-2 text-muted-foreground">
+                                                    <ArrowLeft className="size-3.5 shrink-0" />
+                                                    <span className="font-mono text-[13px]">..</span>
+                                                </span>
+                                            </TableCell>
+                                        </TableRow>
+                                    )}
+                                    {table.getRowModel().rows.map(row => {
+                                        const isSelected = nodeId === row.original._id;
+
+                                        return (
+                                            <TableRow
+                                                key={row.id}
+                                                className="cursor-pointer"
+                                                data-state={isSelected ? 'selected' : undefined}
+                                                onClick={() => {
+                                                    if (row.original.hasChildren) {
+                                                        navigateToPath(row.original._path);
+                                                    } else {
+                                                        openNodeDetail(row.original._id);
+                                                    }
+                                                }}
+                                            >
+                                                {row.getVisibleCells().map(cell => (
+                                                    <TableCell key={cell.id}>
+                                                        {flexRender(
+                                                            cell.column.columnDef.cell,
+                                                            cell.getContext(),
+                                                        )}
+                                                    </TableCell>
+                                                ))}
+                                            </TableRow>
+                                        );
+                                    })}
+                                </TableBody>
+                            </Table>
+
+                            {data.total > 0 && (
+                                <div className={cn(
+                                    'flex shrink-0 items-center justify-between px-4 py-3',
+                                    'border-border border-t',
+                                )}>
+                                    <span className="font-mono text-muted-foreground text-xs">
+                                        {start + 1}&ndash;{end} of {data.total}
+                                    </span>
+                                    <div className="flex gap-2">
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            disabled={!hasPrev}
+                                            onClick={() =>
+                                                navigate({
+                                                    search: {
+                                                        path,
+                                                        start: Math.max(0, start - count),
+                                                        count,
+                                                    },
+                                                })
+                                            }
+                                        >
+                                            <ChevronLeft className="size-4" />
+                                            Previous
+                                        </Button>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            disabled={!hasNext}
+                                            onClick={() =>
+                                                navigate({
+                                                    search: {
+                                                        path,
+                                                        start: start + count,
+                                                        count,
+                                                    },
+                                                })
+                                            }
+                                        >
+                                            Next
+                                            <ChevronRight className="size-4" />
+                                        </Button>
+                                    </div>
+                                </div>
+                            )}
+                        </>
+                    )}
+                </div>
+
+                {/* Inline preview panel */}
+                {nodeId != null && (
+                    <NodeDetailPanel
+                        nodeId={nodeId}
+                        repoId={repoId}
+                        branch={branch}
+                        onClose={closeNodeDetail}
+                    />
+                )}
+            </div>
         </div>
     );
 };

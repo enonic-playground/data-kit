@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Shield, Table2 } from 'lucide-react';
+import { Shield, Table2, X } from 'lucide-react';
 import { type ReactElement, useEffect, useMemo, useState } from 'react';
 import { codeToHtml } from 'shiki';
 import {
@@ -11,14 +11,6 @@ import {
 import { cn } from '../lib/utils';
 import { useTheme } from './theme-provider';
 import { Badge } from './ui/badge';
-import { ScrollArea } from './ui/scroll-area';
-import {
-    Sheet,
-    SheetContent,
-    SheetDescription,
-    SheetHeader,
-    SheetTitle,
-} from './ui/sheet';
 import { Skeleton } from './ui/skeleton';
 import {
     Table,
@@ -35,7 +27,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 //
 
 export type NodeDetailPanelProps = {
-    nodeId: string | null;
+    nodeId: string;
     repoId: string;
     branch: string;
     onClose: () => void;
@@ -334,8 +326,10 @@ const NODE_DETAIL_CONTENT_NAME = 'NodeDetailContent';
 
 const NodeDetailContent = ({
     params,
+    onClose,
 }: {
     params: NodeDetailParams;
+    onClose: () => void;
 }): ReactElement => {
     const { data: node, isLoading, error } = useQuery(nodeDetailQueryOptions(params));
 
@@ -343,7 +337,7 @@ const NodeDetailContent = ({
         return (
             <div
                 data-component={NODE_DETAIL_CONTENT_NAME}
-                className="space-y-4 pt-4"
+                className="space-y-4 p-4"
             >
                 <Skeleton className="h-6 w-1/2" />
                 <Skeleton className="h-4 w-3/4" />
@@ -364,19 +358,40 @@ const NodeDetailContent = ({
     }
 
     return (
-        <div data-component={NODE_DETAIL_CONTENT_NAME} className="flex h-full flex-col gap-4">
-            <SheetHeader>
-                <SheetTitle>{node._name}</SheetTitle>
-                <SheetDescription>{node._path}</SheetDescription>
-            </SheetHeader>
-            <Tabs defaultValue="properties" className="flex-1">
-                <TabsList className="w-full">
+        <div data-component={NODE_DETAIL_CONTENT_NAME} className="flex h-full flex-col">
+            {/* Panel header */}
+            <div className="flex shrink-0 items-start justify-between border-border border-b p-4">
+                <div className="min-w-0 flex-1">
+                    <h3 className="truncate font-semibold text-[15px] text-foreground">
+                        {node._name}
+                    </h3>
+                    <p className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground">
+                        {node._path}
+                    </p>
+                </div>
+                <button
+                    type="button"
+                    onClick={onClose}
+                    className={cn(
+                        'ml-2 flex size-7 shrink-0 items-center justify-center rounded-md',
+                        'text-muted-foreground transition-colors',
+                        'hover:bg-accent hover:text-accent-foreground',
+                    )}
+                    aria-label="Close panel"
+                >
+                    <X className="size-4" />
+                </button>
+            </div>
+
+            {/* Tabs */}
+            <Tabs defaultValue="properties" className="flex flex-1 flex-col overflow-hidden">
+                <TabsList className="mx-4 mt-2 w-auto">
                     <TabsTrigger value="properties">Properties</TabsTrigger>
                     <TabsTrigger value="metadata">Metadata</TabsTrigger>
                     <TabsTrigger value="permissions">Permissions</TabsTrigger>
                     <TabsTrigger value="json">JSON</TabsTrigger>
                 </TabsList>
-                <ScrollArea className="h-[calc(100vh-12rem)]">
+                <div className="flex-1 overflow-auto">
                     <TabsContent value="properties">
                         <PropertiesTab node={node} />
                     </TabsContent>
@@ -391,7 +406,7 @@ const NodeDetailContent = ({
                     <TabsContent value="json">
                         <JsonTab node={node} />
                     </TabsContent>
-                </ScrollArea>
+                </div>
             </Tabs>
         </div>
     );
@@ -405,36 +420,22 @@ NodeDetailContent.displayName = NODE_DETAIL_CONTENT_NAME;
 
 const NODE_DETAIL_PANEL_NAME = 'NodeDetailPanel';
 
-const sheetContentClasses = cn(
-    'w-[600px] overflow-hidden sm:max-w-[600px]',
-);
-
 export const NodeDetailPanel = ({
     nodeId,
     repoId,
     branch,
     onClose,
-}: NodeDetailPanelProps): ReactElement | null => {
-    const isOpen = nodeId != null;
-
-    const handleOpenChange = (open: boolean): void => {
-        if (!open) onClose();
-    };
-
-    if (!isOpen) return null;
-
+}: NodeDetailPanelProps): ReactElement => {
     return (
-        <Sheet open={isOpen} onOpenChange={handleOpenChange}>
-            <SheetContent
-                data-component={NODE_DETAIL_PANEL_NAME}
-                side="right"
-                className={sheetContentClasses}
-            >
-                <NodeDetailContent
-                    params={{ repoId, branch, key: nodeId }}
-                />
-            </SheetContent>
-        </Sheet>
+        <div
+            data-component={NODE_DETAIL_PANEL_NAME}
+            className="flex w-[400px] shrink-0 flex-col border-border border-l bg-card"
+        >
+            <NodeDetailContent
+                params={{ repoId, branch, key: nodeId }}
+                onClose={onClose}
+            />
+        </div>
     );
 };
 
