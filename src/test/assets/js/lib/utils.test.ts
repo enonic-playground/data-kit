@@ -7,7 +7,7 @@ describe('cn', () => {
     });
 
     it('should handle conditional classes', () => {
-        expect(cn('base', false && 'hidden', 'visible')).toBe(
+        expect(cn('base', false, 'visible')).toBe(
             'base visible',
         );
     });
