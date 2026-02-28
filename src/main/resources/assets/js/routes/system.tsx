@@ -9,12 +9,8 @@ const SystemPage = (): ReactElement => {
     const { data: systemInfo } = useSuspenseQuery(systemInfoQueryOptions());
 
     return (
-        <div data-component={SYSTEM_PAGE_NAME} className="p-6">
-            <h2 className="font-semibold text-2xl">System</h2>
-            <p className="mt-2 text-muted-foreground">
-                View system information here.
-            </p>
-            <dl className="mt-6 grid max-w-md grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
+        <div data-component={SYSTEM_PAGE_NAME} className="flex flex-col gap-4">
+            <dl className="grid max-w-md grid-cols-[auto_1fr] gap-x-4 gap-y-2 px-4 pt-4 text-sm">
                 <dt className="font-medium text-muted-foreground">XP Version</dt>
                 <dd>{systemInfo.xpVersion}</dd>
                 <dt className="font-medium text-muted-foreground">App Version</dt>

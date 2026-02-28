@@ -137,7 +137,7 @@ export const TableHead = ({
             ref={ref}
             className={cn(
                 'sticky top-0 z-10 bg-muted px-4 py-2',
-                'text-left align-middle font-bold text-[10px] text-muted-foreground',
+                'text-left align-middle font-semibold text-[10px] text-muted-foreground',
                 'uppercase tracking-[0.08em]',
                 '[&:has([role=checkbox])]:pr-0',
                 className,
@@ -164,7 +164,7 @@ export const TableCell = ({
         <td
             ref={ref}
             className={cn(
-                'px-4 py-2 align-middle [&:has([role=checkbox])]:pr-0',
+                'px-4 py-2 align-middle font-mono [&:has([role=checkbox])]:pr-0',
                 className,
             )}
             {...props}

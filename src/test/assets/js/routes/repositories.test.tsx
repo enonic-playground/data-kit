@@ -62,7 +62,7 @@ describe('RepositoriesPage', () => {
         });
     });
 
-    it('should show branch count badges', async () => {
+    it('should show branch name badges', async () => {
         mockedApiFetch.mockResolvedValue([
             { id: 'my-repo', branches: ['master', 'draft', 'test'] },
         ]);
@@ -75,7 +75,9 @@ describe('RepositoriesPage', () => {
 
         const page = within(getRepoPage());
         expect(page.getByText('my-repo')).toBeInTheDocument();
-        expect(page.getByText('3')).toBeInTheDocument();
+        expect(page.getByText('master')).toBeInTheDocument();
+        expect(page.getByText('draft')).toBeInTheDocument();
+        expect(page.getByText('test')).toBeInTheDocument();
     });
 
     it('should show create repository button', async () => {

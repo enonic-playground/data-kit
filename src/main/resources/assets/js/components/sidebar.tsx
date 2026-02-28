@@ -71,7 +71,7 @@ export const Sidebar = ({ className }: SidebarProps): ReactElement => {
                 {!collapsed && (
                     <>
                         <div className="size-5 shrink-0 rounded bg-primary" />
-                        <span className="flex-1 truncate font-bold text-foreground text-xs tracking-tight">
+                        <span className="flex-1 truncate font-bold text-foreground text-sm tracking-tight">
                             Data Kit
                         </span>
                     </>

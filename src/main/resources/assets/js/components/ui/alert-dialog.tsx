@@ -179,7 +179,7 @@ export const AlertDialogAction = ({
     return (
         <AlertDialogPrimitive.Action
             ref={ref}
-            className={cn(buttonVariants(), className)}
+            className={cn(buttonVariants({ variant: 'primary' }), className)}
             {...props}
         />
     );
@@ -202,7 +202,7 @@ export const AlertDialogCancel = ({
         <AlertDialogPrimitive.Cancel
             ref={ref}
             className={cn(
-                buttonVariants({ variant: 'outline' }),
+                buttonVariants(),
                 'mt-2 sm:mt-0',
                 className,
             )}
