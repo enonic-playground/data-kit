@@ -1,4 +1,4 @@
-import { Monitor, Moon, Sun } from 'lucide-react';
+import { Moon, Sun, SunMoon } from 'lucide-react';
 import type { ReactElement } from 'react';
 import { cn } from '../lib/utils';
 import { useTheme } from './theme-provider';
@@ -26,7 +26,7 @@ export const ThemeToggle = ({ className }: ThemeToggleProps): ReactElement => {
         ) : theme === 'dark' ? (
             <Moon className="size-4" />
         ) : (
-            <Monitor className="size-4" />
+            <SunMoon className="size-4" />
         );
 
     const label =

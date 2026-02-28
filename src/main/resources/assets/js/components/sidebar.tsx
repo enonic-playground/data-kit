@@ -3,12 +3,12 @@ import type { LucideIcon } from 'lucide-react';
 import {
     Activity,
     Camera,
-    ChevronsLeft,
-    ChevronsRight,
     Database,
     FileOutput,
     HardDrive,
     ListTodo,
+    PanelRightClose,
+    PanelRightOpen,
     Search,
     Settings,
     Shield,
@@ -50,31 +50,38 @@ export const Sidebar = ({ className }: SidebarProps): ReactElement => {
     const sidebarClasses = cn(
         'flex h-full flex-col border-border border-r bg-card',
         'transition-[width] duration-200 ease-[cubic-bezier(0.4,0,0.2,1)]',
-        collapsed ? 'w-11' : 'w-49',
+        collapsed ? 'w-11' : 'w-48',
         className,
+    );
+
+    const toggleClasses = cn(
+        'shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors',
+        'hover:bg-accent hover:text-accent-foreground',
     );
 
     return (
         <aside data-component={SIDEBAR_NAME} className={sidebarClasses}>
-            {/* Header: logo + brand + collapse */}
-            <div className="flex h-12 shrink-0 items-center gap-2 overflow-hidden border-border border-b px-3">
-                <div className="size-5 shrink-0 rounded-[5px] bg-primary" />
+            {/* Header: logo + brand + collapse toggle */}
+            <div className="flex h-12 shrink-0 items-center gap-2 overflow-hidden border-border border-b px-2.5">
                 {!collapsed && (
-                    <span className="flex-1 truncate font-bold text-[13px] text-foreground tracking-tight">
-                        Data Kit
-                    </span>
+                    <>
+                        <div className="size-5 shrink-0 rounded bg-primary" />
+                        <span className="flex-1 truncate font-bold text-foreground text-xs tracking-tight">
+                            Data Kit
+                        </span>
+                    </>
                 )}
                 <button
                     type="button"
                     onClick={() => setCollapsed((prev) => !prev)}
-                    className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:text-foreground"
+                    className={toggleClasses}
                     aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
                     title={collapsed ? 'Expand' : 'Collapse'}
                 >
                     {collapsed ? (
-                        <ChevronsRight className="size-3.5" />
+                        <PanelRightClose className="size-4" />
                     ) : (
-                        <ChevronsLeft className="size-3.5" />
+                        <PanelRightOpen className="size-4" />
                     )}
                 </button>
             </div>
@@ -86,7 +93,7 @@ export const Sidebar = ({ className }: SidebarProps): ReactElement => {
                     const Icon = item.icon;
 
                     const linkClasses = cn(
-                        'flex items-center gap-[9px] rounded-[5px] px-2.5 py-[7px] text-[13px]',
+                        'flex items-center gap-2 rounded px-2.5 py-2 text-xs',
                         'overflow-hidden transition-colors',
                         isActive
                             ? 'bg-accent font-medium text-foreground'
@@ -102,7 +109,7 @@ export const Sidebar = ({ className }: SidebarProps): ReactElement => {
                         >
                             <Icon
                                 className={cn(
-                                    'size-[15px] shrink-0',
+                                    'size-4 shrink-0',
                                     isActive
                                         ? 'text-primary'
                                         : 'text-text-dimmed',

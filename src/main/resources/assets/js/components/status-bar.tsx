@@ -32,20 +32,20 @@ export const StatusBar = ({ className }: StatusBarProps): ReactElement => {
     const statusText = getStatusText(routerState.location.pathname);
 
     const barClasses = cn(
-        'flex h-[22px] shrink-0 items-center bg-primary px-3.5',
+        'flex h-6 shrink-0 items-center bg-primary px-3.5',
         className,
     );
 
     return (
         <div data-component={STATUS_BAR_NAME} className={barClasses}>
             <div className="flex items-center gap-1.5">
-                <div className="size-[5px] rounded-full bg-white/55" />
-                <span className="font-mono text-[11px] text-white/88 tracking-wide">
+                <div className="size-1 rounded-full bg-white/55" />
+                <span className="font-mono text-white/88 text-xs tracking-wide">
                     {statusText}
                 </span>
             </div>
             <div className="flex-1" />
-            <span className="font-mono text-[10px] text-white/45 tracking-wider">
+            <span className="font-mono text-white/45 text-xs tracking-wider">
                 admin
             </span>
         </div>
