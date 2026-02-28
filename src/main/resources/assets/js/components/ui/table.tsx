@@ -110,7 +110,8 @@ export const TableRow = ({
         <tr
             ref={ref}
             className={cn(
-                'border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted',
+                'border-b transition-colors duration-100',
+                'hover:bg-row-hover data-[state=selected]:bg-accent-muted',
                 className,
             )}
             {...props}
@@ -135,7 +136,10 @@ export const TableHead = ({
         <th
             ref={ref}
             className={cn(
-                'h-12 px-4 text-left align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0',
+                'sticky top-0 z-10 bg-muted px-4 py-2',
+                'text-left align-middle font-bold text-[10px] text-muted-foreground',
+                'uppercase tracking-[0.08em]',
+                '[&:has([role=checkbox])]:pr-0',
                 className,
             )}
             {...props}
@@ -160,7 +164,7 @@ export const TableCell = ({
         <td
             ref={ref}
             className={cn(
-                'p-4 align-middle [&:has([role=checkbox])]:pr-0',
+                'px-4 py-2 align-middle [&:has([role=checkbox])]:pr-0',
                 className,
             )}
             {...props}
