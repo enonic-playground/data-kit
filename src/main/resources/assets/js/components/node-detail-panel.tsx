@@ -1,7 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
 import { Shield, Table2, X } from 'lucide-react';
 import { type ReactElement, useEffect, useMemo, useState } from 'react';
-import { codeToHtml } from 'shiki';
+import { createHighlighterCore } from 'shiki/core';
+import langJson from 'shiki/dist/langs/json.mjs';
+import themeGithubDarkDefault from 'shiki/dist/themes/github-dark-default.mjs';
+import themeGithubLightDefault from 'shiki/dist/themes/github-light-default.mjs';
+import { createJavaScriptRegexEngine } from 'shiki/engine/javascript';
 import {
     type AccessControlEntry,
     type NodeDetail,
@@ -21,6 +25,12 @@ import {
     TableRow,
 } from './ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
+
+const highlighterPromise = createHighlighterCore({
+    themes: [themeGithubDarkDefault, themeGithubLightDefault],
+    langs: [langJson],
+    engine: createJavaScriptRegexEngine(),
+});
 
 //
 // * Types
@@ -284,10 +294,14 @@ const JsonTab = ({ node }: { node: NodeDetail }): ReactElement => {
     useEffect(() => {
         let cancelled = false;
         const shikiTheme =
-            resolveTheme(theme) === 'dark' ? 'github-dark' : 'github-light';
+            resolveTheme(theme) === 'dark'
+                ? 'github-dark-default'
+                : 'github-light-default';
 
-        codeToHtml(json, { lang: 'json', theme: shikiTheme }).then(result => {
-            if (!cancelled) setHtml(result);
+        highlighterPromise.then(hl => {
+            if (!cancelled) {
+                setHtml(hl.codeToHtml(json, { lang: 'json', theme: shikiTheme }));
+            }
         });
 
         return () => {

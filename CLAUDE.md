@@ -19,9 +19,9 @@
 # Vite only (faster during development)
 pnpm build          # dev build
 pnpm build:prod     # production build
+pnpm fix            # auto-fix lint issues (Biome)
 pnpm check          # lint + type-check + tests
 pnpm test           # vitest only
-pnpm fix            # auto-fix lint issues (Biome)
 ```
 
 ## Architecture
