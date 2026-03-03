@@ -1,21 +1,57 @@
 import { useQuery } from '@tanstack/react-query';
-import { Shield, Table2, X } from 'lucide-react';
+import { ArrowRightLeft, Copy, Ellipsis, Pencil, Plus, Send, Shield, Table2, Trash2, X } from 'lucide-react';
 import { type ReactElement, useEffect, useMemo, useState } from 'react';
 import { createHighlighterCore } from 'shiki/core';
 import langJson from 'shiki/dist/langs/json.mjs';
 import themeGithubDarkDefault from 'shiki/dist/themes/github-dark-default.mjs';
 import themeGithubLightDefault from 'shiki/dist/themes/github-light-default.mjs';
 import { createJavaScriptRegexEngine } from 'shiki/engine/javascript';
+import { branchesQueryOptions } from '../lib/api/branches';
 import {
     type AccessControlEntry,
     type NodeDetail,
     type NodeDetailParams,
     nodeDetailQueryOptions,
+    useCreateNode,
+    useDeleteNode,
+    useDuplicateNode,
+    useMoveNode,
+    usePushNode,
+    useRenameNode,
 } from '../lib/api/nodes';
 import { cn } from '../lib/utils';
 import { useTheme } from './theme-provider';
 import { Badge } from './ui/badge';
+import { Button } from './ui/button';
+import { Checkbox } from './ui/checkbox';
+import {
+    Dialog,
+    DialogClose,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from './ui/dialog';
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuGroup,
+    DropdownMenuItem,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from './ui/dropdown-menu';
+import { Input } from './ui/input';
+import { Label } from './ui/label';
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from './ui/select';
 import { Skeleton } from './ui/skeleton';
+import { toast } from './ui/sonner';
 import {
     Table,
     TableBody,
@@ -41,6 +77,7 @@ export type NodeDetailPanelProps = {
     repoId: string;
     branch: string;
     onClose: () => void;
+    onNodeMutated?: () => void;
 };
 
 //
@@ -333,6 +370,418 @@ const JsonTab = ({ node }: { node: NodeDetail }): ReactElement => {
 JsonTab.displayName = JSON_TAB_NAME;
 
 //
+// * PanelActions
+//
+
+type PanelActionsProps = {
+    node: NodeDetail;
+    repoId: string;
+    branch: string;
+    onNodeMutated?: () => void;
+};
+
+const PanelActions = ({ node, repoId, branch, onNodeMutated }: PanelActionsProps): ReactElement => {
+    const [createOpen, setCreateOpen] = useState(false);
+    const [renameOpen, setRenameOpen] = useState(false);
+    const [moveOpen, setMoveOpen] = useState(false);
+    const [pushOpen, setPushOpen] = useState(false);
+    const [deleteOpen, setDeleteOpen] = useState(false);
+    const [deleteAllBranches, setDeleteAllBranches] = useState(false);
+
+    const [createName, setCreateName] = useState('');
+    const [createType, setCreateType] = useState('');
+    const [createError, setCreateError] = useState<string | undefined>();
+    const [renameName, setRenameName] = useState(node._name);
+    const [renameError, setRenameError] = useState<string | undefined>();
+    const [movePath, setMovePath] = useState('');
+    const [moveError, setMoveError] = useState<string | undefined>();
+    const [pushTarget, setPushTarget] = useState('');
+    const [pushChildren, setPushChildren] = useState(false);
+    const [pushResolve, setPushResolve] = useState(true);
+
+    const createMutation = useCreateNode();
+    const renameMutation = useRenameNode();
+    const moveMutation = useMoveNode();
+    const pushMutation = usePushNode();
+    const duplicateMutation = useDuplicateNode();
+    const deleteMutation = useDeleteNode();
+
+    const { data: branches } = useQuery(branchesQueryOptions(repoId));
+    const availableBranches = branches?.filter(b => b.id !== branch) ?? [];
+
+    const isRoot = node._path === '/';
+
+    const handleDuplicate = () => {
+        duplicateMutation.mutate(
+            { repoId, branch, nodeId: node._id },
+            {
+                onSuccess: (result) => {
+                    toast.success(`Node duplicated as '${result._name}'`);
+                },
+                onError: () => toast.error(`Failed to duplicate node '${node._name}'`),
+            },
+        );
+    };
+
+    const handleCreate = () => {
+        if (createName.trim() === '') {
+            setCreateError('Name is required');
+            return;
+        }
+        if (createName.includes('/')) {
+            setCreateError('Name cannot contain slashes');
+            return;
+        }
+        createMutation.mutate(
+            { repoId, branch, parentPath: node._path, name: createName, nodeType: createType.trim() || undefined },
+            {
+                onSuccess: () => {
+                    toast.success(`Node '${createName}' created`);
+                    setCreateOpen(false);
+                    setCreateName('');
+                    setCreateType('');
+                    setCreateError(undefined);
+                },
+                onError: () => toast.error(`Failed to create node '${createName}'`),
+            },
+        );
+    };
+
+    const handleRename = () => {
+        if (renameName.trim() === '') {
+            setRenameError('Name is required');
+            return;
+        }
+        if (renameName.includes('/')) {
+            setRenameError('Name cannot contain slashes');
+            return;
+        }
+        if (renameName === node._name) {
+            setRenameError('Name must be different from current');
+            return;
+        }
+        renameMutation.mutate(
+            { repoId, branch, key: node._id, newName: renameName },
+            {
+                onSuccess: () => {
+                    toast.success(`Node renamed to '${renameName}'`);
+                    setRenameOpen(false);
+                },
+                onError: () => toast.error('Failed to rename node'),
+            },
+        );
+    };
+
+    const handleMove = () => {
+        if (movePath.trim() === '') {
+            setMoveError('Target path is required');
+            return;
+        }
+        if (!movePath.startsWith('/')) {
+            setMoveError('Path must start with /');
+            return;
+        }
+        moveMutation.mutate(
+            { repoId, branch, key: node._id, targetPath: movePath },
+            {
+                onSuccess: () => {
+                    toast.success(`Node moved to '${movePath}'`);
+                    setMoveOpen(false);
+                    onNodeMutated?.();
+                },
+                onError: () => toast.error('Failed to move node'),
+            },
+        );
+    };
+
+    const handlePush = () => {
+        if (pushTarget === '') return;
+        pushMutation.mutate(
+            { repoId, branch, key: node._id, target: pushTarget, includeChildren: pushChildren, resolve: pushResolve },
+            {
+                onSuccess: (result) => {
+                    const failedCount = result.failed.length;
+                    if (failedCount > 0) {
+                        toast.warning(`Pushed to '${pushTarget}': ${result.success.length} succeeded, ${failedCount} failed`);
+                    } else {
+                        toast.success(`Pushed to '${pushTarget}': ${result.success.length} nodes`);
+                    }
+                    setPushOpen(false);
+                },
+                onError: () => toast.error('Failed to push node'),
+            },
+        );
+    };
+
+    const handleDelete = () => {
+        deleteMutation.mutate(
+            { repoId, branch, key: node._id, allBranches: deleteAllBranches || undefined },
+            {
+                onSuccess: (result) => {
+                    if (result.branches != null) {
+                        const count = result.branches.deleted.length;
+                        toast.success(`Node '${node._name}' deleted from ${count} branch${count !== 1 ? 'es' : ''}`);
+                    } else {
+                        toast.success(`Node '${node._name}' deleted`);
+                    }
+                    setDeleteOpen(false);
+                    setDeleteAllBranches(false);
+                    onNodeMutated?.();
+                },
+                onError: () => toast.error(`Failed to delete node '${node._name}'`),
+            },
+        );
+    };
+
+    return (
+        <>
+            <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                    <button
+                        type="button"
+                        className={cn(
+                            'ml-1 flex size-7 shrink-0 items-center justify-center rounded-md',
+                            'text-muted-foreground transition-colors',
+                            'hover:bg-accent hover:text-accent-foreground',
+                        )}
+                        aria-label="Node actions"
+                    >
+                        <Ellipsis className="size-4" />
+                    </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                    <DropdownMenuGroup>
+                        <DropdownMenuItem onClick={() => setCreateOpen(true)}>
+                            <Plus className="size-4" />
+                            Create Child
+                        </DropdownMenuItem>
+                    </DropdownMenuGroup>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuGroup>
+                        <DropdownMenuItem disabled={isRoot} onClick={() => {
+                            setRenameName(node._name);
+                            setRenameOpen(true);
+                        }}>
+                            <Pencil className="size-4" />
+                            Rename
+                        </DropdownMenuItem>
+                        <DropdownMenuItem disabled={isRoot} onClick={() => setMoveOpen(true)}>
+                            <ArrowRightLeft className="size-4" />
+                            Move
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={handleDuplicate}>
+                            <Copy className="size-4" />
+                            Duplicate
+                        </DropdownMenuItem>
+                    </DropdownMenuGroup>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuGroup>
+                        <DropdownMenuItem onClick={() => setPushOpen(true)}>
+                            <Send className="size-4" />
+                            Push
+                        </DropdownMenuItem>
+                    </DropdownMenuGroup>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuGroup>
+                        <DropdownMenuItem
+                            disabled={isRoot}
+                            className="text-destructive focus:text-destructive"
+                            onClick={() => setDeleteOpen(true)}
+                        >
+                            <Trash2 className="size-4" />
+                            Delete
+                        </DropdownMenuItem>
+                    </DropdownMenuGroup>
+                </DropdownMenuContent>
+            </DropdownMenu>
+
+            {/* Create Child Dialog */}
+            <Dialog open={createOpen} onOpenChange={open => {
+                setCreateOpen(open);
+                if (!open) { setCreateName(''); setCreateType(''); setCreateError(undefined); }
+            }}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Create Child Node</DialogTitle>
+                        <DialogDescription>
+                            Create a new child node under &apos;{node._path}&apos;.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-4">
+                        <div className="grid gap-2">
+                            <Label htmlFor="panel-create-name">Name</Label>
+                            <Input
+                                id="panel-create-name"
+                                value={createName}
+                                onChange={e => { setCreateName(e.target.value); setCreateError(undefined); }}
+                                onKeyDown={e => { if (e.key === 'Enter') handleCreate(); }}
+                                placeholder="my-node"
+                            />
+                            {createError != null && <p className="text-destructive text-sm">{createError}</p>}
+                        </div>
+                        <div className="grid gap-2">
+                            <Label htmlFor="panel-create-type">Node Type</Label>
+                            <Input
+                                id="panel-create-type"
+                                value={createType}
+                                onChange={e => setCreateType(e.target.value)}
+                                placeholder="default"
+                            />
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <DialogClose asChild><Button>Cancel</Button></DialogClose>
+                        <Button variant="primary" onClick={handleCreate} disabled={createMutation.isPending}>Create</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Rename Dialog */}
+            <Dialog open={renameOpen} onOpenChange={open => {
+                setRenameOpen(open);
+                if (!open) { setRenameName(node._name); setRenameError(undefined); }
+            }}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Rename Node</DialogTitle>
+                        <DialogDescription>Enter a new name for &apos;{node._name}&apos;.</DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-2 py-4">
+                        <Label htmlFor="panel-rename-name">Name</Label>
+                        <Input
+                            id="panel-rename-name"
+                            value={renameName}
+                            onChange={e => { setRenameName(e.target.value); setRenameError(undefined); }}
+                            onKeyDown={e => { if (e.key === 'Enter') handleRename(); }}
+                        />
+                        {renameError != null && <p className="text-destructive text-sm">{renameError}</p>}
+                    </div>
+                    <DialogFooter>
+                        <DialogClose asChild><Button>Cancel</Button></DialogClose>
+                        <Button variant="primary" onClick={handleRename} disabled={renameMutation.isPending}>Rename</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Move Dialog */}
+            <Dialog open={moveOpen} onOpenChange={open => {
+                setMoveOpen(open);
+                if (!open) { setMovePath(''); setMoveError(undefined); }
+            }}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Move Node</DialogTitle>
+                        <DialogDescription>Move &apos;{node._name}&apos; to a new parent path.</DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-4">
+                        <div className="grid gap-1">
+                            <Label className="text-muted-foreground">Current Path</Label>
+                            <button
+                                type="button"
+                                className="cursor-pointer truncate text-left font-mono text-sm hover:text-foreground"
+                                title="Click to copy path"
+                                onClick={() => {
+                                    navigator.clipboard.writeText(node._path);
+                                    toast.success('Path copied to clipboard');
+                                }}
+                            >
+                                {node._path}
+                            </button>
+                        </div>
+                        <div className="grid gap-2">
+                            <Label htmlFor="panel-move-path">Target Path</Label>
+                            <Input
+                                id="panel-move-path"
+                                value={movePath}
+                                onChange={e => { setMovePath(e.target.value); setMoveError(undefined); }}
+                                onKeyDown={e => { if (e.key === 'Enter') handleMove(); }}
+                                placeholder="/target/path"
+                            />
+                            {moveError != null && <p className="text-destructive text-sm">{moveError}</p>}
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <DialogClose asChild><Button>Cancel</Button></DialogClose>
+                        <Button variant="primary" onClick={handleMove} disabled={moveMutation.isPending}>Move</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Push Dialog */}
+            <Dialog open={pushOpen} onOpenChange={open => {
+                setPushOpen(open);
+                if (!open) { setPushTarget(''); setPushChildren(false); setPushResolve(true); }
+            }}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Push Node</DialogTitle>
+                        <DialogDescription>Push &apos;{node._name}&apos; to another branch.</DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-4">
+                        <div className="grid gap-2">
+                            <Label>Target Branch</Label>
+                            <Select value={pushTarget} onValueChange={setPushTarget}>
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select branch" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {availableBranches.map(b => (
+                                        <SelectItem key={b.id} value={b.id}>{b.id}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <Checkbox id="panel-push-children" checked={pushChildren} onCheckedChange={checked => setPushChildren(checked === true)} />
+                            <Label htmlFor="panel-push-children" className="font-normal">Include children</Label>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <Checkbox id="panel-push-resolve" checked={pushResolve} onCheckedChange={checked => setPushResolve(checked === true)} />
+                            <Label htmlFor="panel-push-resolve" className="font-normal">Resolve dependencies</Label>
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <DialogClose asChild><Button>Cancel</Button></DialogClose>
+                        <Button variant="primary" onClick={handlePush} disabled={pushMutation.isPending || pushTarget === ''}>Push</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Delete Confirm */}
+            <Dialog open={deleteOpen} onOpenChange={open => {
+                setDeleteOpen(open);
+                if (!open) setDeleteAllBranches(false);
+            }}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Delete Node</DialogTitle>
+                        <DialogDescription>
+                            Are you sure you want to delete &apos;{node._name}&apos; ({node._path})? This action cannot be undone.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="flex items-center gap-2 py-2">
+                        <Checkbox
+                            id="panel-delete-all"
+                            checked={deleteAllBranches}
+                            onCheckedChange={checked => setDeleteAllBranches(checked === true)}
+                        />
+                        <Label htmlFor="panel-delete-all" className="font-normal">
+                            Delete from all branches
+                        </Label>
+                    </div>
+                    <DialogFooter>
+                        <DialogClose asChild><Button>Cancel</Button></DialogClose>
+                        <Button variant="destructive" onClick={handleDelete} disabled={deleteMutation.isPending}>
+                            Delete
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+        </>
+    );
+};
+
+//
 // * NodeDetailContent
 //
 
@@ -341,9 +790,11 @@ const NODE_DETAIL_CONTENT_NAME = 'NodeDetailContent';
 const NodeDetailContent = ({
     params,
     onClose,
+    onNodeMutated,
 }: {
     params: NodeDetailParams;
     onClose: () => void;
+    onNodeMutated?: () => void;
 }): ReactElement => {
     const { data: node, isLoading, error } = useQuery(nodeDetailQueryOptions(params));
 
@@ -383,18 +834,26 @@ const NodeDetailContent = ({
                         {node._path}
                     </p>
                 </div>
-                <button
-                    type="button"
-                    onClick={onClose}
-                    className={cn(
-                        'ml-2 flex size-7 shrink-0 items-center justify-center rounded-md',
-                        'text-muted-foreground transition-colors',
-                        'hover:bg-accent hover:text-accent-foreground',
-                    )}
-                    aria-label="Close panel"
-                >
-                    <X className="size-4" />
-                </button>
+                <div className="flex shrink-0 items-center">
+                    <PanelActions
+                        node={node}
+                        repoId={params.repoId}
+                        branch={params.branch}
+                        onNodeMutated={onNodeMutated}
+                    />
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        className={cn(
+                            'ml-1 flex size-7 shrink-0 items-center justify-center rounded-md',
+                            'text-muted-foreground transition-colors',
+                            'hover:bg-accent hover:text-accent-foreground',
+                        )}
+                        aria-label="Close panel"
+                    >
+                        <X className="size-4" />
+                    </button>
+                </div>
             </div>
 
             {/* Tabs */}
@@ -439,6 +898,7 @@ export const NodeDetailPanel = ({
     repoId,
     branch,
     onClose,
+    onNodeMutated,
 }: NodeDetailPanelProps): ReactElement => {
     return (
         <div
@@ -448,6 +908,7 @@ export const NodeDetailPanel = ({
             <NodeDetailContent
                 params={{ repoId, branch, key: nodeId }}
                 onClose={onClose}
+                onNodeMutated={onNodeMutated}
             />
         </div>
     );

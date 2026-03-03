@@ -1,4 +1,4 @@
-import { useSuspenseQuery } from '@tanstack/react-query';
+import { useQuery, useSuspenseQuery } from '@tanstack/react-query';
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import {
     createColumnHelper,
@@ -6,21 +6,43 @@ import {
     getCoreRowModel,
     useReactTable,
 } from '@tanstack/react-table';
-import { ArrowLeft, ChevronLeft, ChevronRight, Ellipsis, Eye, FileText, Folder, FolderOpen, LayoutGrid, LayoutList, Plus } from 'lucide-react';
+import { ArrowLeft, ArrowRightLeft, ChevronLeft, ChevronRight, Copy, Ellipsis, Eye, FileText, Folder, FolderOpen, LayoutGrid, LayoutList, Pencil, Plus, Send, Trash2 } from 'lucide-react';
 import { Fragment, type ReactElement, useState } from 'react';
 import { z } from 'zod';
 import { NodeDetailPanel } from '../components/node-detail-panel';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
+import { Checkbox } from '../components/ui/checkbox';
+import {
+    Dialog,
+    DialogClose,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+    DialogTrigger,
+} from '../components/ui/dialog';
 import {
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuGroup,
     DropdownMenuItem,
+    DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from '../components/ui/dropdown-menu';
 import { EmptyState } from '../components/ui/empty-state';
+import { Input } from '../components/ui/input';
+import { Label } from '../components/ui/label';
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from '../components/ui/select';
 import { Separator } from '../components/ui/separator';
+import { toast } from '../components/ui/sonner';
 import {
     Table,
     TableBody,
@@ -29,7 +51,17 @@ import {
     TableHeader,
     TableRow,
 } from '../components/ui/table';
-import { type NodeEntry, nodesQueryOptions } from '../lib/api/nodes';
+import { branchesQueryOptions } from '../lib/api/branches';
+import {
+    type NodeEntry,
+    nodesQueryOptions,
+    useCreateNode,
+    useDeleteNode,
+    useDuplicateNode,
+    useMoveNode,
+    usePushNode,
+    useRenameNode,
+} from '../lib/api/nodes';
 import { cn } from '../lib/utils';
 
 const NODE_BROWSER_PAGE_NAME = 'NodeBrowserPage';
@@ -135,6 +167,646 @@ const BreadcrumbToolbar = ({
 BreadcrumbToolbar.displayName = BREADCRUMB_TOOLBAR_NAME;
 
 //
+// * RenameDialog
+//
+
+type RenameDialogProps = {
+    node: NodeEntry;
+    repoId: string;
+    branch: string;
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+};
+
+const RenameDialog = ({ node, repoId, branch, open, onOpenChange }: RenameDialogProps): ReactElement => {
+    const [name, setName] = useState(node._name);
+    const [error, setError] = useState<string | undefined>();
+    const renameMutation = useRenameNode();
+
+    const handleSubmit = () => {
+        if (name.trim() === '') {
+            setError('Name is required');
+            return;
+        }
+        if (name.includes('/')) {
+            setError('Name cannot contain slashes');
+            return;
+        }
+        if (name === node._name) {
+            setError('Name must be different from current');
+            return;
+        }
+
+        renameMutation.mutate(
+            { repoId, branch, key: node._id, newName: name },
+            {
+                onSuccess: () => {
+                    toast.success(`Node renamed to '${name}'`);
+                    onOpenChange(false);
+                },
+                onError: () => {
+                    toast.error('Failed to rename node');
+                },
+            },
+        );
+    };
+
+    const handleOpenChange = (nextOpen: boolean) => {
+        onOpenChange(nextOpen);
+        if (!nextOpen) {
+            setName(node._name);
+            setError(undefined);
+        }
+    };
+
+    return (
+        <Dialog open={open} onOpenChange={handleOpenChange}>
+            <DialogContent>
+                <DialogHeader>
+                    <DialogTitle>Rename Node</DialogTitle>
+                    <DialogDescription>
+                        Enter a new name for &apos;{node._name}&apos;.
+                    </DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-2 py-4">
+                    <Label htmlFor="rename-name">Name</Label>
+                    <Input
+                        id="rename-name"
+                        value={name}
+                        onChange={e => {
+                            setName(e.target.value);
+                            setError(undefined);
+                        }}
+                        onKeyDown={e => {
+                            if (e.key === 'Enter') handleSubmit();
+                        }}
+                    />
+                    {error != null && (
+                        <p className="text-destructive text-sm">{error}</p>
+                    )}
+                </div>
+                <DialogFooter>
+                    <DialogClose asChild>
+                        <Button>Cancel</Button>
+                    </DialogClose>
+                    <Button
+                        variant="primary"
+                        onClick={handleSubmit}
+                        disabled={renameMutation.isPending}
+                    >
+                        Rename
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    );
+};
+
+//
+// * MoveDialog
+//
+
+type MoveDialogProps = {
+    node: NodeEntry;
+    repoId: string;
+    branch: string;
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+};
+
+const MoveDialog = ({ node, repoId, branch, open, onOpenChange }: MoveDialogProps): ReactElement => {
+    const [targetPath, setTargetPath] = useState('');
+    const [error, setError] = useState<string | undefined>();
+    const moveMutation = useMoveNode();
+
+    const handleSubmit = () => {
+        if (targetPath.trim() === '') {
+            setError('Target path is required');
+            return;
+        }
+        if (!targetPath.startsWith('/')) {
+            setError('Path must start with /');
+            return;
+        }
+
+        moveMutation.mutate(
+            { repoId, branch, key: node._id, targetPath },
+            {
+                onSuccess: () => {
+                    toast.success(`Node moved to '${targetPath}'`);
+                    onOpenChange(false);
+                },
+                onError: () => {
+                    toast.error('Failed to move node');
+                },
+            },
+        );
+    };
+
+    const handleOpenChange = (nextOpen: boolean) => {
+        onOpenChange(nextOpen);
+        if (!nextOpen) {
+            setTargetPath('');
+            setError(undefined);
+        }
+    };
+
+    return (
+        <Dialog open={open} onOpenChange={handleOpenChange}>
+            <DialogContent>
+                <DialogHeader>
+                    <DialogTitle>Move Node</DialogTitle>
+                    <DialogDescription>
+                        Move &apos;{node._name}&apos; to a new parent path.
+                    </DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-4 py-4">
+                    <div className="grid gap-1">
+                        <Label className="text-muted-foreground">Current Path</Label>
+                        <button
+                            type="button"
+                            className="cursor-pointer truncate text-left font-mono text-sm hover:text-foreground"
+                            title="Click to copy path"
+                            onClick={() => {
+                                navigator.clipboard.writeText(node._path);
+                                toast.success('Path copied to clipboard');
+                            }}
+                        >
+                            {node._path}
+                        </button>
+                    </div>
+                    <div className="grid gap-2">
+                        <Label htmlFor="move-path">Target Path</Label>
+                        <Input
+                            id="move-path"
+                            value={targetPath}
+                            onChange={e => {
+                                setTargetPath(e.target.value);
+                                setError(undefined);
+                            }}
+                            onKeyDown={e => {
+                                if (e.key === 'Enter') handleSubmit();
+                            }}
+                            placeholder="/target/path"
+                        />
+                        {error != null && (
+                            <p className="text-destructive text-sm">{error}</p>
+                        )}
+                    </div>
+                </div>
+                <DialogFooter>
+                    <DialogClose asChild>
+                        <Button>Cancel</Button>
+                    </DialogClose>
+                    <Button
+                        variant="primary"
+                        onClick={handleSubmit}
+                        disabled={moveMutation.isPending}
+                    >
+                        Move
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    );
+};
+
+//
+// * PushDialog
+//
+
+type PushDialogProps = {
+    node: NodeEntry;
+    repoId: string;
+    branch: string;
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+};
+
+const PushDialog = ({ node, repoId, branch, open, onOpenChange }: PushDialogProps): ReactElement => {
+    const [target, setTarget] = useState('');
+    const [includeChildren, setIncludeChildren] = useState(false);
+    const [resolve, setResolve] = useState(true);
+    const pushMutation = usePushNode();
+
+    const { data: branches } = useQuery(branchesQueryOptions(repoId));
+    const availableBranches = branches?.filter(b => b.id !== branch) ?? [];
+
+    const handleSubmit = () => {
+        if (target === '') return;
+
+        pushMutation.mutate(
+            { repoId, branch, key: node._id, target, includeChildren, resolve },
+            {
+                onSuccess: (result) => {
+                    const successCount = result.success.length;
+                    const failedCount = result.failed.length;
+                    if (failedCount > 0) {
+                        toast.warning(`Pushed to '${target}': ${successCount} succeeded, ${failedCount} failed`);
+                    } else {
+                        toast.success(`Pushed to '${target}': ${successCount} nodes`);
+                    }
+                    onOpenChange(false);
+                },
+                onError: () => {
+                    toast.error('Failed to push node');
+                },
+            },
+        );
+    };
+
+    const handleOpenChange = (nextOpen: boolean) => {
+        onOpenChange(nextOpen);
+        if (!nextOpen) {
+            setTarget('');
+            setIncludeChildren(false);
+            setResolve(true);
+        }
+    };
+
+    return (
+        <Dialog open={open} onOpenChange={handleOpenChange}>
+            <DialogContent>
+                <DialogHeader>
+                    <DialogTitle>Push Node</DialogTitle>
+                    <DialogDescription>
+                        Push &apos;{node._name}&apos; to another branch.
+                    </DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-4 py-4">
+                    <div className="grid gap-2">
+                        <Label>Target Branch</Label>
+                        <Select value={target} onValueChange={setTarget}>
+                            <SelectTrigger>
+                                <SelectValue placeholder="Select branch" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {availableBranches.map(b => (
+                                    <SelectItem key={b.id} value={b.id}>
+                                        {b.id}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <Checkbox
+                            id="push-children"
+                            checked={includeChildren}
+                            onCheckedChange={checked => setIncludeChildren(checked === true)}
+                        />
+                        <Label htmlFor="push-children" className="font-normal">
+                            Include children
+                        </Label>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <Checkbox
+                            id="push-resolve"
+                            checked={resolve}
+                            onCheckedChange={checked => setResolve(checked === true)}
+                        />
+                        <Label htmlFor="push-resolve" className="font-normal">
+                            Resolve dependencies
+                        </Label>
+                    </div>
+                </div>
+                <DialogFooter>
+                    <DialogClose asChild>
+                        <Button>Cancel</Button>
+                    </DialogClose>
+                    <Button
+                        variant="primary"
+                        onClick={handleSubmit}
+                        disabled={pushMutation.isPending || target === ''}
+                    >
+                        Push
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    );
+};
+
+//
+// * RowActions
+//
+
+type RowActionsProps = {
+    node: NodeEntry;
+    repoId: string;
+    branch: string;
+    onPreview: (id: string) => void;
+    onDeleted?: () => void;
+};
+
+const RowActions = ({ node, repoId, branch, onPreview, onDeleted }: RowActionsProps): ReactElement => {
+    const [renameOpen, setRenameOpen] = useState(false);
+    const [moveOpen, setMoveOpen] = useState(false);
+    const [pushOpen, setPushOpen] = useState(false);
+    const [deleteOpen, setDeleteOpen] = useState(false);
+    const [deleteAllBranches, setDeleteAllBranches] = useState(false);
+    const duplicateMutation = useDuplicateNode();
+    const deleteMutation = useDeleteNode();
+
+    const handleDuplicate = () => {
+        duplicateMutation.mutate(
+            { repoId, branch, nodeId: node._id },
+            {
+                onSuccess: (result) => {
+                    toast.success(`Node duplicated as '${result._name}'`);
+                },
+                onError: () => {
+                    toast.error(`Failed to duplicate node '${node._name}'`);
+                },
+            },
+        );
+    };
+
+    const handleDelete = () => {
+        deleteMutation.mutate(
+            { repoId, branch, key: node._id, allBranches: deleteAllBranches || undefined },
+            {
+                onSuccess: (result) => {
+                    if (result.branches != null) {
+                        const count = result.branches.deleted.length;
+                        toast.success(`Node '${node._name}' deleted from ${count} branch${count !== 1 ? 'es' : ''}`);
+                    } else {
+                        toast.success(`Node '${node._name}' deleted`);
+                    }
+                    setDeleteOpen(false);
+                    setDeleteAllBranches(false);
+                    onDeleted?.();
+                },
+                onError: () => {
+                    toast.error(`Failed to delete node '${node._name}'`);
+                },
+            },
+        );
+    };
+
+    return (
+        <>
+            <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={e => e.stopPropagation()}
+                    >
+                        <Ellipsis className="size-4 text-muted-foreground" />
+                    </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                    <DropdownMenuGroup>
+                        <DropdownMenuItem
+                            onClick={e => {
+                                e.stopPropagation();
+                                onPreview(node._id);
+                            }}
+                        >
+                            <Eye className="size-4" />
+                            Preview
+                        </DropdownMenuItem>
+                    </DropdownMenuGroup>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuGroup>
+                        <DropdownMenuItem
+                            onClick={e => {
+                                e.stopPropagation();
+                                setRenameOpen(true);
+                            }}
+                        >
+                            <Pencil className="size-4" />
+                            Rename
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                            onClick={e => {
+                                e.stopPropagation();
+                                setMoveOpen(true);
+                            }}
+                        >
+                            <ArrowRightLeft className="size-4" />
+                            Move
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                            onClick={e => {
+                                e.stopPropagation();
+                                handleDuplicate();
+                            }}
+                        >
+                            <Copy className="size-4" />
+                            Duplicate
+                        </DropdownMenuItem>
+                    </DropdownMenuGroup>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuGroup>
+                        <DropdownMenuItem
+                            onClick={e => {
+                                e.stopPropagation();
+                                setPushOpen(true);
+                            }}
+                        >
+                            <Send className="size-4" />
+                            Push
+                        </DropdownMenuItem>
+                    </DropdownMenuGroup>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuGroup>
+                        <DropdownMenuItem
+                            className="text-destructive focus:text-destructive"
+                            onClick={e => {
+                                e.stopPropagation();
+                                setDeleteOpen(true);
+                            }}
+                        >
+                            <Trash2 className="size-4" />
+                            Delete
+                        </DropdownMenuItem>
+                    </DropdownMenuGroup>
+                </DropdownMenuContent>
+            </DropdownMenu>
+
+            <RenameDialog
+                node={node}
+                repoId={repoId}
+                branch={branch}
+                open={renameOpen}
+                onOpenChange={setRenameOpen}
+            />
+            <MoveDialog
+                node={node}
+                repoId={repoId}
+                branch={branch}
+                open={moveOpen}
+                onOpenChange={setMoveOpen}
+            />
+            <PushDialog
+                node={node}
+                repoId={repoId}
+                branch={branch}
+                open={pushOpen}
+                onOpenChange={setPushOpen}
+            />
+            <Dialog open={deleteOpen} onOpenChange={open => {
+                setDeleteOpen(open);
+                if (!open) setDeleteAllBranches(false);
+            }}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Delete Node</DialogTitle>
+                        <DialogDescription>
+                            Are you sure you want to delete &apos;{node._name}&apos; ({node._path})? This action cannot be undone.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="flex items-center gap-2 py-2">
+                        <Checkbox
+                            id={`delete-all-${node._id}`}
+                            checked={deleteAllBranches}
+                            onCheckedChange={checked => setDeleteAllBranches(checked === true)}
+                        />
+                        <Label htmlFor={`delete-all-${node._id}`} className="font-normal">
+                            Delete from all branches
+                        </Label>
+                    </div>
+                    <DialogFooter>
+                        <DialogClose asChild>
+                            <Button>Cancel</Button>
+                        </DialogClose>
+                        <Button
+                            variant="destructive"
+                            onClick={handleDelete}
+                            disabled={deleteMutation.isPending}
+                        >
+                            Delete
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+        </>
+    );
+};
+
+//
+// * CreateNodeDialog
+//
+
+type CreateNodeDialogProps = {
+    repoId: string;
+    branch: string;
+    parentPath: string;
+};
+
+const CreateNodeDialog = ({ repoId, branch, parentPath }: CreateNodeDialogProps): ReactElement => {
+    const [open, setOpen] = useState(false);
+    const [name, setName] = useState('');
+    const [nodeType, setNodeType] = useState('');
+    const [error, setError] = useState<string | undefined>();
+    const createMutation = useCreateNode();
+
+    const handleSubmit = () => {
+        if (name.trim() === '') {
+            setError('Name is required');
+            return;
+        }
+        if (name.includes('/')) {
+            setError('Name cannot contain slashes');
+            return;
+        }
+
+        createMutation.mutate(
+            {
+                repoId,
+                branch,
+                parentPath,
+                name,
+                nodeType: nodeType.trim() || undefined,
+            },
+            {
+                onSuccess: () => {
+                    toast.success(`Node '${name}' created`);
+                    setOpen(false);
+                    setName('');
+                    setNodeType('');
+                    setError(undefined);
+                },
+                onError: () => {
+                    toast.error(`Failed to create node '${name}'`);
+                },
+            },
+        );
+    };
+
+    const handleOpenChange = (nextOpen: boolean) => {
+        setOpen(nextOpen);
+        if (!nextOpen) {
+            setName('');
+            setNodeType('');
+            setError(undefined);
+        }
+    };
+
+    return (
+        <Dialog open={open} onOpenChange={handleOpenChange}>
+            <DialogTrigger asChild>
+                <Button>
+                    <Plus className="size-4" />
+                    Create Node
+                </Button>
+            </DialogTrigger>
+            <DialogContent>
+                <DialogHeader>
+                    <DialogTitle>Create Node</DialogTitle>
+                    <DialogDescription>
+                        Create a new child node in &apos;{parentPath}&apos;.
+                    </DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-4 py-4">
+                    <div className="grid gap-2">
+                        <Label htmlFor="create-name">Name</Label>
+                        <Input
+                            id="create-name"
+                            value={name}
+                            onChange={e => {
+                                setName(e.target.value);
+                                setError(undefined);
+                            }}
+                            onKeyDown={e => {
+                                if (e.key === 'Enter') handleSubmit();
+                            }}
+                            placeholder="my-node"
+                        />
+                        {error != null && (
+                            <p className="text-destructive text-sm">{error}</p>
+                        )}
+                    </div>
+                    <div className="grid gap-2">
+                        <Label htmlFor="create-type">Node Type</Label>
+                        <Input
+                            id="create-type"
+                            value={nodeType}
+                            onChange={e => setNodeType(e.target.value)}
+                            placeholder="default"
+                        />
+                    </div>
+                </div>
+                <DialogFooter>
+                    <DialogClose asChild>
+                        <Button>Cancel</Button>
+                    </DialogClose>
+                    <Button
+                        variant="primary"
+                        onClick={handleSubmit}
+                        disabled={createMutation.isPending}
+                    >
+                        Create
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    );
+};
+
+//
 // * NodeBrowserPage
 //
 
@@ -167,6 +839,12 @@ const NodeBrowserPage = (): ReactElement => {
                 return rest;
             },
         });
+    };
+
+    const handleNodeDeleted = (deletedId: string) => {
+        if (nodeId === deletedId) {
+            closeNodeDetail();
+        }
     };
 
     const columns = [
@@ -206,30 +884,13 @@ const NodeBrowserPage = (): ReactElement => {
             meta: { className: 'w-20' },
             cell: info => (
                 <div className="flex items-center justify-end gap-1">
-                    <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={e => e.stopPropagation()}
-                            >
-                                <Ellipsis className="size-4 text-muted-foreground" />
-                            </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                            <DropdownMenuGroup>
-                                <DropdownMenuItem
-                                    onClick={e => {
-                                        e.stopPropagation();
-                                        openNodeDetail(info.row.original._id);
-                                    }}
-                                >
-                                    <Eye className="size-4" />
-                                    Preview
-                                </DropdownMenuItem>
-                            </DropdownMenuGroup>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
+                    <RowActions
+                        node={info.row.original}
+                        repoId={repoId}
+                        branch={branch}
+                        onPreview={openNodeDetail}
+                        onDeleted={() => handleNodeDeleted(info.row.original._id)}
+                    />
                     <ChevronRight className={cn(
                         "size-4",
                         info.row.original.hasChildren
@@ -264,10 +925,7 @@ const NodeBrowserPage = (): ReactElement => {
             {/* Action toolbar */}
             <div className="flex items-center gap-2 px-4 py-2">
                 <div className="flex-1" />
-                <Button disabled>
-                    <Plus className="size-4" />
-                    Create Node
-                </Button>
+                <CreateNodeDialog repoId={repoId} branch={branch} parentPath={path} />
                 <Separator orientation="vertical" className="h-5" />
                 <div className="flex items-center gap-0.5">
                     <Button
@@ -427,6 +1085,7 @@ const NodeBrowserPage = (): ReactElement => {
                         repoId={repoId}
                         branch={branch}
                         onClose={closeNodeDetail}
+                        onNodeMutated={closeNodeDetail}
                     />
                 )}
             </div>
