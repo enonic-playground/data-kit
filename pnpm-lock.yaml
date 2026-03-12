@@ -85,50 +85,50 @@ importers:
         specifier: ~2.4.4
         version: 2.4.4
       '@enonic-types/core':
-        specifier: ~7.16.2
-        version: 7.16.2
+        specifier: 8.0.0-A2
+        version: 8.0.0-A2
       '@enonic-types/global':
-        specifier: ~7.16.2
-        version: 7.16.2
+        specifier: 8.0.0-A2
+        version: 8.0.0-A2
       '@enonic-types/lib-admin':
-        specifier: ~7.16.2
-        version: 7.16.2
+        specifier: 8.0.0-A2
+        version: 8.0.0-A2
       '@enonic-types/lib-auditlog':
-        specifier: ~7.16.2
-        version: 7.16.2
+        specifier: 8.0.0-A2
+        version: 8.0.0-A2
       '@enonic-types/lib-auth':
-        specifier: ~7.16.2
-        version: 7.16.2
+        specifier: 8.0.0-A2
+        version: 8.0.0-A2
       '@enonic-types/lib-context':
-        specifier: ~7.16.2
-        version: 7.16.2
+        specifier: 8.0.0-A2
+        version: 8.0.0-A2
       '@enonic-types/lib-event':
-        specifier: ~7.16.2
-        version: 7.16.2
+        specifier: 8.0.0-A2
+        version: 8.0.0-A2
       '@enonic-types/lib-export':
-        specifier: ~7.16.2
-        version: 7.16.2
+        specifier: 8.0.0-A2
+        version: 8.0.0-A2
       '@enonic-types/lib-i18n':
-        specifier: ~7.16.2
-        version: 7.16.2
+        specifier: 8.0.0-A2
+        version: 8.0.0-A2
       '@enonic-types/lib-io':
-        specifier: ~7.16.2
-        version: 7.16.2
+        specifier: 8.0.0-A2
+        version: 8.0.0-A2
       '@enonic-types/lib-node':
-        specifier: ~7.16.2
-        version: 7.16.2
+        specifier: 8.0.0-A2
+        version: 8.0.0-A2
       '@enonic-types/lib-portal':
-        specifier: ~7.16.2
-        version: 7.16.2
+        specifier: 8.0.0-A2
+        version: 8.0.0-A2
       '@enonic-types/lib-repo':
-        specifier: ~7.16.2
-        version: 7.16.2
+        specifier: 8.0.0-A2
+        version: 8.0.0-A2
       '@enonic-types/lib-task':
-        specifier: ~7.16.2
-        version: 7.16.2
+        specifier: 8.0.0-A2
+        version: 8.0.0-A2
       '@enonic-types/lib-websocket':
-        specifier: ~7.16.2
-        version: 7.16.2
+        specifier: 8.0.0-A2
+        version: 8.0.0-A2
       '@tailwindcss/vite':
         specifier: ~4.2.0
         version: 4.2.0(vite@7.3.1(jiti@2.6.1)(lightningcss@1.31.1)(tsx@4.21.0))
@@ -393,50 +393,50 @@ packages:
     resolution: {integrity: sha512-QxULHAm7cNu72w97JUNCBFODFaXpbDg+dP8b/oWFAZ2MTRppA3U00Y2L1HqaS4J6yBqxwa/Y3nMBaxVKbB/NsA==}
     engines: {node: '>=20.19.0'}
 
-  '@enonic-types/core@7.16.2':
-    resolution: {integrity: sha512-rOhH1Xh2u7Nt/4SYsQbPn8uc/GxM5tciYNYTN8+Grn/YMM71abaBiC/zb9c2KY37lZOoLRWbelZrLp/SpaDtHw==}
+  '@enonic-types/core@8.0.0-A2':
+    resolution: {integrity: sha512-Kac0XP1wFHEYuLmjslpUlJ3qTUjTRkUD+CFm21P/ug9zw4GrP9Pm1oLUq7L9M9wL5J7tH/s+bTXAXlRLWgFYuA==}
 
-  '@enonic-types/global@7.16.2':
-    resolution: {integrity: sha512-0re7HPPYw/PduCMt/WkgUBVqx9W2gDwwOWyoeM5nrl5GmKRxZLiXu9spWSRz5TAk6wDp2HUBRxbdna9frWueuQ==}
+  '@enonic-types/global@8.0.0-A2':
+    resolution: {integrity: sha512-C35IRJM6Y4sH6xb3A9dgSgUF2WV6NrKIVA5m8NZWqlUivgJ646ia36/Ewu/SsMF+X0o+irF2XhxHqCm/R6VAng==}
 
-  '@enonic-types/lib-admin@7.16.2':
-    resolution: {integrity: sha512-w5MzGpt0sltYTPHEr8n7uaoT9r8k0qc7ZGdg9CZTRXTVYS7FZxTTLF7dDIIlJsQUzJIyBRUCv3OCIx82i4rAUA==}
+  '@enonic-types/lib-admin@8.0.0-A2':
+    resolution: {integrity: sha512-jRLH62y6KTdBzWr53Olv0J1/A/bMc8ICUXjo/IMwgfZgLHzZpgJM/98D0GPp7gvs5qpBgqUAMnI48OcocJbuVA==}
 
-  '@enonic-types/lib-auditlog@7.16.2':
-    resolution: {integrity: sha512-DF+TuPmG7l9cueyru8kBBAcWCZd/Fjpum6bttO4R54LV7oCe2ki1amAWLSLF524kdO5s2DjkBqvETWkqYjrmHQ==}
+  '@enonic-types/lib-auditlog@8.0.0-A2':
+    resolution: {integrity: sha512-XGbPQs5DT+rEYYaCwnWsKJIU5j8FqJOf2QQV/zriZ+J3Xj6lh3Rf7R/GXZgzSff079+DOEhnN0/XE3tPMVfDxg==}
 
-  '@enonic-types/lib-auth@7.16.2':
-    resolution: {integrity: sha512-hEG2ef487NbFlvB8px18bl+S2tMPgAFjopLRFXo5MgtXBYf7ija2+j1n0nhC4LiwbK/xGvAdcQqaCBLnBTcucQ==}
+  '@enonic-types/lib-auth@8.0.0-A2':
+    resolution: {integrity: sha512-Eh7TLSFUuc3KlIfU80Je385bM7nWuziuHUpSZ9xxXuS+OdAmBw1U9tpDEKtjvR0zAJfGS3gjTaBk31+Pb1UsBw==}
 
-  '@enonic-types/lib-context@7.16.2':
-    resolution: {integrity: sha512-jnfV52ztnuSimTruXvNm+Bg7Ws1MSD5peU3jFEnh9BXXBbNQiIpXGqfXZvkRUaQu2C8XvsvaaNQeoWwt0bO60Q==}
+  '@enonic-types/lib-context@8.0.0-A2':
+    resolution: {integrity: sha512-+LnSxuLn1cLpeq6RCyolgIQtCrlnrp5c1slKzPVw0AchCidbQtkzVianFV46WoPrr2zbq5DRkMEKPq8oHV+VMQ==}
 
-  '@enonic-types/lib-event@7.16.2':
-    resolution: {integrity: sha512-phpJEk5VrhpnXz8Yk65tTax48QT+k37Dm08pIplQ2zO0JzQlSI4QcbzLudC7zWUqRzBs5gzs11K85XFreJnNIw==}
+  '@enonic-types/lib-event@8.0.0-A2':
+    resolution: {integrity: sha512-QA/pEWXvNr66Bdn8rXpiazgpb/YVmHFm3S6bZoGIPWmGEq1EgBrfeDs4LtsJj4I0jAf2bF9Jl16vd1nE7A/d4g==}
 
-  '@enonic-types/lib-export@7.16.2':
-    resolution: {integrity: sha512-ZXjavp4wEYg0wRMZrUWi0byka9vq2KobiCUjZENhHSLUj3453yBELlx71MGKL9NE5+6xg8z+pJWXEDTqwCPbiw==}
+  '@enonic-types/lib-export@8.0.0-A2':
+    resolution: {integrity: sha512-ocoZBBFtteWrAfVF6+cVF3dk6B78ZW0aE5Mv2eYM8w/QdNP2gH8BlUxZQo+7qXPlMZe9sMufzKXFCXd12Gx2iQ==}
 
-  '@enonic-types/lib-i18n@7.16.2':
-    resolution: {integrity: sha512-mm64R/iyh+4GcenMyf3CTxBq5gjjev1QLfJpyd7xEln3btldixLNLdXthNYYFf3naWWelpfQvNNsyez5Gp2jvQ==}
+  '@enonic-types/lib-i18n@8.0.0-A2':
+    resolution: {integrity: sha512-ZUKR4PkuxLAQTy/o+eMhRkKVcm/5sFGyE3hrVrTFdkLBrfhESH5bCFMAOlY5l6Qy3YgWK5Iv7knyyasLZ6LHJg==}
 
-  '@enonic-types/lib-io@7.16.2':
-    resolution: {integrity: sha512-s6Gwa/JYiAagS8q/QiTtp43wrycLGSxCOS1wL1OOp0XB0ir0BOfpaQkRndqT5Pqd3zxNBMqXO5/IZtj0QTnaAg==}
+  '@enonic-types/lib-io@8.0.0-A2':
+    resolution: {integrity: sha512-7+xAA9yHb/cc7ieOUQp0IvPIvBF97twPsjjXRXIOfIfAqBhwmqDXdfuLi5+VAwl8aWUdNBoshNir21dxSzQfMA==}
 
-  '@enonic-types/lib-node@7.16.2':
-    resolution: {integrity: sha512-rcuL7y6Tjo9t7IIz8NLzB+bmjyAqSgHpxujiHfcVqWhkGeB22fj6CFj09Ya6uR5ToFo0ZiD6JCxTdqQbjLkdpQ==}
+  '@enonic-types/lib-node@8.0.0-A2':
+    resolution: {integrity: sha512-Yp1LqhAJYYyuKTPA/bVneTDu3kQP4g45PiP/UaOEILmPDVYT+rQeUbL05KiM5FyXqSmxrplTYZqysCgiqPbAAg==}
 
-  '@enonic-types/lib-portal@7.16.2':
-    resolution: {integrity: sha512-Uf9tB2hq2Qb4XVZaycu/ewQClwQp3SESEMMQ2RDDIBv6PJm9/UEeJxW6BIh8F4aOSbLPFiIjFRwlKWi1rwMhHw==}
+  '@enonic-types/lib-portal@8.0.0-A2':
+    resolution: {integrity: sha512-v4Oy4uDbVMZkhJ/VWqyTNtlz/L0aXE/splvoOCYrJPeQi6b8OQGdUoa9tYN2tdEsIgYNPuGZQZEzdXx3ds0RXQ==}
 
-  '@enonic-types/lib-repo@7.16.2':
-    resolution: {integrity: sha512-rcH+dv1lVFHLsLVO23z2U1Pz1tjLIwYSHFBjiVZstLyYxit4LBB9hz9XdCh7Fyp8Bw04O4xXR8B+R08yq/TdRw==}
+  '@enonic-types/lib-repo@8.0.0-A2':
+    resolution: {integrity: sha512-gBYmi3NsZxdPCCLdO7GxFutED+71x/JDC9RLw3ZuSX/6u8xjy2T7sGfvh4j/2KPe4Ko06bpg5A2r0QgJgPujfg==}
 
-  '@enonic-types/lib-task@7.16.2':
-    resolution: {integrity: sha512-FwqqR2MBfa7tQh+I3aTa9YOZoA10pvxitWCBtoDFCJ3JHO+BIViADP9rhRaKf7lEc0jYK+8ToffTvxOvUKdO/g==}
+  '@enonic-types/lib-task@8.0.0-A2':
+    resolution: {integrity: sha512-ob16A3jXMxukASIII4e0IJEesGX/Cuev5h/kxnRCscHvqFEkoTpIsk+F15XUJBqAeLIdE1cYfEGWsDK0VuaqgA==}
 
-  '@enonic-types/lib-websocket@7.16.2':
-    resolution: {integrity: sha512-o5I+sxcxFiyKjBu2mAiIHMg7/FncmH7He2bLtJiGd+Tjybc8K2ILmhQLqA6nCDaB3V0PGamXrlNvIyk9tpjiAA==}
+  '@enonic-types/lib-websocket@8.0.0-A2':
+    resolution: {integrity: sha512-pUT5yKtpDq5t8xBISrvXiOR8tHA3SmEf4Dj8ktLSdlSn3s9Wcr4qerYT4lV7ptAKni/0UY+ZjOLuUgAC/mMlxQ==}
 
   '@epic-web/invariant@1.0.0':
     resolution: {integrity: sha512-lrTPqgvfFQtR/eY/qkIzp98OGdNJu0m5ji3q/nJI8v3SXkRKEnWiOxMmbvcSoAIzv/cGiuvRy57k4suKQSAdwA==}
@@ -2679,57 +2679,59 @@ snapshots:
 
   '@csstools/css-tokenizer@4.0.0': {}
 
-  '@enonic-types/core@7.16.2': {}
+  '@enonic-types/core@8.0.0-A2': {}
 
-  '@enonic-types/global@7.16.2':
+  '@enonic-types/global@8.0.0-A2':
     dependencies:
-      '@enonic-types/core': 7.16.2
+      '@enonic-types/core': 8.0.0-A2
 
-  '@enonic-types/lib-admin@7.16.2': {}
-
-  '@enonic-types/lib-auditlog@7.16.2':
+  '@enonic-types/lib-admin@8.0.0-A2':
     dependencies:
-      '@enonic-types/core': 7.16.2
+      '@enonic-types/core': 8.0.0-A2
 
-  '@enonic-types/lib-auth@7.16.2':
+  '@enonic-types/lib-auditlog@8.0.0-A2':
     dependencies:
-      '@enonic-types/core': 7.16.2
+      '@enonic-types/core': 8.0.0-A2
 
-  '@enonic-types/lib-context@7.16.2':
+  '@enonic-types/lib-auth@8.0.0-A2':
     dependencies:
-      '@enonic-types/core': 7.16.2
+      '@enonic-types/core': 8.0.0-A2
 
-  '@enonic-types/lib-event@7.16.2': {}
-
-  '@enonic-types/lib-export@7.16.2':
+  '@enonic-types/lib-context@8.0.0-A2':
     dependencies:
-      '@enonic-types/core': 7.16.2
+      '@enonic-types/core': 8.0.0-A2
 
-  '@enonic-types/lib-i18n@7.16.2':
+  '@enonic-types/lib-event@8.0.0-A2': {}
+
+  '@enonic-types/lib-export@8.0.0-A2':
     dependencies:
-      '@enonic-types/core': 7.16.2
+      '@enonic-types/core': 8.0.0-A2
 
-  '@enonic-types/lib-io@7.16.2':
+  '@enonic-types/lib-i18n@8.0.0-A2':
     dependencies:
-      '@enonic-types/core': 7.16.2
+      '@enonic-types/core': 8.0.0-A2
 
-  '@enonic-types/lib-node@7.16.2':
+  '@enonic-types/lib-io@8.0.0-A2':
     dependencies:
-      '@enonic-types/core': 7.16.2
+      '@enonic-types/core': 8.0.0-A2
 
-  '@enonic-types/lib-portal@7.16.2':
+  '@enonic-types/lib-node@8.0.0-A2':
     dependencies:
-      '@enonic-types/core': 7.16.2
+      '@enonic-types/core': 8.0.0-A2
 
-  '@enonic-types/lib-repo@7.16.2':
+  '@enonic-types/lib-portal@8.0.0-A2':
     dependencies:
-      '@enonic-types/core': 7.16.2
+      '@enonic-types/core': 8.0.0-A2
 
-  '@enonic-types/lib-task@7.16.2':
+  '@enonic-types/lib-repo@8.0.0-A2':
     dependencies:
-      '@enonic-types/core': 7.16.2
+      '@enonic-types/core': 8.0.0-A2
 
-  '@enonic-types/lib-websocket@7.16.2': {}
+  '@enonic-types/lib-task@8.0.0-A2':
+    dependencies:
+      '@enonic-types/core': 8.0.0-A2
+
+  '@enonic-types/lib-websocket@8.0.0-A2': {}
 
   '@epic-web/invariant@1.0.0': {}
 

@@ -30,7 +30,7 @@ pnpm test           # vitest only
 
 - **Client-side (Vite):** `src/main/resources/assets/` — React app (`js` target) and Tailwind 4 CSS (`css` target), controlled by `BUILD_TARGET` env var
 - **Server-side (esbuild):** `src/main/resources/**/*.ts` (excluding `assets/`, `lib/`, `types/`) — CJS ES2015 for XP's Nashorn engine. Auto-discovers `.ts` entry points. XP imports (`/lib/xp/*`, `/lib/mustache`) are externalized.
-- Uses `@enonic-types/*@^7.16.x` for type-checking (XP 8 types not yet published; API is compatible)
+- Uses `@enonic-types/*@8.0.0-A2` for type-checking (XP 8 alpha types)
 
 **Admin tool entry:**
 - `admin/tools/main/main.ts` renders `main.html` (Mustache) with asset URLs. The JS bundle (`assets/js/bundle.js`) is a React app.

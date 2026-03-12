@@ -255,6 +255,51 @@ Using `lucide-react`. Default size 13-15px for nav/actions, 11-12px for small in
 - `alertC` → `AlertCircle`
 - `checkC` → `CheckCircle`
 
+## Grid View Mode (Image Preview)
+
+When the node browser is in grid mode (toggled via toolbar icon button):
+
+- **Cell size**: 120×120px grid cells with 8px gap
+- **Image thumbnail**: `object-fit: cover`, 4px border radius, `surface-el` background for loading state
+- **Label**: node name below the cell — monospace, 11px, `text-sub`, truncated with ellipsis
+- **Non-image nodes**: show file/folder icon centered in the cell instead of a thumbnail
+- **Toggle button**: `LayoutGrid` / `List` Lucide icons, 13px, in the breadcrumb toolbar right side (same row as existing toolbar actions)
+- **Selection**: clicking a grid cell selects it (highlights with `accent-dim` border), double-click navigates into folders
+- **Image in detail sidebar**: full-width image with `object-fit: contain`, max-height 240px, `surface-el` background, shown above the tabs in the detail panel
+
+### Image Caching
+
+- Binary endpoint must include `Cache-Control: max-age=3600` response header
+- Image URL should encode `versionKey` as a query param so cache busts automatically on node update
+- TanStack Query: image metadata queries use `staleTime: Infinity` — content is immutable per versionKey
+- Component-level: store rendered `<img src>` per node key in a ref Map to avoid Blob URL re-creation on panel re-mounts
+
+---
+
+## Path Constructor (Move-to Dialog)
+
+An optional UI mode for the Move-to dialog, toggled by a button next to the path input:
+
+### Autocomplete Input Mode (default)
+
+- Plain text input with inline autocomplete dropdown
+- As the user types, load up to 10 child folders matching the current path segment via debounced API call (150ms)
+- Dropdown items: folder icon + folder name, 12px monospace
+- Cache fetched results keyed by path string; on backspace restore from cache instead of re-fetching
+- Highlight the closest-by-name match at the top of the dropdown
+
+### Path Constructor Mode (toggle)
+
+- A horizontal scrollable bar replacing the text input
+- Each segment: folder icon + name, monospace 12px, `text-sub`, separated by `ChevronRight` (11px, `text-muted`)
+- Clicking a segment opens a vertical dropdown (same style as context menu) listing siblings at that level
+- The rightmost panel shows children of the current folder (up to 10), allowing drill-down without typing
+- Selecting from a dropdown updates the path and re-fetches children for the new current segment
+- Scroll snaps to the rightmost segment when path changes (keeps focus on the current level)
+- A "Use this path" confirmation button appears once a valid target path is selected
+
+---
+
 ## View Transitions
 
 Minimal transitions for navigation inside the repository browser:
