@@ -14,6 +14,7 @@ export type DataKitConfig = {
         nodes: string;
         search: string;
         binary: string;
+        snapshots: string;
     };
     launcherUri: string;
     user: UserConfig | null;

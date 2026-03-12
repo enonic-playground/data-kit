@@ -10,7 +10,7 @@ export const Toaster = (): ReactElement => {
     return (
         <Sonner
             data-component={TOASTER_NAME}
-            theme={theme === 'system' ? undefined : theme}
+            theme={theme}
             className="toaster group"
             toastOptions={{
                 classNames: {
