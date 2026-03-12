@@ -16,3 +16,4 @@ apis:
   - "nodes"
   - "search"
   - "binary"
+  - "snapshots"
