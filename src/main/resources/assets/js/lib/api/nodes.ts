@@ -70,6 +70,12 @@ export type AccessControlEntry = {
     deny: string[];
 };
 
+export type AttachmentInfo = {
+    mimeType: string;
+    size: number;
+    label?: string;
+};
+
 export type NodeDetail = Record<string, unknown> & {
     _id: string;
     _name: string;
@@ -80,6 +86,7 @@ export type NodeDetail = Record<string, unknown> & {
     _state: string;
     _versionKey: string;
     _permissions: AccessControlEntry[];
+    _attachments?: Record<string, AttachmentInfo>;
 };
 
 export type NodeDetailParams = {

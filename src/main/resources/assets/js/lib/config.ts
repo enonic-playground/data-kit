@@ -13,6 +13,7 @@ export type DataKitConfig = {
         branches: string;
         nodes: string;
         search: string;
+        binary: string;
     };
     launcherUri: string;
     user: UserConfig | null;

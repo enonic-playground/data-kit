@@ -14,6 +14,7 @@ type DataKitConfig = {
         branches: string;
         nodes: string;
         search: string;
+        binary: string;
     };
     launcherUri: string;
     user: {
@@ -35,6 +36,7 @@ function buildConfig(): DataKitConfig {
             branches: apiUrl({ api: 'branches', type: 'server' }),
             nodes: apiUrl({ api: 'nodes', type: 'server' }),
             search: apiUrl({ api: 'search', type: 'server' }),
+            binary: apiUrl({ api: 'binary', type: 'server' }),
         },
         launcherUri: extensionUrl({
             application: 'com.enonic.xp.app.main',
