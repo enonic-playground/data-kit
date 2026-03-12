@@ -1,14 +1,16 @@
 import { useQuery } from '@tanstack/react-query';
-import { ArrowRightLeft, Copy, Ellipsis, Pencil, Plus, Send, Shield, Table2, Trash2, X } from 'lucide-react';
+import { ArrowRightLeft, Copy, Download, Ellipsis, Pencil, Plus, Send, Shield, Table2, Trash2, X } from 'lucide-react';
 import { type ReactElement, useEffect, useMemo, useState } from 'react';
 import { createHighlighterCore } from 'shiki/core';
 import langJson from 'shiki/dist/langs/json.mjs';
 import themeGithubDarkDefault from 'shiki/dist/themes/github-dark-default.mjs';
 import themeGithubLightDefault from 'shiki/dist/themes/github-light-default.mjs';
 import { createJavaScriptRegexEngine } from 'shiki/engine/javascript';
+import { buildBinaryDownloadUrl } from '../lib/api/binary';
 import { branchesQueryOptions } from '../lib/api/branches';
 import {
     type AccessControlEntry,
+    type AttachmentInfo,
     type NodeDetail,
     type NodeDetailParams,
     nodeDetailQueryOptions,
@@ -61,6 +63,7 @@ import {
     TableRow,
 } from './ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 
 const highlighterPromise = createHighlighterCore({
     themes: [themeGithubDarkDefault, themeGithubLightDefault],
@@ -78,6 +81,7 @@ export type NodeDetailPanelProps = {
     branch: string;
     onClose: () => void;
     onNodeMutated?: () => void;
+    onNavigateToNode?: (nodeId: string) => void;
 };
 
 //
@@ -97,10 +101,26 @@ const METADATA_KEYS = [
 
 const SYSTEM_KEY_PREFIX = '_';
 
-function detectValueType(value: unknown): string {
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function detectValueType(
+    value: unknown,
+    attachments: Record<string, AttachmentInfo>,
+): string {
     if (value == null) return 'null';
     if (Array.isArray(value)) return 'array';
+    if (typeof value === 'string') {
+        if (attachments[value] != null) return 'BinaryReference';
+        if (UUID_REGEX.test(value)) return 'Reference';
+    }
     return typeof value;
+}
+
+function formatFileSize(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
 function formatValue(value: unknown): string {
@@ -133,11 +153,22 @@ type PropertyEntry = {
     name: string;
     type: string;
     value: string;
+    rawValue: unknown;
+    binaryInfo?: AttachmentInfo;
+};
+
+type PropertiesTabProps = {
+    node: NodeDetail;
+    repoId: string;
+    branch: string;
+    onNavigateToNode?: (nodeId: string) => void;
 };
 
 const PROPERTIES_TAB_NAME = 'PropertiesTab';
 
-const PropertiesTab = ({ node }: { node: NodeDetail }): ReactElement => {
+const PropertiesTab = ({ node, repoId, branch, onNavigateToNode }: PropertiesTabProps): ReactElement => {
+    const attachments = node._attachments ?? {};
+
     const properties = useMemo<PropertyEntry[]>(() => {
         const entries: PropertyEntry[] = [];
         const keys = Object.keys(node);
@@ -145,14 +176,17 @@ const PropertiesTab = ({ node }: { node: NodeDetail }): ReactElement => {
             const key = keys[i];
             if (key.startsWith(SYSTEM_KEY_PREFIX)) continue;
             const value = node[key];
+            const type = detectValueType(value, attachments);
             entries.push({
                 name: key,
-                type: detectValueType(value),
+                type,
                 value: formatValue(value),
+                rawValue: value,
+                binaryInfo: type === 'BinaryReference' ? attachments[value as string] : undefined,
             });
         }
         return entries;
-    }, [node]);
+    }, [node, attachments]);
 
     if (properties.length === 0) {
         return (
@@ -185,8 +219,47 @@ const PropertiesTab = ({ node }: { node: NodeDetail }): ReactElement => {
                             <TableCell>
                                 <Badge variant="secondary">{prop.type}</Badge>
                             </TableCell>
-                            <TableCell className="max-w-[300px] truncate font-mono text-sm">
-                                {prop.value}
+                            <TableCell className="max-w-[300px] font-mono text-sm">
+                                {prop.type === 'BinaryReference' ? (
+                                    <span className="flex items-center gap-1.5">
+                                        <span className="truncate">{prop.value}</span>
+                                        <Tooltip>
+                                            <TooltipTrigger asChild>
+                                                <a
+                                                    href={buildBinaryDownloadUrl({
+                                                        repoId,
+                                                        branch,
+                                                        key: node._id,
+                                                        binaryReference: prop.value,
+                                                    })}
+                                                    download
+                                                    className={cn(
+                                                        'inline-flex size-6 shrink-0 items-center justify-center rounded-md',
+                                                        'text-muted-foreground transition-colors',
+                                                        'hover:bg-accent hover:text-accent-foreground',
+                                                    )}
+                                                    onClick={e => e.stopPropagation()}
+                                                >
+                                                    <Download className="size-3.5" />
+                                                </a>
+                                            </TooltipTrigger>
+                                            <TooltipContent>
+                                                <p>{prop.binaryInfo?.mimeType ?? 'unknown'}</p>
+                                                <p>{prop.binaryInfo != null ? formatFileSize(prop.binaryInfo.size) : 'unknown size'}</p>
+                                            </TooltipContent>
+                                        </Tooltip>
+                                    </span>
+                                ) : prop.type === 'Reference' ? (
+                                    <button
+                                        type="button"
+                                        className="truncate text-left underline decoration-muted-foreground/50 underline-offset-2 hover:decoration-foreground"
+                                        onClick={() => onNavigateToNode?.(prop.value)}
+                                    >
+                                        {prop.value}
+                                    </button>
+                                ) : (
+                                    <span className="truncate">{prop.value}</span>
+                                )}
                             </TableCell>
                         </TableRow>
                     ))}
@@ -791,10 +864,12 @@ const NodeDetailContent = ({
     params,
     onClose,
     onNodeMutated,
+    onNavigateToNode,
 }: {
     params: NodeDetailParams;
     onClose: () => void;
     onNodeMutated?: () => void;
+    onNavigateToNode?: (nodeId: string) => void;
 }): ReactElement => {
     const { data: node, isLoading, error } = useQuery(nodeDetailQueryOptions(params));
 
@@ -866,7 +941,12 @@ const NodeDetailContent = ({
                 </TabsList>
                 <div className="flex-1 overflow-auto">
                     <TabsContent value="properties">
-                        <PropertiesTab node={node} />
+                        <PropertiesTab
+                            node={node}
+                            repoId={params.repoId}
+                            branch={params.branch}
+                            onNavigateToNode={onNavigateToNode}
+                        />
                     </TabsContent>
                     <TabsContent value="metadata">
                         <MetadataTab node={node} />
@@ -899,6 +979,7 @@ export const NodeDetailPanel = ({
     branch,
     onClose,
     onNodeMutated,
+    onNavigateToNode,
 }: NodeDetailPanelProps): ReactElement => {
     return (
         <div
@@ -909,6 +990,7 @@ export const NodeDetailPanel = ({
                 params={{ repoId, branch, key: nodeId }}
                 onClose={onClose}
                 onNodeMutated={onNodeMutated}
+                onNavigateToNode={onNavigateToNode}
             />
         </div>
     );

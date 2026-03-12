@@ -1086,6 +1086,7 @@ const NodeBrowserPage = (): ReactElement => {
                         branch={branch}
                         onClose={closeNodeDetail}
                         onNodeMutated={closeNodeDetail}
+                        onNavigateToNode={openNodeDetail}
                     />
                 )}
             </div>
