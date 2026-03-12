@@ -18,6 +18,8 @@ vi.mock('../../../../main/resources/assets/js/lib/config', () => ({
             branches: '/api/branches',
             nodes: '/api/nodes',
             search: '/api/search',
+            binary: '/api/binary',
+            snapshots: '/api/snapshots',
         },
         launcherUri: '/launcher',
         user: { key: 'user:system:su', displayName: 'Super User' },
