@@ -90,6 +90,7 @@ Each issue gets one **main** label + 0–2 **supportive** labels.
 - **With issue**: `<Issue Title> #<number>` — e.g. `feat: add export dialog #12`
 - **Without issue**: `<type>: <description>`
 - **Body** (optional): past tense, one line per change, 2–6 lines, backticks for code refs
+- PRs should contain a single commit on merge; squash locally and force-push before merging unless the PR combines work from several tasks
 
 ### Pull Requests
 
