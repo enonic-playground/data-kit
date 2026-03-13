@@ -17,3 +17,5 @@ apis:
   - "search"
   - "binary"
   - "snapshots"
+  - "dumps"
+  - "tasks"
