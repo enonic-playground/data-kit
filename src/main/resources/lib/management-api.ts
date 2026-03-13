@@ -67,7 +67,7 @@ export function getManagementApiCredentials(): ManagementApiCredentials {
 // * Request
 //
 
-function managementApiRequest<T>(path: string, options?: ManagementApiRequestOptions): T {
+export function managementApiRequest<T>(path: string, options?: ManagementApiRequestOptions): T {
     const url = getManagementApiUrl();
     const method = (options?.method ?? 'GET') as HttpRequestOptions['method'];
 

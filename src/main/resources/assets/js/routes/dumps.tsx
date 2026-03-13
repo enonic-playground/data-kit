@@ -1,21 +1,714 @@
+import { useQuery, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
-import { HardDrive } from 'lucide-react';
-import type { ReactElement } from 'react';
+import {
+    createColumnHelper,
+    flexRender,
+    getCoreRowModel,
+    useReactTable,
+} from '@tanstack/react-table';
+import {
+    ArrowUpCircle,
+    Ellipsis,
+    HardDrive,
+    Plus,
+    RotateCcw,
+    Trash2,
+} from 'lucide-react';
+import { type ReactElement, useEffect, useRef, useState } from 'react';
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from '../components/ui/alert-dialog';
+import { Button } from '../components/ui/button';
+import { Checkbox } from '../components/ui/checkbox';
+import { ConfirmDialog } from '../components/ui/confirm-dialog';
+import {
+    Dialog,
+    DialogClose,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+    DialogTrigger,
+} from '../components/ui/dialog';
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuGroup,
+    DropdownMenuItem,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from '../components/ui/dropdown-menu';
 import { EmptyState } from '../components/ui/empty-state';
+import { Input } from '../components/ui/input';
+import { Label } from '../components/ui/label';
+import { Progress } from '../components/ui/progress';
+import { toast } from '../components/ui/sonner';
+import {
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableHeader,
+    TableRow,
+} from '../components/ui/table';
+import {
+    type Dump,
+    dumpsQueryOptions,
+    useCreateDump,
+    useDeleteDump,
+    useLoadDump,
+    useUpgradeDump,
+} from '../lib/api/dumps';
+import { type TaskInfo, type TaskState, taskQueryOptions } from '../lib/api/tasks';
 
 const DUMPS_PAGE_NAME = 'DumpsPage';
 
-const DumpsPage = (): ReactElement => {
+//
+// * Helpers
+//
+
+function formatTimestamp(timestamp: string): string {
+    if (timestamp === '') return '\u2014';
+    try {
+        return new Date(timestamp).toLocaleString();
+    } catch {
+        return timestamp;
+    }
+}
+
+function formatSize(bytes: number): string {
+    if (bytes < 0) return '\u2014';
+    if (bytes === 0) return '0 B';
+
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(1024));
+    const value = bytes / 1024 ** i;
+
+    return `${value.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
+}
+
+function generateDumpName(): string {
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `dump-${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
+}
+
+type ActiveTask = {
+    id: string;
+    type: 'create' | 'load' | 'upgrade';
+    name?: string;
+};
+
+type DumpBranchResult = {
+    branch: string;
+    successful: number;
+    errors: string[];
+};
+
+type DumpRepositoryResult = {
+    repositoryId: string;
+    branches: DumpBranchResult[];
+    versions: number;
+    versionsErrors: string[];
+};
+
+type DumpResult = {
+    repositories: DumpRepositoryResult[];
+};
+
+function parseDumpResult(info: string): DumpResult | undefined {
+    try {
+        const parsed = JSON.parse(info);
+        if (parsed?.repositories != null) return parsed as DumpResult;
+        return undefined;
+    } catch {
+        return undefined;
+    }
+}
+
+const TERMINAL_STATES: TaskState[] = ['FINISHED', 'FAILED'];
+
+const TASK_TYPE_LABELS: Record<ActiveTask['type'], string> = {
+    create: 'Creating dump',
+    load: 'Loading dump',
+    upgrade: 'Upgrading dump',
+};
+
+const TASK_COMPLETE_LABELS: Record<ActiveTask['type'], string> = {
+    create: 'Dump created',
+    load: 'Dump loaded',
+    upgrade: 'Dump upgraded',
+};
+
+const columnHelper = createColumnHelper<Dump>();
+
+function getProgress(task: TaskInfo | undefined): number {
+    if (task == null) return 0;
+    if (task.state === 'FINISHED') return 100;
+    if (task.progress.total > 0) {
+        return Math.round((task.progress.current / task.progress.total) * 100);
+    }
+    return 0;
+}
+
+// ? Number of visible columns: Name, Timestamp, XP Version, Model Version, Size, Actions
+const COLUMN_COUNT = 6;
+
+//
+// * DumpResultSummary
+//
+
+const DumpResultSummary = ({ result }: { result: DumpResult }): ReactElement => {
+    const totalNodes = result.repositories.reduce(
+        (sum, repo) => sum + repo.branches.reduce((s, b) => s + b.successful, 0),
+        0,
+    );
+    const totalErrors = result.repositories.reduce(
+        (sum, repo) => sum + repo.branches.reduce((s, b) => s + b.errors.length, 0) + repo.versionsErrors.length,
+        0,
+    );
+
+    const repoCount = result.repositories.length;
+    const repoLabel = repoCount === 1 ? 'repository' : 'repositories';
+
     return (
-        <div
-            data-component={DUMPS_PAGE_NAME}
-            className="flex h-full items-center justify-center"
-        >
-            <EmptyState
-                icon={HardDrive}
-                title="Dumps"
-                description="Dump management coming soon."
+        <div className="space-y-3">
+            <p className="text-muted-foreground text-sm">
+                {repoCount} {repoLabel}, {totalNodes} nodes
+                {totalErrors > 0 && (
+                    <span className="text-destructive"> ({totalErrors} errors)</span>
+                )}
+            </p>
+            <div className="max-h-48 space-y-2 overflow-y-auto">
+                {result.repositories.map((repo) => (
+                    <div key={repo.repositoryId}>
+                        <p className="font-medium font-mono text-xs">{repo.repositoryId}</p>
+                        <p className="text-muted-foreground text-xs">
+                            {repo.branches.map((b) => `${b.branch}: ${b.successful}`).join(' \u00b7 ')}
+                            {repo.versions > 0 && ` \u00b7 ${repo.versions} versions`}
+                        </p>
+                        {repo.branches.some((b) => b.errors.length > 0) && (
+                            <p className="text-destructive text-xs">
+                                {repo.branches
+                                    .filter((b) => b.errors.length > 0)
+                                    .map((b) => `${b.branch}: ${b.errors.join(', ')}`)
+                                    .join(' \u00b7 ')}
+                            </p>
+                        )}
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+};
+
+DumpResultSummary.displayName = 'DumpResultSummary';
+
+//
+// * LoadDumpWarning
+//
+
+type LoadDumpWarningProps = {
+    dump: Dump;
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+    onConfirm: () => void;
+};
+
+const LoadDumpWarning = ({ dump, open, onOpenChange, onConfirm }: LoadDumpWarningProps): ReactElement => {
+    return (
+        <AlertDialog open={open} onOpenChange={onOpenChange}>
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle>Load Dump</AlertDialogTitle>
+                    <AlertDialogDescription>
+                        Loading dump &apos;{dump.name}&apos; will <strong>overwrite all existing data</strong> in the
+                        system. This operation cannot be undone. Make sure you have a backup before proceeding.
+                    </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                        onClick={onConfirm}
+                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    >
+                        Load Dump
+                    </AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
+    );
+};
+
+//
+// * RowActions
+//
+
+type RowActionsProps = {
+    dump: Dump;
+    onStartTask: (task: ActiveTask) => void;
+};
+
+const RowActions = ({ dump, onStartTask }: RowActionsProps): ReactElement => {
+    const [loadOpen, setLoadOpen] = useState(false);
+    const [deleteOpen, setDeleteOpen] = useState(false);
+    const loadMutation = useLoadDump();
+    const upgradeMutation = useUpgradeDump();
+    const deleteMutation = useDeleteDump();
+
+    const handleLoad = () => {
+        loadMutation.mutate(
+            { name: dump.name, archive: dump.type === 'archived' },
+            {
+                onSuccess: (result) => {
+                    setLoadOpen(false);
+                    onStartTask({ id: result.taskId, type: 'load' });
+                },
+                onError: () => {
+                    toast.error(`Failed to start loading dump '${dump.name}'`);
+                },
+            },
+        );
+    };
+
+    const handleUpgrade = () => {
+        upgradeMutation.mutate(dump.name, {
+            onSuccess: (result) => {
+                onStartTask({ id: result.taskId, type: 'upgrade' });
+            },
+            onError: () => {
+                toast.error(`Failed to start upgrading dump '${dump.name}'`);
+            },
+        });
+    };
+
+    const handleDelete = () => {
+        deleteMutation.mutate(dump.name, {
+            onSuccess: () => {
+                toast.success(`Dump '${dump.name}' deleted`);
+                setDeleteOpen(false);
+            },
+            onError: () => {
+                toast.error(`Failed to delete dump '${dump.name}'`);
+            },
+        });
+    };
+
+    const isLoadable = dump.type === 'versioned' || dump.type === 'archived';
+
+    return (
+        <>
+            <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={e => e.stopPropagation()}
+                    >
+                        <Ellipsis className="size-4 text-muted-foreground" />
+                    </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                    <DropdownMenuGroup>
+                        {isLoadable && (
+                            <DropdownMenuItem
+                                onClick={e => {
+                                    e.stopPropagation();
+                                    setLoadOpen(true);
+                                }}
+                            >
+                                <RotateCcw className="size-4" />
+                                Load
+                            </DropdownMenuItem>
+                        )}
+                        {dump.type === 'versioned' && (
+                            <DropdownMenuItem
+                                onClick={e => {
+                                    e.stopPropagation();
+                                    handleUpgrade();
+                                }}
+                            >
+                                <ArrowUpCircle className="size-4" />
+                                Upgrade
+                            </DropdownMenuItem>
+                        )}
+                    </DropdownMenuGroup>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuGroup>
+                        <DropdownMenuItem
+                            className="text-destructive focus:text-destructive"
+                            onClick={e => {
+                                e.stopPropagation();
+                                setDeleteOpen(true);
+                            }}
+                        >
+                            <Trash2 className="size-4" />
+                            Delete
+                        </DropdownMenuItem>
+                    </DropdownMenuGroup>
+                </DropdownMenuContent>
+            </DropdownMenu>
+
+            <LoadDumpWarning
+                dump={dump}
+                open={loadOpen}
+                onOpenChange={setLoadOpen}
+                onConfirm={handleLoad}
             />
+
+            <ConfirmDialog
+                title="Delete Dump"
+                description={`Are you sure you want to delete '${dump.name}'? This action cannot be undone.`}
+                confirmLabel="Delete"
+                variant="destructive"
+                onConfirm={handleDelete}
+                open={deleteOpen}
+                onOpenChange={setDeleteOpen}
+            />
+        </>
+    );
+};
+
+//
+// * CreateDumpDialog
+//
+
+type CreateDumpDialogProps = {
+    onStartTask: (task: ActiveTask) => void;
+};
+
+const CreateDumpDialog = ({ onStartTask }: CreateDumpDialogProps): ReactElement => {
+    const [open, setOpen] = useState(false);
+    const [name, setName] = useState('');
+    const [includeVersions, setIncludeVersions] = useState(false);
+    const [maxVersions, setMaxVersions] = useState('');
+    const [maxAge, setMaxAge] = useState('');
+    const createMutation = useCreateDump();
+
+    const handleSubmit = () => {
+        if (name.trim() === '') return;
+
+        const dumpName = name.trim();
+        createMutation.mutate(
+            {
+                name: dumpName,
+                includeVersions: includeVersions || undefined,
+                maxVersions: includeVersions && maxVersions !== '' ? Number(maxVersions) : undefined,
+                maxAge: includeVersions && maxAge !== '' ? Number(maxAge) : undefined,
+            },
+            {
+                onSuccess: (result) => {
+                    setOpen(false);
+                    resetForm();
+                    onStartTask({ id: result.taskId, type: 'create', name: dumpName });
+                },
+                onError: () => {
+                    toast.error('Failed to start creating dump');
+                },
+            },
+        );
+    };
+
+    const resetForm = () => {
+        setName('');
+        setIncludeVersions(false);
+        setMaxVersions('');
+        setMaxAge('');
+    };
+
+    const handleOpenChange = (nextOpen: boolean) => {
+        setOpen(nextOpen);
+        if (nextOpen) {
+            setName(generateDumpName());
+        } else {
+            resetForm();
+        }
+    };
+
+    return (
+        <Dialog open={open} onOpenChange={handleOpenChange}>
+            <DialogTrigger asChild>
+                <Button>
+                    <Plus className="size-4" />
+                    Create Dump
+                </Button>
+            </DialogTrigger>
+            <DialogContent>
+                <DialogHeader>
+                    <DialogTitle>Create Dump</DialogTitle>
+                    <DialogDescription>
+                        Create a new system dump for backup or migration.
+                    </DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-4 py-4">
+                    <div className="grid gap-2">
+                        <Label htmlFor="dump-name">Name</Label>
+                        <Input
+                            id="dump-name"
+                            value={name}
+                            onChange={e => setName(e.target.value)}
+                            placeholder="my-dump"
+                        />
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <Checkbox
+                            id="dump-include-versions"
+                            checked={includeVersions}
+                            onCheckedChange={checked => setIncludeVersions(checked === true)}
+                        />
+                        <Label htmlFor="dump-include-versions">Include versions</Label>
+                    </div>
+                    {includeVersions && (
+                        <>
+                            <div className="grid gap-2">
+                                <Label htmlFor="dump-max-versions">Max versions</Label>
+                                <Input
+                                    id="dump-max-versions"
+                                    type="number"
+                                    min="1"
+                                    value={maxVersions}
+                                    onChange={e => setMaxVersions(e.target.value)}
+                                    placeholder="Optional"
+                                />
+                            </div>
+                            <div className="grid gap-2">
+                                <Label htmlFor="dump-max-age">Max age (days)</Label>
+                                <Input
+                                    id="dump-max-age"
+                                    type="number"
+                                    min="1"
+                                    value={maxAge}
+                                    onChange={e => setMaxAge(e.target.value)}
+                                    placeholder="Optional"
+                                />
+                            </div>
+                        </>
+                    )}
+                </div>
+                <DialogFooter>
+                    <DialogClose asChild>
+                        <Button>Cancel</Button>
+                    </DialogClose>
+                    <Button
+                        variant="primary"
+                        onClick={handleSubmit}
+                        disabled={name.trim() === '' || createMutation.isPending}
+                    >
+                        Create
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    );
+};
+
+//
+// * DumpsPage
+//
+
+const DumpsPage = (): ReactElement => {
+    const { data: dumps } = useSuspenseQuery(dumpsQueryOptions());
+    const [activeTask, setActiveTask] = useState<ActiveTask | undefined>(undefined);
+    const [dialogOpen, setDialogOpen] = useState(false);
+    const queryClient = useQueryClient();
+    const handledRef = useRef(false);
+
+    const { data: task } = useQuery(taskQueryOptions(activeTask?.id));
+
+    const isTaskTerminal = task != null && TERMINAL_STATES.includes(task.state);
+    const isCreating = activeTask?.type === 'create' && !isTaskTerminal;
+    const progress = getProgress(task);
+
+    // ? Handle task completion once when terminal state is first reached
+    useEffect(() => {
+        if (!isTaskTerminal || handledRef.current) return;
+        handledRef.current = true;
+        queryClient.invalidateQueries({ queryKey: ['dumps'] });
+
+        if (!dialogOpen) {
+            setActiveTask(undefined);
+        }
+    }, [isTaskTerminal, dialogOpen, queryClient]);
+
+    const handleStartTask = (newTask: ActiveTask) => {
+        setActiveTask(newTask);
+        setDialogOpen(true);
+        handledRef.current = false;
+    };
+
+    const handleDialogClose = () => {
+        setDialogOpen(false);
+        if (isTaskTerminal) {
+            setActiveTask(undefined);
+            handledRef.current = false;
+        }
+    };
+
+    const columns = [
+        columnHelper.accessor('name', {
+            header: 'Name',
+            cell: info => info.getValue(),
+        }),
+        columnHelper.accessor('timestamp', {
+            header: 'Timestamp',
+            cell: info => formatTimestamp(info.getValue()),
+        }),
+        columnHelper.accessor('xpVersion', {
+            header: 'XP Version',
+            cell: info => info.getValue() || '\u2014',
+        }),
+        columnHelper.accessor('modelVersion', {
+            header: 'Model Version',
+            cell: info => info.getValue() || '\u2014',
+        }),
+        columnHelper.accessor('size', {
+            header: 'Size',
+            cell: info => formatSize(info.getValue()),
+        }),
+        columnHelper.display({
+            id: 'actions',
+            header: '',
+            cell: info => (
+                <div className="flex items-center justify-end gap-1">
+                    <RowActions dump={info.row.original} onStartTask={handleStartTask} />
+                </div>
+            ),
+        }),
+    ];
+
+    const table = useReactTable({
+        data: dumps,
+        columns,
+        getCoreRowModel: getCoreRowModel(),
+    });
+
+    return (
+        <div data-component={DUMPS_PAGE_NAME} className="flex flex-col">
+            {/* Breadcrumb bar */}
+            <div className="flex h-10 shrink-0 items-center gap-1.5 overflow-x-auto border-border border-b bg-card px-4">
+                <span className="font-medium font-mono text-foreground text-xs">Dumps</span>
+            </div>
+
+            {/* Action toolbar */}
+            <div className="flex items-center gap-2 px-4 py-2">
+                <div className="flex-1" />
+                <CreateDumpDialog onStartTask={handleStartTask} />
+            </div>
+
+            {dumps.length === 0 && !isCreating ? (
+                <EmptyState
+                    icon={HardDrive}
+                    title="No dumps"
+                    description="No dumps found. Create one to get started."
+                    action={<CreateDumpDialog onStartTask={handleStartTask} />}
+                />
+            ) : (
+                <Table>
+                    <TableHeader>
+                        {table.getHeaderGroups().map(headerGroup => (
+                            <TableRow key={headerGroup.id}>
+                                {headerGroup.headers.map(header => (
+                                    <TableHead key={header.id}>
+                                        {header.isPlaceholder
+                                            ? null
+                                            : flexRender(
+                                                  header.column.columnDef.header,
+                                                  header.getContext(),
+                                              )}
+                                    </TableHead>
+                                ))}
+                            </TableRow>
+                        ))}
+                    </TableHeader>
+                    <TableBody>
+                        {isCreating && (
+                            <TableRow>
+                                <TableCell className="font-medium">{activeTask?.name}</TableCell>
+                                <TableCell colSpan={COLUMN_COUNT - 2}>
+                                    <div className="flex items-center gap-2">
+                                        <Progress value={progress} className="h-2 flex-1" />
+                                        <span className="whitespace-nowrap text-muted-foreground text-xs">
+                                            {Math.round(progress)}%
+                                        </span>
+                                    </div>
+                                </TableCell>
+                                <TableCell />
+                            </TableRow>
+                        )}
+                        {table.getRowModel().rows.map(row => (
+                            <TableRow key={row.id}>
+                                {row.getVisibleCells().map(cell => (
+                                    <TableCell key={cell.id}>
+                                        {flexRender(
+                                            cell.column.columnDef.cell,
+                                            cell.getContext(),
+                                        )}
+                                    </TableCell>
+                                ))}
+                            </TableRow>
+                        ))}
+                    </TableBody>
+                </Table>
+            )}
+
+            {/* Task progress / completion dialog */}
+            {activeTask != null && (
+                <Dialog open={dialogOpen} onOpenChange={(open) => { if (!open) handleDialogClose(); }}>
+                    <DialogContent>
+                        <DialogHeader>
+                            <DialogTitle>
+                                {isTaskTerminal
+                                    ? (task?.state === 'FINISHED'
+                                        ? TASK_COMPLETE_LABELS[activeTask.type]
+                                        : 'Operation failed')
+                                    : TASK_TYPE_LABELS[activeTask.type]}
+                            </DialogTitle>
+                            {!isTaskTerminal && (
+                                <DialogDescription>
+                                    {task?.progress.info || 'Starting...'}
+                                </DialogDescription>
+                            )}
+                        </DialogHeader>
+                        {!isTaskTerminal && (
+                            <>
+                                <Progress value={progress} className="w-full" />
+                                <p className="text-center text-muted-foreground text-sm">
+                                    {Math.round(progress)}%
+                                </p>
+                            </>
+                        )}
+                        {task?.state === 'FINISHED' && (() => {
+                            const result = parseDumpResult(task.progress.info);
+                            if (result != null) return <DumpResultSummary result={result} />;
+                            return (
+                                <p className="text-muted-foreground text-sm">
+                                    {task.progress.info || 'Operation completed successfully.'}
+                                </p>
+                            );
+                        })()}
+                        {task?.state === 'FAILED' && (
+                            <p className="text-destructive text-sm">
+                                {task.progress.info || 'Operation failed.'}
+                            </p>
+                        )}
+                        <DialogFooter>
+                            <DialogClose asChild>
+                                {isTaskTerminal
+                                    ? <Button>Close</Button>
+                                    : <Button variant="ghost">Close</Button>}
+                            </DialogClose>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
+            )}
         </div>
     );
 };
@@ -23,5 +716,7 @@ const DumpsPage = (): ReactElement => {
 DumpsPage.displayName = DUMPS_PAGE_NAME;
 
 export const Route = createFileRoute('/dumps')({
+    loader: ({ context: { queryClient } }) =>
+        queryClient.ensureQueryData(dumpsQueryOptions()),
     component: DumpsPage,
 });

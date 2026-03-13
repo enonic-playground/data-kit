@@ -21,6 +21,8 @@ export function buildConfig(overrides?: Partial<DataKitConfig>): DataKitConfig {
             search: '/api/search',
             binary: '/api/binary',
             snapshots: '/api/snapshots',
+            dumps: '/api/dumps',
+            tasks: '/api/tasks',
         },
         launcherUri: '/launcher',
         user: { key: 'user:system:su', displayName: 'Super User' },
