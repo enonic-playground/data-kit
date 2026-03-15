@@ -2,6 +2,7 @@ plugins {
     alias( libs.plugins.enonic.defaults )
     alias( libs.plugins.enonic.xp.app )
     alias( libs.plugins.node.gradle )
+    alias( libs.plugins.kotlin.jvm )
 }
 
 app {
@@ -16,6 +17,7 @@ dependencies {
     implementation "com.enonic.xp:core-api:${xpVersion}"
     implementation "com.enonic.xp:admin-api:${xpVersion}"
     implementation "com.enonic.xp:portal-api:${xpVersion}"
+    include( libs.kotlin.stdlib )
     include "com.enonic.xp:lib-admin:${xpVersion}"
     include "com.enonic.xp:lib-portal:${xpVersion}"
     include "com.enonic.xp:lib-node:${xpVersion}"
@@ -98,4 +100,12 @@ tasks.named( 'processResources' ).configure {
 
 tasks.withType( Copy ).configureEach {
     includeEmptyDirs = false
+}
+
+tasks.withType( org.jetbrains.kotlin.gradle.tasks.KotlinCompile ).configureEach {
+    def javaTarget = tasks.named( 'compileJava', JavaCompile ).get().targetCompatibility
+
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.fromTarget( javaTarget )
+    }
 }
