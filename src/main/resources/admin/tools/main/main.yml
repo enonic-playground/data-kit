@@ -18,4 +18,5 @@ apis:
   - "binary"
   - "snapshots"
   - "dumps"
+  - "exports"
   - "tasks"

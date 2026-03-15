@@ -17,6 +17,7 @@ type DataKitConfig = {
         binary: string;
         snapshots: string;
         dumps: string;
+        exports: string;
         tasks: string;
     };
     launcherUri: string;
@@ -42,6 +43,7 @@ function buildConfig(): DataKitConfig {
             binary: apiUrl({ api: 'binary', type: 'server' }),
             snapshots: apiUrl({ api: 'snapshots', type: 'server' }),
             dumps: apiUrl({ api: 'dumps', type: 'server' }),
+            exports: apiUrl({ api: 'exports', type: 'server' }),
             tasks: apiUrl({ api: 'tasks', type: 'server' }),
         },
         launcherUri: extensionUrl({
