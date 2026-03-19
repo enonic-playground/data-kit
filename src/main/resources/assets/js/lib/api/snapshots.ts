@@ -55,6 +55,7 @@ export function snapshotsQueryOptions() {
     return queryOptions({
         queryKey: ['snapshots'],
         queryFn: fetchSnapshots,
+        retry: false,
     });
 }
 

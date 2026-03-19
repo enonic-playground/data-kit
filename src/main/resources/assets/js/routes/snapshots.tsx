@@ -1,5 +1,5 @@
-import { useSuspenseQuery } from '@tanstack/react-query';
-import { createFileRoute } from '@tanstack/react-router';
+import { useQuery, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
+import { createFileRoute, type ErrorComponentProps } from '@tanstack/react-router';
 import {
     createColumnHelper,
     flexRender,
@@ -9,13 +9,15 @@ import {
 import {
     Camera,
     Ellipsis,
+    KeyRound,
     Plus,
     RotateCcw,
     Trash2,
 } from 'lucide-react';
-import { type ReactElement, useState } from 'react';
+import { type ReactElement, type ReactNode, useEffect, useState } from 'react';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
+import { Code } from '../components/ui/code';
 import { ConfirmDialog } from '../components/ui/confirm-dialog';
 import {
     Dialog,
@@ -61,6 +63,7 @@ import {
     useDeleteSnapshot,
     useRestoreSnapshot,
 } from '../lib/api/snapshots';
+import type { ApiError } from '../types/api';
 
 const SNAPSHOTS_PAGE_NAME = 'SnapshotsPage';
 
@@ -185,7 +188,7 @@ const RowActions = ({ snapshot }: RowActionsProps): ReactElement => {
 const CreateSnapshotDialog = (): ReactElement => {
     const [open, setOpen] = useState(false);
     const [repositoryId, setRepositoryId] = useState('');
-    const { data: repositories } = useSuspenseQuery(repositoriesQueryOptions());
+    const { data: repositories } = useQuery(repositoriesQueryOptions());
     const createMutation = useCreateSnapshot();
 
     const handleSubmit = () => {
@@ -232,7 +235,7 @@ const CreateSnapshotDialog = (): ReactElement => {
                             <SelectValue placeholder="Select a repository" />
                         </SelectTrigger>
                         <SelectContent>
-                            {repositories.map(repo => (
+                            {repositories?.map(repo => (
                                 <SelectItem key={repo.id} value={repo.id}>
                                     {repo.id}
                                 </SelectItem>
@@ -258,11 +261,95 @@ const CreateSnapshotDialog = (): ReactElement => {
 };
 
 //
+// * SnapshotsError
+//
+
+function isApiError(error: unknown): error is ApiError {
+    return (
+        typeof error === 'object' &&
+        error != null &&
+        'status' in error &&
+        'message' in error
+    );
+}
+
+function getErrorContent(error: unknown): { title: string; description: ReactNode } {
+    if (!isApiError(error)) {
+        return {
+            title: 'Failed to load snapshots',
+            description: 'An unexpected error occurred. Please try again later.',
+        };
+    }
+
+    if (error.code === 'FORBIDDEN') {
+        return {
+            title: 'Access denied',
+            description: 'You need the system.admin role to manage snapshots.',
+        };
+    }
+
+    if (error.code === 'MANAGEMENT_API_ERROR') {
+        return {
+            title: 'Management API not available',
+            description: (
+                <>
+                    Could not connect to the Management API. Make sure the API is running and
+                    credentials are configured in <Code>$XP_HOME/config/com.enonic.app.datakit.cfg</Code>.
+                </>
+            ),
+        };
+    }
+
+    return {
+        title: 'Failed to load snapshots',
+        description: error.message,
+    };
+}
+
+const SNAPSHOTS_ERROR_NAME = 'SnapshotsError';
+
+const SnapshotsError = ({ error }: ErrorComponentProps): ReactElement => {
+    const { title, description } = getErrorContent(error);
+
+    return (
+        <div data-component={SNAPSHOTS_ERROR_NAME} className="flex flex-col">
+            {/* Breadcrumb bar */}
+            <div className="flex h-10 shrink-0 items-center gap-1.5 overflow-x-auto border-border border-b bg-card px-4">
+                <span className="font-medium font-mono text-foreground text-xs">Snapshots</span>
+            </div>
+
+            {/* Action toolbar */}
+            <div className="flex items-center gap-2 px-4 py-2">
+                <div className="flex-1" />
+                <Button disabled>
+                    <Plus className="size-4" />
+                    Create Snapshot
+                </Button>
+            </div>
+
+            <EmptyState
+                icon={KeyRound}
+                title={title}
+                description={description}
+            />
+        </div>
+    );
+};
+
+SnapshotsError.displayName = SNAPSHOTS_ERROR_NAME;
+
+//
 // * SnapshotsPage
 //
 
 const SnapshotsPage = (): ReactElement => {
     const { data: snapshots } = useSuspenseQuery(snapshotsQueryOptions());
+    const queryClient = useQueryClient();
+
+    // ? Prefetch repositories in the background so the Create dialog opens instantly
+    useEffect(() => {
+        queryClient.prefetchQuery(repositoriesQueryOptions());
+    }, [queryClient]);
 
     const columns = [
         columnHelper.accessor('name', {
@@ -365,9 +452,7 @@ SnapshotsPage.displayName = SNAPSHOTS_PAGE_NAME;
 
 export const Route = createFileRoute('/snapshots')({
     loader: ({ context: { queryClient } }) =>
-        Promise.all([
-            queryClient.ensureQueryData(snapshotsQueryOptions()),
-            queryClient.ensureQueryData(repositoriesQueryOptions()),
-        ]),
+        queryClient.ensureQueryData(snapshotsQueryOptions()),
     component: SnapshotsPage,
+    errorComponent: SnapshotsError,
 });
