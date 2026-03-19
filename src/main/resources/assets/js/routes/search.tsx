@@ -6,12 +6,21 @@ import {
     getCoreRowModel,
     useReactTable,
 } from '@tanstack/react-table';
-import { ChevronLeft, ChevronRight, Loader2, Search, X } from 'lucide-react';
-import { type ReactElement, useCallback, useMemo, useState } from 'react';
+import { ChevronLeft, ChevronRight, Download, Loader2, Search, X } from 'lucide-react';
+import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from '../components/ui/dialog';
 import { EmptyState } from '../components/ui/empty-state';
 import { Label } from '../components/ui/label';
+import { Progress } from '../components/ui/progress';
 import {
     Select,
     SelectContent,
@@ -19,6 +28,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from '../components/ui/select';
+import { toast } from '../components/ui/sonner';
 import {
     Table,
     TableBody,
@@ -29,12 +39,32 @@ import {
 } from '../components/ui/table';
 import { type Repository, repositoriesQueryOptions } from '../lib/api/repositories';
 import { executeSearch, type SearchHit, type SearchParams, type SearchResponse } from '../lib/api/search';
+import { downloadBlob, type ExportColumn, type ExportFormat, toCSV, toTSV } from '../lib/export';
 
 const SEARCH_PAGE_NAME = 'SearchPage';
 
 const ALL_REPOS = '__all__';
 
 const DEFAULT_COUNT = 25;
+
+const EXPORT_COLUMNS: ExportColumn<SearchHit>[] = [
+    { key: '_id', header: 'ID' },
+    { key: '_score', header: 'Score' },
+    { key: '_name', header: 'Name' },
+    { key: '_path', header: 'Path' },
+    { key: '_repoId', header: 'Repository' },
+    { key: '_branch', header: 'Branch' },
+    { key: '_nodeType', header: 'Type' },
+];
+
+const MAX_EXPORT_RESULTS = 10_000;
+const EXPORT_PAGE_SIZE = 100;
+
+function formatExportTimestamp(): string {
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
+}
 
 const columnHelper = createColumnHelper<SearchHit>();
 
@@ -57,6 +87,7 @@ const SearchPage = (): ReactElement => {
     const [branch, setBranch] = useState('');
     const [start, setStart] = useState(0);
     const [result, setResult] = useState<SearchResponse | null>(null);
+    const [resultParams, setResultParams] = useState<SearchParams | null>(null);
     const [error, setError] = useState<string | null>(null);
 
     const selectedRepo = useMemo(
@@ -98,18 +129,98 @@ const SearchPage = (): ReactElement => {
             }
 
             setStart(searchStart);
+            setResultParams(params);
             searchMutation.mutate(params);
         },
         [query, repoId, branch, branches, searchMutation],
     );
+
+    const [exporting, setExporting] = useState(false);
+    const [exportProgress, setExportProgress] = useState(0);
+    const abortRef = useRef<AbortController | null>(null);
+
+    useEffect(() => {
+        return () => { abortRef.current?.abort(); };
+    }, []);
+
+    const handleExport = async (format: ExportFormat) => {
+        if (result == null || resultParams == null) return;
+
+        const ext = format === 'csv' ? 'csv' : 'tsv';
+        const mime = format === 'csv' ? 'text/csv' : 'text/tab-separated-values';
+        const formatContent = (hits: SearchHit[]) =>
+            format === 'csv' ? toCSV(hits, EXPORT_COLUMNS) : toTSV(hits, EXPORT_COLUMNS);
+
+        const total = result.total;
+
+        // Small result set — use already-fetched hits
+        if (total <= DEFAULT_COUNT) {
+            const count = result.hits.length;
+            downloadBlob(formatContent(result.hits), `search-${formatExportTimestamp()}.${ext}`, mime);
+            toast.success(`Exported ${count} result${count !== 1 ? 's' : ''}`);
+            return;
+        }
+
+        // Large result set — paginated fetch
+        const controller = new AbortController();
+        abortRef.current = controller;
+        setExporting(true);
+        setExportProgress(0);
+
+        const totalToFetch = Math.min(total, MAX_EXPORT_RESULTS);
+        const allHits: SearchHit[] = [];
+
+        const baseParams: SearchParams = {
+            ...resultParams,
+            count: EXPORT_PAGE_SIZE,
+        };
+
+        try {
+            while (allHits.length < totalToFetch) {
+                controller.signal.throwIfAborted();
+
+                const page = await executeSearch({
+                    ...baseParams,
+                    start: allHits.length,
+                });
+                allHits.push(...page.hits);
+                if (page.hits.length === 0) break;
+
+                setExportProgress(Math.min((allHits.length / totalToFetch) * 100, 100));
+            }
+
+            downloadBlob(formatContent(allHits), `search-${formatExportTimestamp()}.${ext}`, mime);
+            if (total > MAX_EXPORT_RESULTS) {
+                toast.warning(`Exported ${allHits.length.toLocaleString()} of ${total.toLocaleString()} results (limit: ${MAX_EXPORT_RESULTS.toLocaleString()})`);
+            } else {
+                toast.success(`Exported ${allHits.length} result${allHits.length !== 1 ? 's' : ''}`);
+            }
+        } catch (_err) {
+            if (controller.signal.aborted) {
+                toast.info('Export cancelled');
+            } else {
+                toast.error('Export failed');
+            }
+        } finally {
+            setExporting(false);
+            setExportProgress(0);
+            abortRef.current = null;
+        }
+    };
+
+    const handleCancelExport = () => {
+        abortRef.current?.abort();
+    };
 
     const handleSubmit = () => {
         doSearch(0);
     };
 
     const handleClear = () => {
+        abortRef.current?.abort();
         setQuery('');
         setResult(null);
+        setResultParams(null);
         setError(null);
         setStart(0);
     };
@@ -120,6 +231,7 @@ const SearchPage = (): ReactElement => {
     };
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (exporting) return;
         if (e.key === 'Enter') {
             handleSubmit();
         }
@@ -254,7 +366,7 @@ const SearchPage = (): ReactElement => {
                     <button
                         type="button"
                         onClick={handleSubmit}
-                        disabled={query.trim() === '' || searchMutation.isPending}
+                        disabled={exporting || query.trim() === '' || searchMutation.isPending}
                         className="shrink-0 text-muted-foreground disabled:opacity-40"
                     >
                         {searchMutation.isPending ? (
@@ -299,9 +411,18 @@ const SearchPage = (): ReactElement => {
 
             {result != null && result.hits.length > 0 && (
                 <>
-                    <span className="px-4 font-mono text-muted-foreground text-xs">
-                        {total.toLocaleString()} result{total !== 1 ? 's' : ''} — {result.executionTimeMs}ms
-                    </span>
+                    <div className="flex items-center gap-2 px-4">
+                        <span className="font-mono text-muted-foreground text-xs">
+                            {total.toLocaleString()} result{total !== 1 ? 's' : ''} — {result.executionTimeMs}ms
+                        </span>
+                        <div className="flex-1" />
+                        <Button size="sm" disabled={exporting || searchMutation.isPending} onClick={() => handleExport('csv')}>
+                            <Download className="size-4" /> CSV
+                        </Button>
+                        <Button size="sm" disabled={exporting || searchMutation.isPending} onClick={() => handleExport('tsv')}>
+                            <Download className="size-4" /> TSV
+                        </Button>
+                    </div>
 
                     <Table>
                         <TableHeader>
@@ -344,7 +465,7 @@ const SearchPage = (): ReactElement => {
                             <div className="flex gap-2">
                                 <Button
                                     size="sm"
-                                    disabled={!hasPrev || searchMutation.isPending}
+                                    disabled={exporting || !hasPrev || searchMutation.isPending}
                                     onClick={() => doSearch(Math.max(0, start - DEFAULT_COUNT))}
                                 >
                                     <ChevronLeft className="size-4" />
@@ -352,7 +473,7 @@ const SearchPage = (): ReactElement => {
                                 </Button>
                                 <Button
                                     size="sm"
-                                    disabled={!hasNext || searchMutation.isPending}
+                                    disabled={exporting || !hasNext || searchMutation.isPending}
                                     onClick={() => doSearch(start + DEFAULT_COUNT)}
                                 >
                                     Next
@@ -361,8 +482,23 @@ const SearchPage = (): ReactElement => {
                             </div>
                         </div>
                     )}
+
                 </>
             )}
+
+            <Dialog open={exporting}>
+                <DialogContent onPointerDownOutside={e => e.preventDefault()} onEscapeKeyDown={e => e.preventDefault()} className="[&>button:last-child]:hidden">
+                    <DialogHeader>
+                        <DialogTitle>Exporting results</DialogTitle>
+                        <DialogDescription>Fetching search results for export...</DialogDescription>
+                    </DialogHeader>
+                    <Progress value={exportProgress} className="w-full" />
+                    <p className="text-center text-muted-foreground text-sm">{Math.round(exportProgress)}%</p>
+                    <DialogFooter>
+                        <Button onClick={handleCancelExport}>Cancel</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 };
