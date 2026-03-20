@@ -11,6 +11,7 @@ app {
     vendorName = "${vendorName}"
     vendorUrl = "${vendorUrl}"
     systemVersion = "${xpVersion}"
+    scriptEngine = "GraalJS"
 }
 
 dependencies {

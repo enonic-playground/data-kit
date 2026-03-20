@@ -46,25 +46,21 @@ function querySingleRepo(
     const hits: SearchHitDto[] = [];
 
     if (queryResult.count > 0) {
-        const ids: string[] = [];
-        for (let i = 0; i < queryResult.hits.length; i++) {
-            ids.push(queryResult.hits[i].id);
-        }
+        const ids = queryResult.hits.map(hit => hit.id);
 
         const rawNodes = repo.get(ids);
         const nodesArray = rawNodes == null ? [] : Array.isArray(rawNodes) ? rawNodes : [rawNodes];
 
-        for (let i = 0; i < queryResult.hits.length; i++) {
-            const hit = queryResult.hits[i];
+        for (const [i, hit] of queryResult.hits.entries()) {
             const node = nodesArray[i];
             hits.push({
                 _id: hit.id,
                 _score: hit.score,
                 _repoId: repoId,
                 _branch: branch,
-                _name: node != null ? node._name : undefined,
-                _path: node != null ? node._path : undefined,
-                _nodeType: node != null ? node._nodeType : undefined,
+                _name: node?._name,
+                _path: node?._path,
+                _nodeType: node?._nodeType,
             });
         }
     }
@@ -87,12 +83,11 @@ function queryAllRepos(
     const repos = list();
     const sources: Array<{ repoId: string; branch: string; principals: PrincipalKey[] }> = [];
 
-    for (let i = 0; i < repos.length; i++) {
-        const repo = repos[i];
-        for (let j = 0; j < repo.branches.length; j++) {
+    for (const repo of repos) {
+        for (const branch of repo.branches) {
             sources.push({
                 repoId: repo.id,
-                branch: repo.branches[j],
+                branch,
                 principals: ['role:system.admin'],
             });
         }
@@ -107,8 +102,7 @@ function queryAllRepos(
 
     const hits: SearchHitDto[] = [];
 
-    for (let i = 0; i < queryResult.hits.length; i++) {
-        const hit = queryResult.hits[i];
+    for (const hit of queryResult.hits) {
         hits.push({
             _id: hit.id,
             _score: hit.score,
@@ -119,8 +113,7 @@ function queryAllRepos(
 
     // Enrich hits with node metadata by grouping by repo+branch
     const groups: Record<string, { repoId: string; branch: string; indices: number[]; ids: string[] }> = {};
-    for (let i = 0; i < hits.length; i++) {
-        const h = hits[i];
+    for (const [i, h] of hits.entries()) {
         const groupKey = `${h._repoId}::${h._branch}`;
         if (groups[groupKey] == null) {
             groups[groupKey] = { repoId: h._repoId, branch: h._branch, indices: [], ids: [] };
@@ -129,16 +122,13 @@ function queryAllRepos(
         groups[groupKey].ids.push(h._id);
     }
 
-    const groupKeys = Object.keys(groups);
-    for (let i = 0; i < groupKeys.length; i++) {
-        const group = groups[groupKeys[i]];
+    for (const group of Object.values(groups)) {
         try {
             const conn = connect({ repoId: group.repoId, branch: group.branch });
             const rawNodes = conn.get(group.ids);
             const nodesArray = rawNodes == null ? [] : Array.isArray(rawNodes) ? rawNodes : [rawNodes];
 
-            for (let j = 0; j < group.indices.length; j++) {
-                const idx = group.indices[j];
+            for (const [j, idx] of group.indices.entries()) {
                 const node = nodesArray[j];
                 if (node != null) {
                     hits[idx]._name = node._name;
@@ -191,7 +181,7 @@ export function post(req: Request): Response {
     } catch (e) {
         const message = e instanceof Error ? e.message : String(e);
 
-        if (message.indexOf('ParseException') !== -1 || message.indexOf('parse') !== -1) {
+        if (message.includes('ParseException') || message.includes('parse')) {
             return errorResponse(400, `Invalid NoQL syntax: ${message}`, 'QUERY_ERROR');
         }
 

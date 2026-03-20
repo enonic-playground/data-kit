@@ -29,7 +29,7 @@ pnpm test           # vitest only
 **Build pipeline:** Two parallel pipelines compile TypeScript into `build/resources/main/`:
 
 - **Client-side (Vite):** `src/main/resources/assets/` — React app (`js` target) and Tailwind 4 CSS (`css` target), controlled by `BUILD_TARGET` env var
-- **Server-side (esbuild):** `src/main/resources/**/*.ts` (excluding `assets/`, `lib/`, `types/`) — CJS ES2015 for XP's Nashorn engine. Auto-discovers `.ts` entry points. XP imports (`/lib/xp/*`, `/lib/mustache`) are externalized.
+- **Server-side (esbuild):** `src/main/resources/**/*.ts` (excluding `assets/`, `lib/`, `types/`) — CJS ES2023 for XP's GraalJS engine. Auto-discovers `.ts` entry points. XP imports (`/lib/xp/*`, `/lib/mustache`) are externalized.
 - Uses `@enonic-types/*@8.0.0-A2` for type-checking (XP 8 alpha types)
 
 **Admin tool entry:**

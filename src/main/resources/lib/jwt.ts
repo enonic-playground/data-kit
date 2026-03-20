@@ -28,8 +28,7 @@ export function getJwtConfig(): JwtConfig | undefined {
     const keyId = app.config['managementApi.jwt.keyId'];
     const privateKeyPath = app.config['managementApi.jwt.privateKeyPath'];
     const expirationSeconds = parseInt(app.config['managementApi.jwt.expirationSeconds'] ?? '', 10);
-    // biome-ignore lint/suspicious/noGlobalIsNan: Number.isNaN is not available in Nashorn
-    const expiration = isNaN(expirationSeconds) ? DEFAULT_EXPIRATION_SECONDS : expirationSeconds;
+    const expiration = Number.isNaN(expirationSeconds) ? DEFAULT_EXPIRATION_SECONDS : expirationSeconds;
 
     if (privateKeyPath == null) {
         throw new Error(
