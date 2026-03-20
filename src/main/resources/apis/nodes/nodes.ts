@@ -54,10 +54,7 @@ function getNodeList(req: Request, repoId: string, branch: string): Response {
             return jsonResponse({ nodes: [], total: queryResult.total } satisfies NodesResult);
         }
 
-        const ids = [];
-        for (let i = 0; i < queryResult.hits.length; i++) {
-            ids.push(queryResult.hits[i].id);
-        }
+        const ids = queryResult.hits.map(hit => hit.id);
 
         const rawNodes = repo.get(ids);
         if (rawNodes == null) {
@@ -66,24 +63,22 @@ function getNodeList(req: Request, repoId: string, branch: string): Response {
 
         const nodesArray = Array.isArray(rawNodes) ? rawNodes : [rawNodes];
 
-        const nodes: NodeDto[] = [];
-        for (let i = 0; i < nodesArray.length; i++) {
-            const node = nodesArray[i];
+        const nodes: NodeDto[] = nodesArray.map(node => {
             const children = repo.findChildren({
                 parentKey: node._id,
                 countOnly: true,
                 count: 0,
             });
 
-            nodes.push({
+            return {
                 _id: node._id,
                 _name: node._name,
                 _path: node._path,
                 hasChildren: children.total > 0,
                 _nodeType: node._nodeType,
                 _ts: node._ts,
-            });
-        }
+            };
+        });
 
         return jsonResponse({ nodes, total: queryResult.total } satisfies NodesResult);
     } catch (_e) {
@@ -366,8 +361,7 @@ function delete_(req: Request): Response {
 
             const deleted: string[] = [];
             const failed: string[] = [];
-            for (let i = 0; i < repoInfo.branches.length; i++) {
-                const branchId = repoInfo.branches[i];
+            for (const branchId of repoInfo.branches) {
                 try {
                     const branchRepo = connect({ repoId, branch: branchId });
                     const branchNode = branchRepo.get(key);

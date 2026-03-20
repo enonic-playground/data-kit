@@ -25,10 +25,7 @@ export function get(req: Request): Response {
             return errorResponse(404, `Repository '${repoId}' not found`, 'NOT_FOUND');
         }
 
-        const branches: BranchDto[] = [];
-        for (let i = 0; i < repo.branches.length; i++) {
-            branches.push({ id: repo.branches[i] });
-        }
+        const branches: BranchDto[] = repo.branches.map(id => ({ id }));
 
         return jsonResponse(branches);
     } catch (_e) {
@@ -83,7 +80,7 @@ function delete_(req: Request): Response {
         return errorResponse(400, 'Branch ID is required', 'VALIDATION_ERROR');
     }
 
-    if (PROTECTED_BRANCHES.indexOf(branchId) !== -1) {
+    if (PROTECTED_BRANCHES.includes(branchId)) {
         return errorResponse(403, `Branch '${branchId}' is protected and cannot be deleted`, 'PROTECTED_BRANCH');
     }
 

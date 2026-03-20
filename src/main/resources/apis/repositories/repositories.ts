@@ -56,7 +56,7 @@ function delete_(req: Request): Response {
         return errorResponse(400, 'Repository ID is required', 'VALIDATION_ERROR');
     }
 
-    if (PROTECTED_REPOS.indexOf(id) !== -1) {
+    if (PROTECTED_REPOS.includes(id)) {
         return errorResponse(403, `Repository '${id}' is protected and cannot be deleted`, 'PROTECTED_REPO');
     }
 
