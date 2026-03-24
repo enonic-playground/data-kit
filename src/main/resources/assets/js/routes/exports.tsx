@@ -7,13 +7,16 @@ import {
     useReactTable,
 } from '@tanstack/react-table';
 import {
+    Download,
     Ellipsis,
     FileOutput,
     Import,
     Plus,
     Trash2,
+    Upload,
 } from 'lucide-react';
-import { type ReactElement, useEffect, useRef, useState } from 'react';
+import type { ChangeEvent, ReactElement } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import { Button } from '../components/ui/button';
 import { Checkbox } from '../components/ui/checkbox';
@@ -33,6 +36,7 @@ import {
     DropdownMenuContent,
     DropdownMenuGroup,
     DropdownMenuItem,
+    DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from '../components/ui/dropdown-menu';
 import { EmptyState } from '../components/ui/empty-state';
@@ -59,9 +63,11 @@ import {
 import {
     type ExportEntry,
     exportsQueryOptions,
+    getExportDownloadUrl,
     useCreateExport,
     useDeleteExport,
     useImportExport,
+    useUploadExport,
 } from '../lib/api/exports';
 import { type Repository, repositoriesQueryOptions } from '../lib/api/repositories';
 import { type TaskInfo, type TaskState, taskQueryOptions } from '../lib/api/tasks';
@@ -267,6 +273,18 @@ const RowActions = ({ exportEntry }: RowActionsProps): ReactElement => {
                     </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
+                    <DropdownMenuGroup>
+                        <DropdownMenuItem
+                            onClick={e => {
+                                e.stopPropagation();
+                                window.open(getExportDownloadUrl(exportEntry.name), '_blank');
+                            }}
+                        >
+                            <Download className="size-4" />
+                            Download
+                        </DropdownMenuItem>
+                    </DropdownMenuGroup>
+                    <DropdownMenuSeparator />
                     <DropdownMenuGroup>
                         <DropdownMenuItem
                             className="text-destructive focus:text-destructive"
@@ -648,6 +666,96 @@ const ImportDialog = ({ exports, repositories, onStartTask }: ImportDialogProps)
 };
 
 //
+// * UploadExportDialog
+//
+
+const UploadExportDialog = (): ReactElement => {
+    const [open, setOpen] = useState(false);
+    const [uploadProgress, setUploadProgress] = useState(0);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const uploadMutation = useUploadExport();
+
+    const handleFileSelect = (e: ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file == null) return;
+
+        setUploadProgress(0);
+        uploadMutation.mutate({ file, onProgress: setUploadProgress }, {
+            onSuccess: () => {
+                const displayName = file.name.endsWith('.zip') ? file.name.slice(0, -4) : file.name;
+                toast.success(`Export '${displayName}' uploaded`);
+                setOpen(false);
+                setUploadProgress(0);
+            },
+            onError: (error) => {
+                const message = (error as { message?: string })?.message ?? 'Upload failed';
+                toast.error(message);
+                setUploadProgress(0);
+            },
+        });
+
+        if (fileInputRef.current != null) {
+            fileInputRef.current.value = '';
+        }
+    };
+
+    const handleOpenChange = (nextOpen: boolean) => {
+        if (uploadMutation.isPending) return;
+        setOpen(nextOpen);
+        if (!nextOpen) {
+            setUploadProgress(0);
+        }
+    };
+
+    return (
+        <Dialog open={open} onOpenChange={handleOpenChange}>
+            <DialogTrigger asChild>
+                <Button>
+                    <Upload className="size-4" />
+                    Upload
+                </Button>
+            </DialogTrigger>
+            <DialogContent>
+                <DialogHeader>
+                    <DialogTitle>Upload Export</DialogTitle>
+                    <DialogDescription>
+                        Upload a ZIP archive containing an export.
+                    </DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-4 py-4">
+                    <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept=".zip"
+                        className="hidden"
+                        onChange={handleFileSelect}
+                    />
+                    <Button
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={uploadMutation.isPending}
+                    >
+                        Select ZIP file
+                    </Button>
+                    {uploadMutation.isPending && (
+                        <div className="flex items-center gap-2">
+                            <Progress value={uploadProgress} className="h-2 flex-1" />
+                            <span className="whitespace-nowrap text-muted-foreground text-xs">
+                                {uploadProgress}%
+                            </span>
+                        </div>
+                    )}
+                </div>
+                <DialogFooter>
+                    <DialogClose asChild>
+                        <Button disabled={uploadMutation.isPending}>Close</Button>
+                    </DialogClose>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    );
+};
+
+//
 // * ExportsPage
 //
 
@@ -734,6 +842,7 @@ const ExportsPage = (): ReactElement => {
             {/* Action toolbar */}
             <div className="flex items-center gap-2 px-4 py-2">
                 <div className="flex-1" />
+                <UploadExportDialog />
                 <ImportDialog exports={exports} repositories={repositories} onStartTask={handleStartTask} />
                 <CreateExportDialog repositories={repositories} onStartTask={handleStartTask} />
             </div>

@@ -1,8 +1,13 @@
 package com.enonic.app.datakit
 
+import com.google.common.io.ByteSource
+import java.io.ByteArrayOutputStream
 import java.io.IOException
+import java.io.InputStream
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 internal fun Path.directorySize(): Long {
     var size = 0L
@@ -45,6 +50,29 @@ internal fun Path.lastModifiedOrEmpty(): String =
     } catch (_: IOException) {
         ""
     }
+
+internal fun Path.zipToByteSource(): ByteSource {
+    val buffer = ByteArrayOutputStream()
+
+    ZipOutputStream(buffer).use { zos ->
+        Files.walk(this).use { paths ->
+            for (path in paths) {
+                if (Files.isRegularFile(path)) {
+                    val entryName = this.relativize(path).toString()
+                    zos.putNextEntry(ZipEntry(entryName))
+                    Files.newInputStream(path).use { input -> input.copyTo(zos) }
+                    zos.closeEntry()
+                }
+            }
+        }
+    }
+
+    return ByteSource.wrap(buffer.toByteArray())
+}
+
+internal fun saveStream(target: Path, source: InputStream) {
+    Files.copy(source, target)
+}
 
 internal fun jsonString(value: String?): String {
     if (value.isNullOrEmpty()) return "\"\""

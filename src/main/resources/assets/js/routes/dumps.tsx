@@ -8,13 +8,16 @@ import {
 } from '@tanstack/react-table';
 import {
     ArrowUpCircle,
+    Download,
     Ellipsis,
     HardDrive,
     Plus,
     RotateCcw,
     Trash2,
+    Upload,
 } from 'lucide-react';
-import { type ReactElement, useEffect, useRef, useState } from 'react';
+import type { ChangeEvent, ReactElement } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
     AlertDialog,
     AlertDialogAction,
@@ -62,10 +65,12 @@ import {
 import {
     type Dump,
     dumpsQueryOptions,
+    getDumpDownloadUrl,
     useCreateDump,
     useDeleteDump,
     useLoadDump,
     useUpgradeDump,
+    useUploadDump,
 } from '../lib/api/dumps';
 import { type TaskInfo, type TaskState, taskQueryOptions } from '../lib/api/tasks';
 
@@ -340,6 +345,15 @@ const RowActions = ({ dump, onStartTask }: RowActionsProps): ReactElement => {
                                 Upgrade
                             </DropdownMenuItem>
                         )}
+                        <DropdownMenuItem
+                            onClick={e => {
+                                e.stopPropagation();
+                                window.open(getDumpDownloadUrl(dump.name), '_blank');
+                            }}
+                        >
+                            <Download className="size-4" />
+                            Download
+                        </DropdownMenuItem>
                     </DropdownMenuGroup>
                     <DropdownMenuSeparator />
                     <DropdownMenuGroup>
@@ -511,6 +525,96 @@ const CreateDumpDialog = ({ onStartTask }: CreateDumpDialogProps): ReactElement 
 };
 
 //
+// * UploadDumpDialog
+//
+
+const UploadDumpDialog = (): ReactElement => {
+    const [open, setOpen] = useState(false);
+    const [uploadProgress, setUploadProgress] = useState(0);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const uploadMutation = useUploadDump();
+
+    const handleFileSelect = (e: ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file == null) return;
+
+        setUploadProgress(0);
+        uploadMutation.mutate({ file, onProgress: setUploadProgress }, {
+            onSuccess: () => {
+                const displayName = file.name.endsWith('.zip') ? file.name.slice(0, -4) : file.name;
+                toast.success(`Dump '${displayName}' uploaded`);
+                setOpen(false);
+                setUploadProgress(0);
+            },
+            onError: (error) => {
+                const message = (error as { message?: string })?.message ?? 'Upload failed';
+                toast.error(message);
+                setUploadProgress(0);
+            },
+        });
+
+        if (fileInputRef.current != null) {
+            fileInputRef.current.value = '';
+        }
+    };
+
+    const handleOpenChange = (nextOpen: boolean) => {
+        if (uploadMutation.isPending) return;
+        setOpen(nextOpen);
+        if (!nextOpen) {
+            setUploadProgress(0);
+        }
+    };
+
+    return (
+        <Dialog open={open} onOpenChange={handleOpenChange}>
+            <DialogTrigger asChild>
+                <Button>
+                    <Upload className="size-4" />
+                    Upload
+                </Button>
+            </DialogTrigger>
+            <DialogContent>
+                <DialogHeader>
+                    <DialogTitle>Upload Dump</DialogTitle>
+                    <DialogDescription>
+                        Upload a ZIP archive containing a dump.
+                    </DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-4 py-4">
+                    <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept=".zip"
+                        className="hidden"
+                        onChange={handleFileSelect}
+                    />
+                    <Button
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={uploadMutation.isPending}
+                    >
+                        Select ZIP file
+                    </Button>
+                    {uploadMutation.isPending && (
+                        <div className="flex items-center gap-2">
+                            <Progress value={uploadProgress} className="h-2 flex-1" />
+                            <span className="whitespace-nowrap text-muted-foreground text-xs">
+                                {uploadProgress}%
+                            </span>
+                        </div>
+                    )}
+                </div>
+                <DialogFooter>
+                    <DialogClose asChild>
+                        <Button disabled={uploadMutation.isPending}>Close</Button>
+                    </DialogClose>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    );
+};
+
+//
 // * DumpsPage
 //
 
@@ -600,6 +704,7 @@ const DumpsPage = (): ReactElement => {
             {/* Action toolbar */}
             <div className="flex items-center gap-2 px-4 py-2">
                 <div className="flex-1" />
+                <UploadDumpDialog />
                 <CreateDumpDialog onStartTask={handleStartTask} />
             </div>
 

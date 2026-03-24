@@ -1,3 +1,4 @@
+import type { ByteSource } from '@enonic-types/core';
 import { managementApiRequest } from './management-api';
 
 //
@@ -47,6 +48,14 @@ export function listDumps(): DumpEntry[] {
 
 export function deleteDump(name: string): boolean {
     return dumpManager.delete(name);
+}
+
+export function downloadDump(name: string): ByteSource | null {
+    return dumpManager.download(name);
+}
+
+export function uploadDump(name: string, data: ByteSource): boolean {
+    return dumpManager.upload(name, data as object);
 }
 
 export function createDump(params: CreateDumpParams, authHeader?: string): TaskIdResponse {

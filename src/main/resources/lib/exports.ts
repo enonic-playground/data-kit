@@ -1,3 +1,4 @@
+import type { ByteSource } from '@enonic-types/core';
 import { run } from '/lib/xp/context';
 import { exportNodes, importNodes } from '/lib/xp/export';
 import { executeFunction, progress } from '/lib/xp/task';
@@ -51,6 +52,14 @@ export function listExports(): ExportEntry[] {
 
 export function deleteExport(name: string): boolean {
     return exportManager.delete(name);
+}
+
+export function downloadExport(name: string): ByteSource | null {
+    return exportManager.download(name);
+}
+
+export function uploadExport(name: string, data: ByteSource): boolean {
+    return exportManager.upload(name, data as object);
 }
 
 export function createExport(params: CreateExportParams): TaskIdResponse {
