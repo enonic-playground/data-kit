@@ -1,6 +1,6 @@
 import { queryOptions, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getConfig } from '../config';
-import { apiFetch } from './client';
+import { apiFetch, apiUpload, buildUrl } from './client';
 
 export type Dump = {
     name: string;
@@ -67,6 +67,16 @@ export function upgradeDump(name: string): Promise<TaskIdResult> {
     });
 }
 
+export function getDumpDownloadUrl(name: string): string {
+    const { apiUris } = getConfig();
+    return buildUrl(apiUris.dumps, { action: 'download', name });
+}
+
+export function uploadDump(file: File, onProgress?: (percent: number) => void): Promise<void> {
+    const { apiUris } = getConfig();
+    return apiUpload(apiUris.dumps, { file, params: { action: 'upload' }, onProgress });
+}
+
 export function dumpsQueryOptions() {
     return queryOptions({
         queryKey: ['dumps'],
@@ -99,5 +109,20 @@ export function useDeleteDump() {
 export function useUpgradeDump() {
     return useMutation({
         mutationFn: upgradeDump,
+    });
+}
+
+type UploadDumpParams = {
+    file: File;
+    onProgress?: (percent: number) => void;
+};
+
+export function useUploadDump() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({ file, onProgress }: UploadDumpParams) => uploadDump(file, onProgress),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['dumps'] });
+        },
     });
 }

@@ -1,6 +1,6 @@
 import { queryOptions, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getConfig } from '../config';
-import { apiFetch } from './client';
+import { apiFetch, apiUpload, buildUrl } from './client';
 
 export type ExportEntry = {
     name: string;
@@ -60,6 +60,16 @@ export function deleteExport(name: string): Promise<{ success: boolean }> {
     });
 }
 
+export function getExportDownloadUrl(name: string): string {
+    const { apiUris } = getConfig();
+    return buildUrl(apiUris.exports, { action: 'download', name });
+}
+
+export function uploadExport(file: File, onProgress?: (percent: number) => void): Promise<void> {
+    const { apiUris } = getConfig();
+    return apiUpload(apiUris.exports, { file, params: { action: 'upload' }, onProgress });
+}
+
 export function exportsQueryOptions() {
     return queryOptions({
         queryKey: ['exports'],
@@ -83,6 +93,21 @@ export function useDeleteExport() {
     const queryClient = useQueryClient();
     return useMutation({
         mutationFn: deleteExport,
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['exports'] });
+        },
+    });
+}
+
+type UploadExportParams = {
+    file: File;
+    onProgress?: (percent: number) => void;
+};
+
+export function useUploadExport() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({ file, onProgress }: UploadExportParams) => uploadExport(file, onProgress),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['exports'] });
         },

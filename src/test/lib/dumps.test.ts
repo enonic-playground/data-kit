@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 const mockDumpManager = vi.hoisted(() => ({
     list: vi.fn(),
     delete: vi.fn(),
+    download: vi.fn(),
+    upload: vi.fn(),
 }));
 
 vi.hoisted(() => {
@@ -16,9 +18,11 @@ vi.mock('../../main/resources/lib/management-api', () => ({
 import {
     createDump,
     deleteDump,
+    downloadDump,
     listDumps,
     loadDump,
     upgradeDump,
+    uploadDump,
 } from '../../main/resources/lib/dumps';
 import { managementApiRequest } from '../../main/resources/lib/management-api';
 
@@ -100,5 +104,33 @@ describe('upgradeDump', () => {
             body: { name: 'my-dump' },
             authHeader: 'Bearer token',
         });
+    });
+});
+
+describe('downloadDump', () => {
+    test('returns ByteSource from bean', () => {
+        const fakeStream = { fake: 'stream' };
+        mockDumpManager.download.mockReturnValue(fakeStream);
+        expect(downloadDump('my-dump')).toBe(fakeStream);
+        expect(mockDumpManager.download).toHaveBeenCalledWith('my-dump');
+    });
+
+    test('returns null when not found', () => {
+        mockDumpManager.download.mockReturnValue(null);
+        expect(downloadDump('nonexistent')).toBeNull();
+    });
+});
+
+describe('uploadDump', () => {
+    test('returns true on success', () => {
+        mockDumpManager.upload.mockReturnValue(true);
+        const fakeData = { fake: 'data' };
+        expect(uploadDump('my-dump', fakeData as never)).toBe(true);
+        expect(mockDumpManager.upload).toHaveBeenCalledWith('my-dump', fakeData);
+    });
+
+    test('returns false on conflict', () => {
+        mockDumpManager.upload.mockReturnValue(false);
+        expect(uploadDump('existing', {} as never)).toBe(false);
     });
 });

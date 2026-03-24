@@ -5,15 +5,23 @@ vi.mock('/lib/xp/auth', () => ({
     hasRole: vi.fn(() => true),
 }));
 
+vi.mock('/lib/xp/portal', () => ({
+    getMultipartItem: vi.fn(),
+    getMultipartStream: vi.fn(),
+}));
+
 vi.mock('../../main/resources/lib/dumps', () => ({
     listDumps: vi.fn(),
     deleteDump: vi.fn(),
+    downloadDump: vi.fn(),
+    uploadDump: vi.fn(),
     createDump: vi.fn(),
     loadDump: vi.fn(),
     upgradeDump: vi.fn(),
 }));
 
 import { hasRole } from '/lib/xp/auth';
+import { getMultipartItem, getMultipartStream } from '/lib/xp/portal';
 import {
     delete as deleteHandler,
     get,
@@ -22,17 +30,23 @@ import {
 import {
     createDump,
     deleteDump,
+    downloadDump,
     listDumps,
     loadDump,
     upgradeDump,
+    uploadDump,
 } from '../../main/resources/lib/dumps';
 
 const mockedHasRole = vi.mocked(hasRole);
 const mockedListDumps = vi.mocked(listDumps);
 const mockedDeleteDump = vi.mocked(deleteDump);
+const mockedDownloadDump = vi.mocked(downloadDump);
+const mockedUploadDump = vi.mocked(uploadDump);
 const mockedCreateDump = vi.mocked(createDump);
 const mockedLoadDump = vi.mocked(loadDump);
 const mockedUpgradeDump = vi.mocked(upgradeDump);
+const mockedGetMultipartItem = vi.mocked(getMultipartItem);
+const mockedGetMultipartStream = vi.mocked(getMultipartStream);
 
 const AUTH_HEADER = 'Basic c3U6cGFzc3dvcmQ=';
 
@@ -229,5 +243,125 @@ describe('DELETE /dumps', () => {
             params: { name: 'my-dump' },
         } as unknown as Request);
         expect(response.status).toBe(500);
+    });
+});
+
+describe('GET /dumps?action=download', () => {
+    test('returns ZIP stream on success', () => {
+        const fakeStream = { fake: 'stream' };
+        mockedDownloadDump.mockReturnValue(fakeStream as never);
+
+        const response = get({
+            params: { action: 'download', name: 'my-dump' },
+        } as unknown as Request);
+
+        expect(response.status).toBe(200);
+        expect(response.contentType).toBe('application/zip');
+        expect(response.body).toBe(fakeStream);
+        expect(response.headers?.['Content-Disposition']).toBe('attachment; filename="my-dump.zip"');
+    });
+
+    test('requires name parameter', () => {
+        const response = get({
+            params: { action: 'download' },
+        } as unknown as Request);
+        expect(response.status).toBe(400);
+        expect(parseBody(response).code).toBe('VALIDATION_ERROR');
+    });
+
+    test('returns 404 when dump not found', () => {
+        mockedDownloadDump.mockReturnValue(null);
+
+        const response = get({
+            params: { action: 'download', name: 'nonexistent' },
+        } as unknown as Request);
+        expect(response.status).toBe(404);
+        expect(parseBody(response).code).toBe('NOT_FOUND');
+    });
+
+    test('returns 403 for non-admin', () => {
+        mockedHasRole.mockReturnValue(false);
+        const response = get({
+            params: { action: 'download', name: 'my-dump' },
+        } as unknown as Request);
+        expect(response.status).toBe(403);
+    });
+});
+
+describe('POST /dumps?action=upload', () => {
+    test('uploads a dump successfully', () => {
+        const fakeStream = { fake: 'stream' };
+        mockedGetMultipartItem.mockReturnValue({ fileName: 'my-dump.zip', contentType: 'application/zip', size: 1024 } as never);
+        mockedGetMultipartStream.mockReturnValue(fakeStream as never);
+        mockedUploadDump.mockReturnValue(true);
+
+        const response = post({
+            headers: {},
+            params: { action: 'upload' },
+        } as unknown as Request);
+        const body = parseBody(response);
+
+        expect(response.status).toBe(200);
+        expect(body.data).toEqual({ success: true, name: 'my-dump' });
+        expect(mockedUploadDump).toHaveBeenCalledWith('my-dump', fakeStream);
+    });
+
+    test('strips .zip extension from filename', () => {
+        mockedGetMultipartItem.mockReturnValue({ fileName: 'test-dump.zip', contentType: 'application/zip', size: 512 } as never);
+        mockedGetMultipartStream.mockReturnValue({} as never);
+        mockedUploadDump.mockReturnValue(true);
+
+        const response = post({
+            headers: {},
+            params: { action: 'upload' },
+        } as unknown as Request);
+        const body = parseBody(response);
+
+        expect(body.data.name).toBe('test-dump');
+    });
+
+    test('rejects filename with invalid characters', () => {
+        mockedGetMultipartItem.mockReturnValue({ fileName: 'bad name.zip', contentType: 'application/zip', size: 512 } as never);
+        mockedGetMultipartStream.mockReturnValue({} as never);
+
+        const response = post({
+            headers: {},
+            params: { action: 'upload' },
+        } as unknown as Request);
+        expect(response.status).toBe(400);
+        expect(parseBody(response).code).toBe('VALIDATION_ERROR');
+    });
+
+    test('returns 400 when file is missing', () => {
+        mockedGetMultipartItem.mockReturnValue(null);
+
+        const response = post({
+            headers: {},
+            params: { action: 'upload' },
+        } as unknown as Request);
+        expect(response.status).toBe(400);
+        expect(parseBody(response).code).toBe('VALIDATION_ERROR');
+    });
+
+    test('returns 409 when dump already exists', () => {
+        mockedGetMultipartItem.mockReturnValue({ fileName: 'existing.zip', contentType: 'application/zip', size: 1024 } as never);
+        mockedGetMultipartStream.mockReturnValue({} as never);
+        mockedUploadDump.mockReturnValue(false);
+
+        const response = post({
+            headers: {},
+            params: { action: 'upload' },
+        } as unknown as Request);
+        expect(response.status).toBe(409);
+        expect(parseBody(response).code).toBe('CONFLICT');
+    });
+
+    test('returns 403 for non-admin', () => {
+        mockedHasRole.mockReturnValue(false);
+        const response = post({
+            headers: {},
+            params: { action: 'upload' },
+        } as unknown as Request);
+        expect(response.status).toBe(403);
     });
 });

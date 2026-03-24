@@ -1,8 +1,11 @@
 package com.enonic.app.datakit
 
 import com.enonic.xp.home.HomeDir
+import com.google.common.io.ByteSource
+import com.google.common.io.Files as GuavaFiles
 import org.osgi.service.component.annotations.Component
 import java.io.IOException
+import java.io.InputStream
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.deleteIfExists
@@ -76,6 +79,55 @@ class ExportManager {
             }
         } catch (_: IOException) {
             // ? Metadata is non-critical; export already succeeded
+        }
+    }
+
+    fun download(name: String?): ByteSource? {
+        if (name.isNullOrEmpty()) return null
+
+        val exportDir = exportDirectory()
+        val target = exportDir.resolve(name).normalize()
+        if (!target.startsWith(exportDir)) return null
+
+        val archive = exportDir.resolve("$name.zip").normalize()
+        if (!archive.startsWith(exportDir)) return null
+
+        if (Files.isRegularFile(archive)) {
+            return GuavaFiles.asByteSource(archive.toFile())
+        }
+
+        if (Files.isDirectory(target)) {
+            return target.zipToByteSource()
+        }
+
+        return null
+    }
+
+    fun upload(name: String?, data: InputStream?): Boolean {
+        if (name.isNullOrEmpty() || data == null) return false
+
+        val exportDir = exportDirectory()
+        val target = exportDir.resolve("$name.zip").normalize()
+        if (!target.startsWith(exportDir)) return false
+
+        if (Files.exists(target) || Files.isDirectory(exportDir.resolve(name).normalize())) return false
+
+        val tempFile = exportDir.resolve(".$name.zip.tmp").normalize()
+        if (!tempFile.startsWith(exportDir)) return false
+
+        try {
+            if (!Files.isDirectory(exportDir)) {
+                Files.createDirectories(exportDir)
+            }
+            try {
+                saveStream(tempFile, data)
+                Files.move(tempFile, target)
+            } finally {
+                Files.deleteIfExists(tempFile)
+            }
+            return true
+        } catch (e: IOException) {
+            throw RuntimeException("Failed to upload export '$name': ${e.message}", e)
         }
     }
 

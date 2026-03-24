@@ -1,8 +1,11 @@
 package com.enonic.app.datakit
 
 import com.enonic.xp.home.HomeDir
+import com.google.common.io.ByteSource
+import com.google.common.io.Files as GuavaFiles
 import org.osgi.service.component.annotations.Component
 import java.io.IOException
+import java.io.InputStream
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.Properties
@@ -58,6 +61,60 @@ class DumpManager {
         } catch (e: IOException) {
             throw RuntimeException("Failed to delete dump '$name': ${e.message}", e)
         }
+    }
+
+    fun download(name: String?): ByteSource? {
+        if (name.isNullOrEmpty()) return null
+
+        val dumpDir = dumpDirectory()
+        val target = dumpDir.resolve(name).normalize()
+        if (!target.startsWith(dumpDir)) return null
+
+        val archive = dumpDir.resolve("$name.zip").normalize()
+        if (!archive.startsWith(dumpDir)) return null
+
+        if (Files.isRegularFile(archive)) {
+            return GuavaFiles.asByteSource(archive.toFile())
+        }
+
+        if (Files.isDirectory(target) && isValidDumpDirectory(target)) {
+            return target.zipToByteSource()
+        }
+
+        return null
+    }
+
+    fun upload(name: String?, data: InputStream?): Boolean {
+        if (name.isNullOrEmpty() || data == null) return false
+
+        val dumpDir = dumpDirectory()
+        val target = dumpDir.resolve("$name.zip").normalize()
+        if (!target.startsWith(dumpDir)) return false
+
+        if (Files.exists(target) || Files.isDirectory(dumpDir.resolve(name).normalize())) return false
+
+        val tempFile = dumpDir.resolve(".$name.zip.tmp").normalize()
+        if (!tempFile.startsWith(dumpDir)) return false
+
+        try {
+            if (!Files.isDirectory(dumpDir)) {
+                Files.createDirectories(dumpDir)
+            }
+            try {
+                saveStream(tempFile, data)
+                Files.move(tempFile, target)
+            } finally {
+                Files.deleteIfExists(tempFile)
+            }
+            return true
+        } catch (e: IOException) {
+            throw RuntimeException("Failed to upload dump '$name': ${e.message}", e)
+        }
+    }
+
+    private fun isValidDumpDirectory(dir: Path): Boolean {
+        return Files.isRegularFile(dir.resolve("dump.json")) ||
+            Files.isRegularFile(dir.resolve("export.properties"))
     }
 
     private fun buildEntryJson(entry: Path): String? {

@@ -4,6 +4,8 @@ const mockExportManager = vi.hoisted(() => ({
     list: vi.fn(),
     delete: vi.fn(),
     writeMetadata: vi.fn(),
+    download: vi.fn(),
+    upload: vi.fn(),
 }));
 
 vi.hoisted(() => {
@@ -44,8 +46,10 @@ import { executeFunction, progress } from '/lib/xp/task';
 import {
     createExport,
     deleteExport,
+    downloadExport,
     importExport,
     listExports,
+    uploadExport,
 } from '../../main/resources/lib/exports';
 
 const mockedExecuteFunction = vi.mocked(executeFunction);
@@ -183,5 +187,33 @@ describe('importExport', () => {
         expect(progressCalls[1][0]).toEqual({ current: 5, total: 20 });
         expect(progressCalls[2][0]).toEqual({ current: 8, total: 20 });
         expect(progressCalls[3][0]).toEqual({ current: 15, total: 20 });
+    });
+});
+
+describe('downloadExport', () => {
+    test('returns ByteSource from bean', () => {
+        const fakeStream = { fake: 'stream' };
+        mockExportManager.download.mockReturnValue(fakeStream);
+        expect(downloadExport('my-export')).toBe(fakeStream);
+        expect(mockExportManager.download).toHaveBeenCalledWith('my-export');
+    });
+
+    test('returns null when not found', () => {
+        mockExportManager.download.mockReturnValue(null);
+        expect(downloadExport('nonexistent')).toBeNull();
+    });
+});
+
+describe('uploadExport', () => {
+    test('returns true on success', () => {
+        mockExportManager.upload.mockReturnValue(true);
+        const fakeData = { fake: 'data' };
+        expect(uploadExport('my-export', fakeData as never)).toBe(true);
+        expect(mockExportManager.upload).toHaveBeenCalledWith('my-export', fakeData);
+    });
+
+    test('returns false on conflict', () => {
+        mockExportManager.upload.mockReturnValue(false);
+        expect(uploadExport('existing', {} as never)).toBe(false);
     });
 });
