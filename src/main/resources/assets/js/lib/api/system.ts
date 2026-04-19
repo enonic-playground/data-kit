@@ -2,10 +2,18 @@ import { queryOptions } from '@tanstack/react-query';
 import { getConfig } from '../config';
 import { apiFetch } from './client';
 
-type SystemInfo = {
+export type SystemInfo = {
     xpVersion: string;
-    appVersion: string;
     appName: string;
+    appVersion: string;
+    javaVersion: string;
+    javaVendor: string;
+    osName: string;
+    osArch: string;
+    osVersion: string;
+    xpHome: string;
+    diskTotal: number;
+    diskUsable: number;
 };
 
 export function fetchSystemInfo(): Promise<SystemInfo> {
