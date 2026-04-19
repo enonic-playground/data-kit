@@ -38,13 +38,26 @@ function getSystemPage(): HTMLElement {
     return el as HTMLElement;
 }
 
+function buildSystemInfo(overrides?: Partial<Record<string, unknown>>) {
+    return {
+        xpVersion: '8.0.0',
+        appName: 'com.enonic.app.datakit',
+        appVersion: '1.2.3',
+        javaVersion: '17.0.9',
+        javaVendor: 'Eclipse Adoptium',
+        osName: 'Linux',
+        osArch: 'amd64',
+        osVersion: '6.1.0',
+        xpHome: '/opt/xp/home',
+        diskTotal: 0,
+        diskUsable: 0,
+        ...overrides,
+    };
+}
+
 describe('SystemPage', () => {
     it('should render system info from API', async () => {
-        mockedApiFetch.mockResolvedValue({
-            xpVersion: '8.0.0',
-            appVersion: '1.2.3',
-            appName: 'com.enonic.app.datakit',
-        });
+        mockedApiFetch.mockResolvedValue(buildSystemInfo());
 
         renderRoute({ initialLocation: '/system' });
 
@@ -54,14 +67,15 @@ describe('SystemPage', () => {
 
         expect(screen.getByText('1.2.3')).toBeInTheDocument();
         expect(screen.getByText('com.enonic.app.datakit')).toBeInTheDocument();
+        expect(screen.getByText('17.0.9')).toBeInTheDocument();
+        expect(screen.getByText('Eclipse Adoptium')).toBeInTheDocument();
+        expect(screen.getByText('Linux')).toBeInTheDocument();
+        expect(screen.getByText('amd64')).toBeInTheDocument();
+        expect(screen.getByText('/opt/xp/home')).toBeInTheDocument();
     });
 
-    it('should display correct labels', async () => {
-        mockedApiFetch.mockResolvedValue({
-            xpVersion: '8.0.0',
-            appVersion: '1.0.0',
-            appName: 'test-app',
-        });
+    it('should display card titles', async () => {
+        mockedApiFetch.mockResolvedValue(buildSystemInfo());
 
         renderRoute({ initialLocation: '/system' });
 
@@ -70,8 +84,58 @@ describe('SystemPage', () => {
         });
 
         const page = within(getSystemPage());
-        expect(page.getByText('XP Version')).toBeInTheDocument();
-        expect(page.getByText('App Version')).toBeInTheDocument();
-        expect(page.getByText('App Name')).toBeInTheDocument();
+        expect(page.getByText('XP Runtime')).toBeInTheDocument();
+        expect(page.getByText('Application')).toBeInTheDocument();
+        expect(page.getByText('Java Runtime')).toBeInTheDocument();
+        expect(page.getByText('Operating System')).toBeInTheDocument();
+        expect(page.getByText('Appearance')).toBeInTheDocument();
+    });
+
+    it('should render disk usage when diskTotal > 0', async () => {
+        mockedApiFetch.mockResolvedValue(
+            buildSystemInfo({
+                diskTotal: 100 * 1024 ** 3,
+                diskUsable: 40 * 1024 ** 3,
+            }),
+        );
+
+        renderRoute({ initialLocation: '/system' });
+
+        await waitFor(() => {
+            getSystemPage();
+        });
+
+        const page = within(getSystemPage());
+        expect(page.getByText('60%')).toBeInTheDocument();
+        expect(page.getByText(/used of/)).toBeInTheDocument();
+    });
+
+    it('should hide disk usage when diskTotal is 0', async () => {
+        mockedApiFetch.mockResolvedValue(buildSystemInfo());
+
+        renderRoute({ initialLocation: '/system' });
+
+        await waitFor(() => {
+            getSystemPage();
+        });
+
+        const page = within(getSystemPage());
+        expect(page.queryByText(/used of/)).not.toBeInTheDocument();
+    });
+
+    it('should link to Enonic documentation', async () => {
+        mockedApiFetch.mockResolvedValue(buildSystemInfo());
+
+        renderRoute({ initialLocation: '/system' });
+
+        await waitFor(() => {
+            getSystemPage();
+        });
+
+        const link = within(getSystemPage()).getByRole('link', {
+            name: /Enonic documentation/i,
+        });
+        expect(link).toHaveAttribute('href', 'https://developer.enonic.com');
+        expect(link).toHaveAttribute('target', '_blank');
     });
 });
