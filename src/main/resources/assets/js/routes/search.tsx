@@ -40,6 +40,8 @@ import {
 import { type Repository, repositoriesQueryOptions } from '../lib/api/repositories';
 import { executeSearch, type SearchHit, type SearchParams, type SearchResponse } from '../lib/api/search';
 import { downloadBlob, type ExportColumn, type ExportFormat, toCSV, toTSV } from '../lib/export';
+import type { ValidationError as NoqlValidationError } from '../lib/noql/types';
+import { validate as validateNoql } from '../lib/noql/validator';
 
 const SEARCH_PAGE_NAME = 'SearchPage';
 
@@ -89,6 +91,14 @@ const SearchPage = (): ReactElement => {
     const [result, setResult] = useState<SearchResponse | null>(null);
     const [resultParams, setResultParams] = useState<SearchParams | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const [validationError, setValidationError] = useState<NoqlValidationError | null>(null);
+
+    useEffect(() => {
+        const handle = setTimeout(() => {
+            setValidationError(validateNoql(query));
+        }, 300);
+        return () => clearTimeout(handle);
+    }, [query]);
 
     const selectedRepo = useMemo(
         () => repositories.find((r: Repository) => r.id === repoId),
@@ -393,6 +403,13 @@ const SearchPage = (): ReactElement => {
                         </button>
                     )}
                 </div>
+
+                {validationError != null && (
+                    <p className="mt-2 max-w-[460px] text-destructive text-sm">
+                        {validationError.message}
+                        {validationError.suggestion != null && ` ${validationError.suggestion}`}
+                    </p>
+                )}
             </div>
 
             {error != null && (
