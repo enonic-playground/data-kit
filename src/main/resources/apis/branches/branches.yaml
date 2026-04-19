@@ -1,0 +1,4 @@
+kind: "API"
+title: "Branches API"
+allow:
+  - "role:system.admin"

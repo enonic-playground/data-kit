@@ -1,0 +1,4 @@
+kind: "API"
+title: "Events API"
+allow:
+  - "role:system.admin"

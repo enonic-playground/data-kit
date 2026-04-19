@@ -1,0 +1,4 @@
+kind: "API"
+title: "Search API"
+allow:
+  - "role:system.admin"
