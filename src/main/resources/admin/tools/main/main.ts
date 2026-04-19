@@ -19,6 +19,7 @@ type DataKitConfig = {
         dumps: string;
         exports: string;
         tasks: string;
+        events: string;
     };
     launcherUri: string;
     user: {
@@ -45,6 +46,7 @@ function buildConfig(): DataKitConfig {
             dumps: apiUrl({ api: 'dumps', type: 'server' }),
             exports: apiUrl({ api: 'exports', type: 'server' }),
             tasks: apiUrl({ api: 'tasks', type: 'server' }),
+            events: apiUrl({ api: 'events', type: 'websocket' }),
         },
         launcherUri: extensionUrl({
             application: 'com.enonic.xp.app.main',

@@ -20,3 +20,4 @@ apis:
   - "dumps"
   - "exports"
   - "tasks"
+  - "events"

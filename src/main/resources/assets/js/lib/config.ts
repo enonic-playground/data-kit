@@ -18,6 +18,7 @@ export type DataKitConfig = {
         dumps: string;
         exports: string;
         tasks: string;
+        events: string;
     };
     launcherUri: string;
     user: UserConfig | null;

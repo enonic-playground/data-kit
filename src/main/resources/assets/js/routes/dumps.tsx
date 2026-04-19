@@ -73,6 +73,7 @@ import {
     useUploadDump,
 } from '../lib/api/dumps';
 import { type TaskInfo, type TaskState, taskQueryOptions } from '../lib/api/tasks';
+import { useTaskProgress } from '../lib/hooks/use-task-progress';
 
 const DUMPS_PAGE_NAME = 'DumpsPage';
 
@@ -626,6 +627,7 @@ const DumpsPage = (): ReactElement => {
     const handledRef = useRef(false);
 
     const { data: task } = useQuery(taskQueryOptions(activeTask?.id));
+    useTaskProgress(activeTask?.id);
 
     const isTaskTerminal = task != null && TERMINAL_STATES.includes(task.state);
     const isCreating = activeTask?.type === 'create' && !isTaskTerminal;

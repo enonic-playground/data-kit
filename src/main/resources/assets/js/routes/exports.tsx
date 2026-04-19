@@ -71,6 +71,7 @@ import {
 } from '../lib/api/exports';
 import { type Repository, repositoriesQueryOptions } from '../lib/api/repositories';
 import { type TaskInfo, type TaskState, taskQueryOptions } from '../lib/api/tasks';
+import { useTaskProgress } from '../lib/hooks/use-task-progress';
 
 const EXPORTS_PAGE_NAME = 'ExportsPage';
 
@@ -768,6 +769,7 @@ const ExportsPage = (): ReactElement => {
     const handledRef = useRef(false);
 
     const { data: task } = useQuery(taskQueryOptions(activeTask?.id));
+    useTaskProgress(activeTask?.id);
 
     const isTaskTerminal = task != null && TERMINAL_STATES.includes(task.state);
     const isTaskRunning = activeTask != null && !isTaskTerminal;

@@ -13,9 +13,20 @@ export type TaskState = 'WAITING' | 'RUNNING' | 'FINISHED' | 'FAILED';
 export type TaskInfo = {
     id: string;
     name: string;
+    description: string;
     state: TaskState;
+    application: string;
+    user: string;
+    startTime: string;
     progress: TaskProgress;
+    node?: string;
 };
+
+const TERMINAL_STATES: TaskState[] = ['FINISHED', 'FAILED'];
+
+export function isTerminalState(state: TaskState | undefined): boolean {
+    return state != null && TERMINAL_STATES.includes(state);
+}
 
 export function fetchTask(taskId: string): Promise<TaskInfo> {
     const { apiUris } = getConfig();
@@ -24,7 +35,10 @@ export function fetchTask(taskId: string): Promise<TaskInfo> {
     });
 }
 
-const TERMINAL_STATES: TaskState[] = ['FINISHED', 'FAILED'];
+export function fetchTasks(): Promise<TaskInfo[]> {
+    const { apiUris } = getConfig();
+    return apiFetch<TaskInfo[]>(apiUris.tasks);
+}
 
 export function taskQueryOptions(taskId: string | undefined) {
     return queryOptions({
@@ -33,8 +47,16 @@ export function taskQueryOptions(taskId: string | undefined) {
         enabled: taskId != null,
         refetchInterval: (query) => {
             const state = query.state.data?.state;
-            if (state != null && TERMINAL_STATES.includes(state)) return false;
+            if (isTerminalState(state)) return false;
             return 1500;
         },
+    });
+}
+
+export function tasksListQueryOptions() {
+    return queryOptions({
+        queryKey: ['tasks', 'list'],
+        queryFn: fetchTasks,
+        refetchInterval: 5000,
     });
 }

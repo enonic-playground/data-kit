@@ -7,14 +7,16 @@ vi.mock('/lib/xp/auth', () => ({
 
 vi.mock('/lib/xp/task', () => ({
     get: vi.fn(),
+    list: vi.fn(() => []),
 }));
 
 import { hasRole } from '/lib/xp/auth';
-import { get as getTask } from '/lib/xp/task';
+import { get as getTask, list as listTasks } from '/lib/xp/task';
 import { get } from '../../main/resources/apis/tasks/tasks';
 
 const mockedHasRole = vi.mocked(hasRole);
 const mockedGetTask = vi.mocked(getTask);
+const mockedListTasks = vi.mocked(listTasks);
 
 beforeEach(() => {
     vi.clearAllMocks();
@@ -45,12 +47,24 @@ describe('GET /tasks', () => {
         expect(mockedGetTask).toHaveBeenCalledWith('task-123');
     });
 
-    test('returns 400 when taskId is missing', () => {
+    test('returns task list when taskId is missing', () => {
+        const tasks = [
+            {
+                id: 'task-1',
+                name: 'dump',
+                state: 'RUNNING',
+                progress: { current: 1, total: 10, info: '' },
+            },
+        ];
+        mockedListTasks.mockReturnValue(tasks as ReturnType<typeof listTasks>);
+
         const response = get({
             params: {},
         } as unknown as Request);
-        expect(response.status).toBe(400);
-        expect(parseBody(response).code).toBe('VALIDATION_ERROR');
+
+        expect(response.status).toBe(200);
+        expect(parseBody(response).data).toEqual(tasks);
+        expect(mockedListTasks).toHaveBeenCalledWith({ name: null, state: null });
     });
 
     test('returns 404 when task not found', () => {
