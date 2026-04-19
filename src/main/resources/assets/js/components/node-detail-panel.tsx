@@ -1,6 +1,6 @@
-import { useQuery } from '@tanstack/react-query';
-import { ArrowRightLeft, Copy, Download, Ellipsis, Pencil, Plus, Send, Shield, Table2, Trash2, X } from 'lucide-react';
-import { type ReactElement, useEffect, useMemo, useState } from 'react';
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
+import { ArrowRightLeft, Braces, Copy, Download, Ellipsis, History, Info, Pencil, Plus, Send, Shield, Table2, Trash2, X } from 'lucide-react';
+import { type ReactElement, type MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { createHighlighterCore } from 'shiki/core';
 import langJson from 'shiki/dist/langs/json.mjs';
 import themeGithubDarkDefault from 'shiki/dist/themes/github-dark-default.mjs';
@@ -21,7 +21,9 @@ import {
     usePushNode,
     useRenameNode,
 } from '../lib/api/nodes';
+import { versionsInfiniteQueryOptions } from '../lib/api/versions';
 import { cn } from '../lib/utils';
+import { NodeVersionsTab } from './node-versions-tab';
 import { useTheme } from './theme-provider';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
@@ -219,10 +221,10 @@ const PropertiesTab = ({ node, repoId, branch, onNavigateToNode }: PropertiesTab
                             <TableCell>
                                 <Badge variant="secondary">{prop.type}</Badge>
                             </TableCell>
-                            <TableCell className="max-w-[300px] font-mono text-sm">
+                            <TableCell className="break-all font-mono text-sm">
                                 {prop.type === 'BinaryReference' ? (
-                                    <span className="flex items-center gap-1.5">
-                                        <span className="truncate">{prop.value}</span>
+                                    <span className="flex items-start gap-1.5">
+                                        <span className="break-all">{prop.value}</span>
                                         <Tooltip>
                                             <TooltipTrigger asChild>
                                                 <a
@@ -252,13 +254,13 @@ const PropertiesTab = ({ node, repoId, branch, onNavigateToNode }: PropertiesTab
                                 ) : prop.type === 'Reference' ? (
                                     <button
                                         type="button"
-                                        className="truncate text-left underline decoration-muted-foreground/50 underline-offset-2 hover:decoration-foreground"
+                                        className="break-all text-left underline decoration-muted-foreground/50 underline-offset-2 hover:decoration-foreground"
                                         onClick={() => onNavigateToNode?.(prop.value)}
                                     >
                                         {prop.value}
                                     </button>
                                 ) : (
-                                    <span className="truncate">{prop.value}</span>
+                                    <span className="break-all">{prop.value}</span>
                                 )}
                             </TableCell>
                         </TableRow>
@@ -295,7 +297,7 @@ const MetadataTab = ({ node }: { node: NodeDetail }): ReactElement => {
                                 <TableCell className="font-medium">
                                     {key}
                                 </TableCell>
-                                <TableCell className="font-mono text-sm">
+                                <TableCell className="break-all font-mono text-sm">
                                     {key === '_nodeType' && value != null ? (
                                         <Badge variant="secondary">
                                             {value}
@@ -872,6 +874,14 @@ const NodeDetailContent = ({
     onNavigateToNode?: (nodeId: string) => void;
 }): ReactElement => {
     const { data: node, isLoading, error } = useQuery(nodeDetailQueryOptions(params));
+    const versionsInfinite = useInfiniteQuery(
+        versionsInfiniteQueryOptions({
+            repoId: params.repoId,
+            branch: params.branch,
+            key: params.key,
+        }),
+    );
+    const versionsTotal = versionsInfinite.data?.pages[0]?.total;
 
     if (isLoading) {
         return (
@@ -934,10 +944,31 @@ const NodeDetailContent = ({
             {/* Tabs */}
             <Tabs defaultValue="properties" className="flex flex-1 flex-col overflow-hidden">
                 <TabsList className="mx-4 mt-2 w-auto">
-                    <TabsTrigger value="properties">Properties</TabsTrigger>
-                    <TabsTrigger value="metadata">Metadata</TabsTrigger>
-                    <TabsTrigger value="permissions">Permissions</TabsTrigger>
-                    <TabsTrigger value="json">JSON</TabsTrigger>
+                    <TabsTrigger value="properties" title="Properties" className="@[576px]:px-3 px-2">
+                        <Table2 className="size-3.5" />
+                        <span className="ml-1.5 @[576px]:inline hidden">Properties</span>
+                    </TabsTrigger>
+                    <TabsTrigger value="metadata" title="Metadata" className="@[576px]:px-3 px-2">
+                        <Info className="size-3.5" />
+                        <span className="ml-1.5 @[576px]:inline hidden">Metadata</span>
+                    </TabsTrigger>
+                    <TabsTrigger value="permissions" title="Permissions" className="@[576px]:px-3 px-2">
+                        <Shield className="size-3.5" />
+                        <span className="ml-1.5 @[576px]:inline hidden">Permissions</span>
+                    </TabsTrigger>
+                    <TabsTrigger value="versions" title="Versions" className="@[576px]:px-3 px-2">
+                        <History className="size-3.5" />
+                        <span className="ml-1.5 @[576px]:inline hidden">Versions</span>
+                        {versionsTotal != null && (
+                            <Badge variant="secondary" className="ml-1.5 @[576px]:inline-flex hidden">
+                                {versionsTotal}
+                            </Badge>
+                        )}
+                    </TabsTrigger>
+                    <TabsTrigger value="json" title="JSON" className="@[576px]:px-3 px-2">
+                        <Braces className="size-3.5" />
+                        <span className="ml-1.5 @[576px]:inline hidden">JSON</span>
+                    </TabsTrigger>
                 </TabsList>
                 <div className="flex-1 overflow-auto">
                     <TabsContent value="properties">
@@ -954,6 +985,14 @@ const NodeDetailContent = ({
                     <TabsContent value="permissions">
                         <PermissionsTab
                             permissions={node._permissions ?? []}
+                        />
+                    </TabsContent>
+                    <TabsContent value="versions">
+                        <NodeVersionsTab
+                            repoId={params.repoId}
+                            branch={params.branch}
+                            nodeKey={params.key}
+                            nodeName={node._name}
                         />
                     </TabsContent>
                     <TabsContent value="json">
@@ -973,6 +1012,31 @@ NodeDetailContent.displayName = NODE_DETAIL_CONTENT_NAME;
 
 const NODE_DETAIL_PANEL_NAME = 'NodeDetailPanel';
 
+const PANEL_WIDTH_STORAGE_KEY = 'datakit:detail-panel-width';
+const PANEL_MIN_WIDTH = 320;
+const PANEL_MAX_WIDTH = 900;
+const PANEL_DEFAULT_WIDTH = 620;
+
+function readStoredWidth(): number {
+    try {
+        const raw = window.localStorage.getItem(PANEL_WIDTH_STORAGE_KEY);
+        if (raw == null) return PANEL_DEFAULT_WIDTH;
+        const parsed = Number.parseInt(raw, 10);
+        if (!Number.isFinite(parsed)) return PANEL_DEFAULT_WIDTH;
+        return Math.min(PANEL_MAX_WIDTH, Math.max(PANEL_MIN_WIDTH, parsed));
+    } catch {
+        return PANEL_DEFAULT_WIDTH;
+    }
+}
+
+function writeStoredWidth(width: number): void {
+    try {
+        window.localStorage.setItem(PANEL_WIDTH_STORAGE_KEY, String(width));
+    } catch {
+        // ignore quota / disabled storage
+    }
+}
+
 export const NodeDetailPanel = ({
     nodeId,
     repoId,
@@ -981,11 +1045,68 @@ export const NodeDetailPanel = ({
     onNodeMutated,
     onNavigateToNode,
 }: NodeDetailPanelProps): ReactElement => {
+    const [width, setWidth] = useState<number>(readStoredWidth);
+    const dragStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
+
+    useEffect(() => {
+        const handleMove = (e: MouseEvent) => {
+            const state = dragStateRef.current;
+            if (state == null) return;
+            // Panel is anchored to the right edge — dragging left increases width
+            const delta = state.startX - e.clientX;
+            const next = Math.min(
+                PANEL_MAX_WIDTH,
+                Math.max(PANEL_MIN_WIDTH, state.startWidth + delta),
+            );
+            setWidth(next);
+        };
+
+        const handleUp = () => {
+            if (dragStateRef.current == null) return;
+            dragStateRef.current = null;
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+        };
+
+        window.addEventListener('mousemove', handleMove);
+        window.addEventListener('mouseup', handleUp);
+        return () => {
+            window.removeEventListener('mousemove', handleMove);
+            window.removeEventListener('mouseup', handleUp);
+        };
+    }, []);
+
+    useEffect(() => {
+        if (dragStateRef.current == null) writeStoredWidth(width);
+    }, [width]);
+
+    const handleDragStart = (e: ReactMouseEvent<HTMLButtonElement>) => {
+        dragStateRef.current = { startX: e.clientX, startWidth: width };
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+    };
+
+    const handleDoubleClick = () => {
+        setWidth(PANEL_DEFAULT_WIDTH);
+    };
+
     return (
         <div
             data-component={NODE_DETAIL_PANEL_NAME}
-            className="flex w-[400px] shrink-0 flex-col border-border border-l bg-card"
+            style={{ width: `${width}px` }}
+            className="@container relative flex shrink-0 flex-col border-border border-l bg-card"
         >
+            <button
+                type="button"
+                aria-label="Resize detail panel"
+                title="Drag to resize, double-click to reset"
+                onMouseDown={handleDragStart}
+                onDoubleClick={handleDoubleClick}
+                className={cn(
+                    'absolute top-0 left-0 z-10 h-full w-1 -translate-x-1/2 cursor-col-resize',
+                    'bg-transparent transition-colors hover:bg-primary/30 focus-visible:bg-primary/30 focus-visible:outline-none',
+                )}
+            />
             <NodeDetailContent
                 params={{ repoId, branch, key: nodeId }}
                 onClose={onClose}

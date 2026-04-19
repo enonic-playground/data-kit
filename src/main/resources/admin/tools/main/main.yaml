@@ -22,3 +22,5 @@ apis:
   - "exports"
   - "tasks"
   - "events"
+  - "audit"
+  - "versions"

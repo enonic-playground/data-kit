@@ -21,6 +21,7 @@ type DataKitConfig = {
         tasks: string;
         events: string;
         audit: string;
+        versions: string;
     };
     launcherUri: string;
     user: {
@@ -49,6 +50,7 @@ function buildConfig(): DataKitConfig {
             tasks: apiUrl({ api: 'tasks', type: 'server' }),
             events: apiUrl({ api: 'events', type: 'websocket' }),
             audit: apiUrl({ api: 'audit', type: 'server' }),
+            versions: apiUrl({ api: 'versions', type: 'server' }),
         },
         launcherUri: extensionUrl({
             application: 'com.enonic.xp.app.main',
