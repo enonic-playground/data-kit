@@ -70,7 +70,7 @@ import {
     useUploadExport,
 } from '../lib/api/exports';
 import { type Repository, repositoriesQueryOptions } from '../lib/api/repositories';
-import { type TaskInfo, type TaskState, taskQueryOptions } from '../lib/api/tasks';
+import { getProgress, TERMINAL_STATES, taskQueryOptions } from '../lib/api/tasks';
 import { useTaskProgress } from '../lib/hooks/use-task-progress';
 
 const EXPORTS_PAGE_NAME = 'ExportsPage';
@@ -150,8 +150,6 @@ function parseImportResult(info: string): ImportResult | undefined {
     }
 }
 
-const TERMINAL_STATES: TaskState[] = ['FINISHED', 'FAILED'];
-
 const TASK_TYPE_LABELS: Record<ActiveTask['type'], string> = {
     create: 'Exporting nodes',
     import: 'Importing nodes',
@@ -163,15 +161,6 @@ const TASK_COMPLETE_LABELS: Record<ActiveTask['type'], string> = {
 };
 
 const columnHelper = createColumnHelper<ExportEntry>();
-
-function getProgress(task: TaskInfo | undefined): number {
-    if (task == null) return 0;
-    if (task.state === 'FINISHED') return 100;
-    if (task.progress.total > 0) {
-        return Math.round((task.progress.current / task.progress.total) * 100);
-    }
-    return 0;
-}
 
 // ? Number of visible columns: Name, Timestamp, Format, Nodes, Actions
 const COLUMN_COUNT = 5;
@@ -909,8 +898,7 @@ const ExportsPage = (): ReactElement => {
             {isTaskRunning && (
                 <ProgressDialog
                     title={TASK_TYPE_LABELS[activeTask.type]}
-                    description={task?.progress.info || 'Starting...'}
-                    progress={progress}
+                    taskId={activeTask.id}
                     open={dialogOpen}
                 />
             )}

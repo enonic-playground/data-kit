@@ -22,10 +22,19 @@ export type TaskInfo = {
     node?: string;
 };
 
-const TERMINAL_STATES: TaskState[] = ['FINISHED', 'FAILED'];
+export const TERMINAL_STATES: TaskState[] = ['FINISHED', 'FAILED'];
 
 export function isTerminalState(state: TaskState | undefined): boolean {
     return state != null && TERMINAL_STATES.includes(state);
+}
+
+export function getProgress(task: TaskInfo | undefined): number {
+    if (task == null) return 0;
+    if (task.state === 'FINISHED') return 100;
+    if (task.progress.total > 0) {
+        return Math.round((task.progress.current / task.progress.total) * 100);
+    }
+    return 0;
 }
 
 export function fetchTask(taskId: string): Promise<TaskInfo> {

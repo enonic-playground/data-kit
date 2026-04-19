@@ -72,7 +72,7 @@ import {
     useUpgradeDump,
     useUploadDump,
 } from '../lib/api/dumps';
-import { type TaskInfo, type TaskState, taskQueryOptions } from '../lib/api/tasks';
+import { getProgress, TERMINAL_STATES, taskQueryOptions } from '../lib/api/tasks';
 import { useTaskProgress } from '../lib/hooks/use-task-progress';
 
 const DUMPS_PAGE_NAME = 'DumpsPage';
@@ -140,8 +140,6 @@ function parseDumpResult(info: string): DumpResult | undefined {
     }
 }
 
-const TERMINAL_STATES: TaskState[] = ['FINISHED', 'FAILED'];
-
 const TASK_TYPE_LABELS: Record<ActiveTask['type'], string> = {
     create: 'Creating dump',
     load: 'Loading dump',
@@ -155,15 +153,6 @@ const TASK_COMPLETE_LABELS: Record<ActiveTask['type'], string> = {
 };
 
 const columnHelper = createColumnHelper<Dump>();
-
-function getProgress(task: TaskInfo | undefined): number {
-    if (task == null) return 0;
-    if (task.state === 'FINISHED') return 100;
-    if (task.progress.total > 0) {
-        return Math.round((task.progress.current / task.progress.total) * 100);
-    }
-    return 0;
-}
 
 // ? Number of visible columns: Name, Timestamp, XP Version, Model Version, Size, Actions
 const COLUMN_COUNT = 6;
