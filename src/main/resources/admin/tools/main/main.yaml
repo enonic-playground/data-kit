@@ -1,4 +1,5 @@
-displayName:
+kind: "AdminTool"
+title:
   text: "Data Kit"
   i18n: "admin.tool.main.displayName"
 description:

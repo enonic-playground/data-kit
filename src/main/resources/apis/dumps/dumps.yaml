@@ -1,2 +1,4 @@
+kind: "API"
+title: "Dumps API"
 allow:
   - "role:system.admin"

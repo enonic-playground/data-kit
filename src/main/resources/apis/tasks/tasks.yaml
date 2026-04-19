@@ -1,2 +1,4 @@
+kind: "API"
+title: "Tasks API"
 allow:
   - "role:system.admin"

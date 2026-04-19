@@ -1,0 +1,4 @@
+kind: "API"
+title: "Snapshots API"
+allow:
+  - "role:system.admin"

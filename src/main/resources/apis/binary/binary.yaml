@@ -1,0 +1,4 @@
+kind: "API"
+title: "Binary API"
+allow:
+  - "role:system.admin"

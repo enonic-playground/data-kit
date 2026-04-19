@@ -1,2 +1,4 @@
+kind: "API"
+title: "Nodes API"
 allow:
   - "role:system.admin"

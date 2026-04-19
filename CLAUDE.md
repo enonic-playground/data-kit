@@ -38,10 +38,11 @@ pnpm test           # vitest only
 
 ## XP 8 Descriptors
 
-XP 8 replaced XML descriptors with YAML across the board. All descriptors in this project use `.yml` — **never create `.xml` descriptors**. This applies to:
+XP 8 replaced XML descriptors with YAML across the board. All descriptors in this project use `.yaml` — **never create `.xml` descriptors**. Every descriptor must declare a `kind:` field. This applies to:
 
-- API descriptors (`apis/*/*.yml`)
-- Admin tool descriptors (`admin/tools/main/main.yml`)
+- Application descriptor (`application.yaml`) — requires `kind: "Application"`
+- API descriptors (`apis/*/*.yaml`) — require `kind: "API"` and a `title`
+- Admin tool descriptors (`admin/tools/main/main.yaml`) — require `kind: "AdminTool"` and `title` (not `displayName`)
 - Content types, mixins, x-data, etc.
 
 There is little official documentation on this yet, so don't rely on older XP docs that show XML examples.
