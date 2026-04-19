@@ -20,6 +20,7 @@ export type DataKitConfig = {
         tasks: string;
         events: string;
         audit: string;
+        versions: string;
     };
     launcherUri: string;
     user: UserConfig | null;

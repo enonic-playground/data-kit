@@ -1,0 +1,4 @@
+kind: "API"
+title: "Node Versions API"
+allow:
+  - "role:system.admin"
