@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Data Kit Export</title>
+    <style>
+        :root {
+            color-scheme: light dark;
+
+            --color-main: #000000;
+            --color-alt: #ffffff;
+            --color-subtle: #5b5f60;
+            --color-surface: #ffffff;
+            --color-bdr-subtle: #b2b2b2;
+            --color-bdr-strong: #000000;
+            --color-btn-primary: #ffffff;
+            --color-btn-primary-hover: #f1f5f6;
+            --color-btn-active: #5b5f60;
+            --color-ring: #000000;
+            --color-error: #d33030;
+            --color-success: #0a7a4d;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --color-main: #ffffff;
+                --color-alt: #ffffff;
+                --color-subtle: #b2b2b2;
+                --color-surface: #242829;
+                --color-bdr-subtle: #5b5f60;
+                --color-bdr-strong: #ffffff;
+                --color-btn-primary: #242829;
+                --color-btn-primary-hover: #3d4142;
+                --color-btn-active: #5b5f60;
+                --color-ring: #ffffff;
+                --color-error: #f56262;
+                --color-success: #4caf7a;
+            }
+        }
+
+        * { box-sizing: border-box; }
+
+        html, body {
+            margin: 0;
+            padding: 0;
+            background: transparent;
+            color: var(--color-main);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+            font-size: 0.875rem;
+            line-height: 1.25rem;
+        }
+
+        .dk-widget {
+            display: flex;
+            flex-direction: column;
+            gap: 1.875rem;
+        }
+
+        .dk-section {
+            display: flex;
+            flex-direction: column;
+            gap: 1.25rem;
+        }
+
+        .dk-separator {
+            display: inline-flex;
+            width: 100%;
+            align-items: baseline;
+            gap: 0.75rem;
+        }
+        .dk-separator-label {
+            min-width: 0;
+            color: var(--color-subtle);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            font-size: 1rem;
+            line-height: 1.5rem;
+            white-space: nowrap;
+        }
+        .dk-separator-line {
+            flex: 1;
+            min-width: 1.5rem;
+            border-bottom: 1px solid var(--color-bdr-subtle);
+        }
+
+        .dk-meta-list {
+            display: grid;
+            grid-template-columns: max-content 1fr;
+            align-items: center;
+            column-gap: 1.875rem;
+            row-gap: 0.75rem;
+            margin: 0;
+        }
+        .dk-meta-list dt {
+            font-size: 0.75rem;
+            line-height: 1rem;
+            color: var(--color-subtle);
+        }
+        .dk-meta-list dd {
+            font-size: 0.75rem;
+            line-height: 1rem;
+            color: var(--color-main);
+            margin: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .dk-field {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+        .dk-label {
+            font-weight: 600;
+            font-size: 0.875rem;
+            line-height: 1.25rem;
+            color: var(--color-main);
+        }
+
+        .dk-input {
+            width: 100%;
+            height: 3rem;
+            padding: 0 1rem;
+            border: 1px solid var(--color-bdr-subtle);
+            border-radius: 0.25rem;
+            background: var(--color-surface);
+            color: var(--color-main);
+            font: inherit;
+            font-size: 1rem;
+            line-height: 1.5rem;
+            transition: outline-color 150ms, border-color 150ms;
+        }
+        .dk-input:hover:not(:focus) {
+            outline: 2px solid var(--color-bdr-subtle);
+            outline-offset: -1px;
+        }
+        .dk-input:focus {
+            outline: 3px solid var(--color-ring);
+            outline-offset: 3px;
+            border-color: var(--color-bdr-strong);
+        }
+        .dk-input[aria-invalid="true"] {
+            border-color: var(--color-error);
+        }
+        .dk-input[aria-invalid="true"]:hover:not(:focus) {
+            outline: 2px solid var(--color-error);
+            outline-offset: -1px;
+        }
+        .dk-input[aria-invalid="true"]:focus {
+            outline-color: var(--color-error);
+        }
+
+        .dk-actions {
+            display: flex;
+            justify-content: flex-end;
+        }
+
+        .dk-button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            height: 2.25rem;
+            padding: 0 1rem;
+            gap: 0.5rem;
+            border: 1px solid var(--color-bdr-strong);
+            border-radius: 0.25rem;
+            background: var(--color-btn-primary);
+            color: var(--color-main);
+            font: inherit;
+            font-size: 0.875rem;
+            line-height: 1.25rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background-color 150ms;
+            white-space: nowrap;
+        }
+        .dk-button:hover:not(:disabled) { background: var(--color-btn-primary-hover); }
+        .dk-button:active:not(:disabled),
+        .dk-button[data-active="true"]:not(:disabled) {
+            background: var(--color-btn-active);
+            color: var(--color-alt);
+            border-color: var(--color-btn-active);
+        }
+        .dk-button:focus-visible {
+            outline: 3px solid var(--color-ring);
+            outline-offset: 3px;
+        }
+        .dk-button:disabled { opacity: 0.3; cursor: progress; }
+
+        .dk-status {
+            margin: 0;
+            min-height: 1rem;
+            font-size: 0.75rem;
+            line-height: 1rem;
+            color: var(--color-subtle);
+        }
+        .dk-status.is-error { color: var(--color-error); }
+        .dk-status.is-success { color: var(--color-success); }
+        .dk-status a { color: inherit; text-decoration: underline; }
+
+        .dk-empty {
+            margin: 0;
+            color: var(--color-subtle);
+            font-size: 0.875rem;
+            line-height: 1.25rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="dk-widget" data-component="DataKitExportWidget">
+        {{#hasContent}}
+        <section class="dk-section">
+            <div class="dk-separator" role="separator" aria-orientation="horizontal">
+                <span class="dk-separator-label">Content</span>
+                <span class="dk-separator-line"></span>
+            </div>
+            <dl class="dk-meta-list">
+                <dt>Name</dt>
+                <dd title="{{nodeName}}">{{nodeName}}</dd>
+                <dt>Path</dt>
+                <dd title="{{nodePath}}">{{nodePath}}</dd>
+                <dt>Repository</dt>
+                <dd title="{{repositoryId}}">{{repositoryId}}</dd>
+                <dt>Branch</dt>
+                <dd>{{branch}}</dd>
+            </dl>
+        </section>
+
+        <section class="dk-section">
+            <div class="dk-separator" role="separator" aria-orientation="horizontal">
+                <span class="dk-separator-label">Export</span>
+                <span class="dk-separator-line"></span>
+            </div>
+            <div class="dk-field">
+                <label class="dk-label" for="dk-export-name">Export name</label>
+                <input
+                    id="dk-export-name"
+                    class="dk-input"
+                    type="text"
+                    value="{{defaultExportName}}"
+                    pattern="^[A-Za-z0-9][A-Za-z0-9._-]{1,98}[A-Za-z0-9]$"
+                    autocomplete="off"
+                    spellcheck="false"
+                    required
+                >
+            </div>
+            <div class="dk-actions">
+                <button id="dk-export-button" class="dk-button" type="button">Export</button>
+            </div>
+            <p id="dk-export-status" class="dk-status" role="status" aria-live="polite"></p>
+        </section>
+        {{/hasContent}}
+        {{^hasContent}}
+        <p class="dk-empty">Select a content item in the tree to export its sub-tree.</p>
+        {{/hasContent}}
+    </div>
+    {{#hasContent}}
+    <script>
+        (function () {
+            var EXPORTS_URL = '{{exportsApiUrl}}';
+            var DATAKIT_EXPORTS_URL = '{{dataKitExportsUrl}}';
+            var REPOSITORY_ID = '{{repositoryId}}';
+            var BRANCH = '{{branch}}';
+            var NODE_PATH = '{{nodePath}}';
+            var NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{1,98}[A-Za-z0-9]$/;
+
+            var input = document.getElementById('dk-export-name');
+            var button = document.getElementById('dk-export-button');
+            var status = document.getElementById('dk-export-status');
+
+            function setStatus(message, kind) {
+                status.className = 'dk-status' + (kind ? ' is-' + kind : '');
+                status.textContent = '';
+                if (!message) return;
+                if (kind === 'success') {
+                    status.appendChild(document.createTextNode(message + ' '));
+                    var link = document.createElement('a');
+                    link.href = DATAKIT_EXPORTS_URL;
+                    link.target = '_top';
+                    link.textContent = 'View in Data Kit';
+                    status.appendChild(link);
+                } else {
+                    status.textContent = message;
+                }
+            }
+
+            function submit() {
+                var name = (input.value || '').trim();
+                if (!NAME_PATTERN.test(name)) {
+                    input.setAttribute('aria-invalid', 'true');
+                    setStatus('Name must be 3–100 chars, alphanumeric with dots, dashes, underscores.', 'error');
+                    return;
+                }
+                input.removeAttribute('aria-invalid');
+                button.disabled = true;
+                setStatus('Starting export…');
+
+                fetch(EXPORTS_URL, {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        exportName: name,
+                        repositoryId: REPOSITORY_ID,
+                        branch: BRANCH,
+                        nodePath: NODE_PATH,
+                    }),
+                }).then(function (res) {
+                    return res.json().then(function (json) { return { ok: res.ok, status: res.status, json: json }; });
+                }).then(function (result) {
+                    if (result.ok) {
+                        setStatus('Export started.', 'success');
+                    } else {
+                        var message = (result.json && result.json.message) || ('Export failed (' + result.status + ')');
+                        setStatus(message, 'error');
+                    }
+                }).catch(function (err) {
+                    setStatus(String(err && err.message ? err.message : err), 'error');
+                }).then(function () {
+                    button.disabled = false;
+                });
+            }
+
+            button.addEventListener('click', submit);
+            input.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    submit();
+                }
+            });
+        })();
+    </script>
+    {{/hasContent}}
+</body>
+</html>

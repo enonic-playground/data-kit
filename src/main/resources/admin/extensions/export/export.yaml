@@ -1,0 +1,7 @@
+kind: "AdminExtension"
+title: "Data Kit Export"
+description: "Export this content sub-tree"
+allow:
+  - "role:system.admin"
+interfaces:
+  - "contentstudio.contextpanel"
