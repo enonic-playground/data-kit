@@ -15,24 +15,25 @@ import {
 } from 'lucide-react';
 import type { ReactElement } from 'react';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { cn } from '../lib/utils';
 
 type NavItem = {
     to: string;
-    label: string;
+    labelKey: string;
     icon: LucideIcon;
 };
 
 const NAV_ITEMS: NavItem[] = [
-    { to: '/repositories', label: 'Repositories', icon: Database },
-    { to: '/search', label: 'Search', icon: Search },
-    { to: '/snapshots', label: 'Snapshots', icon: Camera },
-    { to: '/dumps', label: 'Dumps', icon: HardDrive },
-    { to: '/exports', label: 'Exports', icon: FileOutput },
-    { to: '/tasks', label: 'Tasks', icon: ListTodo },
-    { to: '/audit', label: 'Audit', icon: Shield },
-    { to: '/events', label: 'Events', icon: Activity },
-    { to: '/system', label: 'System', icon: Settings },
+    { to: '/repositories', labelKey: 'nav.repositories', icon: Database },
+    { to: '/search', labelKey: 'nav.search', icon: Search },
+    { to: '/snapshots', labelKey: 'nav.snapshots', icon: Camera },
+    { to: '/dumps', labelKey: 'nav.dumps', icon: HardDrive },
+    { to: '/exports', labelKey: 'nav.exports', icon: FileOutput },
+    { to: '/tasks', labelKey: 'nav.tasks', icon: ListTodo },
+    { to: '/audit', labelKey: 'nav.audit', icon: Shield },
+    { to: '/events', labelKey: 'nav.events', icon: Activity },
+    { to: '/system', labelKey: 'nav.system', icon: Settings },
 ];
 
 // ? 45px = 44px content + 1px border-right. Gives exactly size-8 (32px) buttons
@@ -47,6 +48,7 @@ const SIDEBAR_NAME = 'Sidebar';
 
 export const Sidebar = ({ className }: SidebarProps): ReactElement => {
     const [collapsed, setCollapsed] = useState(false);
+    const { t } = useTranslation();
 
     const routerState = useRouterState();
     const currentPath = routerState.location.pathname;
@@ -72,7 +74,7 @@ export const Sidebar = ({ className }: SidebarProps): ReactElement => {
                     <>
                         <div className="size-5 shrink-0 rounded bg-primary" />
                         <span className="flex-1 truncate font-bold text-foreground text-sm tracking-tight">
-                            Data Kit
+                            {t('common.appName')}
                         </span>
                     </>
                 )}
@@ -80,8 +82,8 @@ export const Sidebar = ({ className }: SidebarProps): ReactElement => {
                     type="button"
                     onClick={() => setCollapsed((prev) => !prev)}
                     className={iconButtonClasses}
-                    aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-                    title={collapsed ? 'Expand' : 'Collapse'}
+                    aria-label={collapsed ? t('nav.sidebar.expand') : t('nav.sidebar.collapse')}
+                    title={collapsed ? t('common.action.expand') : t('common.action.collapse')}
                 >
                     {collapsed ? (
                         <PanelRightClose className="size-4" />
@@ -96,6 +98,7 @@ export const Sidebar = ({ className }: SidebarProps): ReactElement => {
                 {NAV_ITEMS.map((item) => {
                     const isActive = currentPath.startsWith(item.to);
                     const Icon = item.icon;
+                    const label = t(item.labelKey);
 
                     const linkClasses = cn(
                         'flex items-center rounded-md text-xs',
@@ -113,7 +116,7 @@ export const Sidebar = ({ className }: SidebarProps): ReactElement => {
                             key={item.to}
                             to={item.to}
                             className={linkClasses}
-                            title={collapsed ? item.label : undefined}
+                            title={collapsed ? label : undefined}
                         >
                             <Icon
                                 className={cn(
@@ -124,7 +127,7 @@ export const Sidebar = ({ className }: SidebarProps): ReactElement => {
                                 )}
                             />
                             {!collapsed && (
-                                <span className="truncate">{item.label}</span>
+                                <span className="truncate">{label}</span>
                             )}
                         </Link>
                     );

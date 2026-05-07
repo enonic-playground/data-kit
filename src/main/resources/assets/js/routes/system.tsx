@@ -16,6 +16,7 @@ import {
     SunMoon,
 } from 'lucide-react';
 import type { ReactElement, ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useTheme } from '../components/theme-provider';
 import {
     Card,
@@ -81,6 +82,7 @@ type DiskUsageProps = {
 const DISK_USAGE_NAME = 'DiskUsage';
 
 const DiskUsage = ({ total, usable }: DiskUsageProps): ReactElement | null => {
+    const { t } = useTranslation();
     if (total <= 0) return null;
 
     const used = Math.max(total - usable, 0);
@@ -90,7 +92,7 @@ const DiskUsage = ({ total, usable }: DiskUsageProps): ReactElement | null => {
         <div data-component={DISK_USAGE_NAME} className="flex flex-col gap-2">
             <div className="flex items-center justify-between text-muted-foreground text-xs">
                 <span>
-                    {formatBytes(used)} used of {formatBytes(total)}
+                    {t('system.disk.usage', { used: formatBytes(used), total: formatBytes(total) })}
                 </span>
                 <span>{percent}%</span>
             </div>
@@ -108,6 +110,7 @@ DiskUsage.displayName = DISK_USAGE_NAME;
 const THEME_SETTINGS_NAME = 'ThemeSettings';
 
 const ThemeSettings = (): ReactElement => {
+    const { t } = useTranslation();
     const { theme, setTheme } = useTheme();
 
     return (
@@ -115,33 +118,33 @@ const ThemeSettings = (): ReactElement => {
             data-component={THEME_SETTINGS_NAME}
             className="grid grid-cols-[8rem_1fr] items-center gap-x-4 text-sm"
         >
-            <span className="font-medium text-muted-foreground">Theme</span>
+            <span className="font-medium text-muted-foreground">{t('system.field.theme')}</span>
             <Select
                 value={theme}
                 onValueChange={value =>
                     setTheme(value as 'light' | 'dark' | 'system')
                 }
             >
-                <SelectTrigger className="max-w-48" aria-label="Theme">
+                <SelectTrigger className="max-w-48" aria-label={t('system.field.theme')}>
                     <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                     <SelectItem value="light">
                         <span className="flex items-center gap-2">
                             <Sun className="size-4" />
-                            Light
+                            {t('theme.light')}
                         </span>
                     </SelectItem>
                     <SelectItem value="dark">
                         <span className="flex items-center gap-2">
                             <Moon className="size-4" />
-                            Dark
+                            {t('theme.dark')}
                         </span>
                     </SelectItem>
                     <SelectItem value="system">
                         <span className="flex items-center gap-2">
                             <SunMoon className="size-4" />
-                            System
+                            {t('theme.system')}
                         </span>
                     </SelectItem>
                 </SelectContent>
@@ -159,6 +162,7 @@ ThemeSettings.displayName = THEME_SETTINGS_NAME;
 const SYSTEM_PAGE_NAME = 'SystemPage';
 
 const SystemPage = (): ReactElement => {
+    const { t } = useTranslation();
     const { data: info } = useSuspenseQuery(systemInfoQueryOptions());
 
     return (
@@ -169,10 +173,10 @@ const SystemPage = (): ReactElement => {
             <div className="grid gap-4 md:grid-cols-2">
                 <SystemCard
                     icon={<Boxes className="size-5" />}
-                    title="XP Runtime"
+                    title={t('system.card.xpRuntime')}
                 >
-                    <InfoRow label="Version">{info.xpVersion}</InfoRow>
-                    <InfoRow label="Home">
+                    <InfoRow label={t('system.field.version')}>{info.xpVersion}</InfoRow>
+                    <InfoRow label={t('system.field.home')}>
                         <span className="font-mono text-xs">{info.xpHome}</span>
                     </InfoRow>
                     <DiskUsage total={info.diskTotal} usable={info.diskUsable} />
@@ -180,35 +184,35 @@ const SystemPage = (): ReactElement => {
 
                 <SystemCard
                     icon={<Package className="size-5" />}
-                    title="Application"
+                    title={t('system.card.application')}
                 >
-                    <InfoRow label="Key">
+                    <InfoRow label={t('system.field.key')}>
                         <span className="font-mono text-xs">{info.appName}</span>
                     </InfoRow>
-                    <InfoRow label="Version">{info.appVersion}</InfoRow>
+                    <InfoRow label={t('system.field.version')}>{info.appVersion}</InfoRow>
                 </SystemCard>
 
                 <SystemCard
                     icon={<Coffee className="size-5" />}
-                    title="Java Runtime"
+                    title={t('system.card.javaRuntime')}
                 >
-                    <InfoRow label="Version">{info.javaVersion}</InfoRow>
-                    <InfoRow label="Vendor">{info.javaVendor}</InfoRow>
+                    <InfoRow label={t('system.field.version')}>{info.javaVersion}</InfoRow>
+                    <InfoRow label={t('system.field.vendor')}>{info.javaVendor}</InfoRow>
                 </SystemCard>
 
                 <SystemCard
                     icon={<Monitor className="size-5" />}
-                    title="Operating System"
+                    title={t('system.card.os')}
                 >
-                    <InfoRow label="Name">{info.osName}</InfoRow>
-                    <InfoRow label="Architecture">{info.osArch}</InfoRow>
-                    <InfoRow label="Version">{info.osVersion}</InfoRow>
+                    <InfoRow label={t('system.field.name')}>{info.osName}</InfoRow>
+                    <InfoRow label={t('system.field.architecture')}>{info.osArch}</InfoRow>
+                    <InfoRow label={t('system.field.version')}>{info.osVersion}</InfoRow>
                 </SystemCard>
             </div>
 
             <SystemCard
                 icon={<Palette className="size-5" />}
-                title="Appearance"
+                title={t('system.card.appearance')}
             >
                 <ThemeSettings />
             </SystemCard>
@@ -220,7 +224,7 @@ const SystemPage = (): ReactElement => {
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-1.5 text-muted-foreground text-sm hover:text-foreground"
                 >
-                    Enonic documentation
+                    {t('system.docs.link')}
                     <ExternalLink className="size-3.5" />
                 </a>
             </div>
@@ -267,7 +271,8 @@ SystemCard.displayName = SYSTEM_CARD_NAME;
 const SYSTEM_ERROR_NAME = 'SystemError';
 
 const SystemError = ({ error }: ErrorComponentProps): ReactElement => {
-    const message = error instanceof Error ? error.message : 'Unexpected error';
+    const { t } = useTranslation();
+    const message = error instanceof Error ? error.message : t('common.error.unexpected');
 
     return (
         <div
@@ -276,7 +281,7 @@ const SystemError = ({ error }: ErrorComponentProps): ReactElement => {
         >
             <EmptyState
                 icon={Info}
-                title="Failed to load system info"
+                title={t('system.error.loadFailed')}
                 description={message}
             />
         </div>

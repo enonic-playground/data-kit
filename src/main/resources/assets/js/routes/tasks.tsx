@@ -8,6 +8,7 @@ import {
 } from '@tanstack/react-table';
 import { ListTodo } from 'lucide-react';
 import type { ReactElement } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Badge, type BadgeProps } from '../components/ui/badge';
 import { EmptyState } from '../components/ui/empty-state';
 import { Progress } from '../components/ui/progress';
@@ -60,13 +61,14 @@ function computePercent({ current, total }: TaskInfo['progress']): number {
 const columnHelper = createColumnHelper<TaskInfo>();
 
 const TasksPage = (): ReactElement => {
+    const { t } = useTranslation();
     const { data: tasks } = useSuspenseQuery(tasksListQueryOptions());
     const { status } = useWebSocket();
     useTasksListRefresh();
 
     const columns = [
         columnHelper.accessor('name', {
-            header: 'Name',
+            header: t('task.column.name'),
             cell: info => (
                 <div className="flex flex-col">
                     <span className="font-medium text-foreground">{info.getValue()}</span>
@@ -79,7 +81,7 @@ const TasksPage = (): ReactElement => {
             ),
         }),
         columnHelper.accessor('state', {
-            header: 'State',
+            header: t('task.column.state'),
             cell: info => (
                 <Badge variant={TASK_STATE_VARIANT[info.getValue()]}>
                     {info.getValue()}
@@ -87,7 +89,7 @@ const TasksPage = (): ReactElement => {
             ),
         }),
         columnHelper.accessor('progress', {
-            header: 'Progress',
+            header: t('task.column.progress'),
             cell: info => {
                 const { progress, state } = info.row.original;
                 const percent = computePercent(progress);
@@ -104,7 +106,7 @@ const TasksPage = (): ReactElement => {
             },
         }),
         columnHelper.accessor('startTime', {
-            header: 'Started',
+            header: t('task.column.started'),
             cell: info => (
                 <span className="font-mono text-muted-foreground text-xs">
                     {formatStartTime(info.getValue())}
@@ -113,7 +115,7 @@ const TasksPage = (): ReactElement => {
         }),
         columnHelper.display({
             id: 'duration',
-            header: 'Duration',
+            header: t('task.column.duration'),
             cell: info => (
                 <span className="font-mono text-muted-foreground text-xs">
                     {formatDuration(info.row.original.startTime, info.row.original.state)}
@@ -129,22 +131,26 @@ const TasksPage = (): ReactElement => {
     });
 
     const wsLabel =
-        status === 'open' ? 'Live' : status === 'connecting' ? 'Connecting' : 'Offline';
+        status === 'open'
+            ? t('events.status.live')
+            : status === 'connecting'
+              ? t('events.status.connecting')
+              : t('events.status.offline');
     const wsVariant: BadgeProps['variant'] =
         status === 'open' ? 'default' : status === 'connecting' ? 'outline' : 'destructive';
 
     return (
         <div data-component={TASKS_PAGE_NAME} className="flex flex-col">
             <div className="flex h-10 shrink-0 items-center justify-between gap-1.5 overflow-x-auto border-border border-b bg-card px-4">
-                <span className="font-medium font-mono text-foreground text-xs">Tasks</span>
+                <span className="font-medium font-mono text-foreground text-xs">{t('nav.tasks')}</span>
                 <Badge variant={wsVariant}>{wsLabel}</Badge>
             </div>
 
             {tasks.length === 0 ? (
                 <EmptyState
                     icon={ListTodo}
-                    title="No active tasks"
-                    description="Background tasks will appear here when triggered."
+                    title={t('task.empty.title')}
+                    description={t('task.empty.description')}
                 />
             ) : (
                 <Table>

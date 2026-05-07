@@ -2,7 +2,11 @@ import type { Request, Response } from '@enonic-types/core';
 import { render } from '/lib/mustache';
 import { extensionUrl, getToolUrl } from '/lib/xp/admin';
 import { getUser } from '/lib/xp/auth';
+import { getPhrases } from '/lib/xp/i18n';
 import { apiUrl, assetUrl } from '/lib/xp/portal';
+
+const PHRASE_BUNDLE = 'i18n/app';
+const DEFAULT_LOCALE = 'en';
 
 type DataKitConfig = {
     appId: string;
@@ -28,10 +32,14 @@ type DataKitConfig = {
         key: string;
         displayName: string;
     } | null;
+    locale: string;
+    phrases: Record<string, string>;
 };
 
-function buildConfig(): DataKitConfig {
+function buildConfig(req: Request): DataKitConfig {
     const currentUser = getUser();
+    const locales = req.locales.length > 0 ? req.locales : [DEFAULT_LOCALE];
+    const phrases = getPhrases(locales, [PHRASE_BUNDLE]);
 
     return {
         appId: app.name,
@@ -62,12 +70,14 @@ function buildConfig(): DataKitConfig {
                   displayName: currentUser.displayName,
               }
             : null,
+        locale: locales[0],
+        phrases,
     };
 }
 
-export function get(_req: Request): Response {
+export function get(req: Request): Response {
     const view = resolve('./main.html');
-    const config = buildConfig();
+    const config = buildConfig(req);
 
     return {
         contentType: 'text/html',

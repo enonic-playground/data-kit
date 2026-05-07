@@ -6,7 +6,7 @@ export default defineConfig({
     test: {
         include: ['src/test/**/*.test.{ts,tsx}'],
         environment: 'node',
-        setupFiles: ['./src/test/setup-dom.ts'],
+        setupFiles: ['./src/test/setup-dom.ts', './src/test/setup-i18n.ts'],
         passWithNoTests: true,
     },
 });

@@ -6,6 +6,7 @@ import { ThemeProvider } from './components/theme-provider';
 import { Toaster } from './components/ui/sonner';
 import { TooltipProvider } from './components/ui/tooltip';
 import { getConfig } from './lib/config';
+import './lib/i18n';
 import { createAppRouter } from './router';
 
 const STALE_TIME_MS = 30_000;

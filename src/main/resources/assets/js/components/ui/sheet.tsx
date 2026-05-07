@@ -2,6 +2,7 @@ import * as SheetPrimitive from '@radix-ui/react-dialog';
 import { cva, type VariantProps } from 'class-variance-authority';
 import { X } from 'lucide-react';
 import type { ComponentProps, ReactElement } from 'react';
+import { useTranslation } from 'react-i18next';
 import { cn } from '../../lib/utils';
 
 //
@@ -84,6 +85,7 @@ export const SheetContent = ({
     ...props
 }: ComponentProps<typeof SheetPrimitive.Content> &
     VariantProps<typeof sheetVariants>): ReactElement => {
+    const { t } = useTranslation();
     return (
         <SheetPortal>
             <SheetOverlay />
@@ -96,7 +98,7 @@ export const SheetContent = ({
                 {children}
                 <SheetPrimitive.Close className="absolute top-4 right-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-secondary">
                     <X className="size-4" />
-                    <span className="sr-only">Close</span>
+                    <span className="sr-only">{t('common.action.close')}</span>
                 </SheetPrimitive.Close>
             </SheetPrimitive.Content>
         </SheetPortal>

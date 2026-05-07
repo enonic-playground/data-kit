@@ -8,6 +8,7 @@ import {
 } from '@tanstack/react-table';
 import { ChevronLeft, ChevronRight, Download, Loader2, Search, X } from 'lucide-react';
 import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import {
@@ -82,6 +83,7 @@ function getParentPath(path: string): string {
 //
 
 const SearchPage = (): ReactElement => {
+    const { t } = useTranslation();
     const { data: repositories } = useSuspenseQuery(repositoriesQueryOptions());
 
     const [query, setQuery] = useState('');
@@ -119,7 +121,7 @@ const SearchPage = (): ReactElement => {
         onError: (err: unknown) => {
             setResult(null);
             const apiErr = err as { message?: string; code?: string };
-            setError(apiErr.message ?? 'Search failed');
+            setError(apiErr.message ?? t('search.error.failed'));
         },
     });
 
@@ -167,7 +169,7 @@ const SearchPage = (): ReactElement => {
         if (total <= DEFAULT_COUNT) {
             const count = result.hits.length;
             downloadBlob(formatContent(result.hits), `search-${formatExportTimestamp()}.${ext}`, mime);
-            toast.success(`Exported ${count} result${count !== 1 ? 's' : ''}`);
+            toast.success(t('search.toast.exported', { count }));
             return;
         }
 
@@ -201,15 +203,19 @@ const SearchPage = (): ReactElement => {
 
             downloadBlob(formatContent(allHits), `search-${formatExportTimestamp()}.${ext}`, mime);
             if (total > MAX_EXPORT_RESULTS) {
-                toast.warning(`Exported ${allHits.length.toLocaleString()} of ${total.toLocaleString()} results (limit: ${MAX_EXPORT_RESULTS.toLocaleString()})`);
+                toast.warning(t('search.toast.exportedTruncated', {
+                    exported: allHits.length.toLocaleString(),
+                    total: total.toLocaleString(),
+                    limit: MAX_EXPORT_RESULTS.toLocaleString(),
+                }));
             } else {
-                toast.success(`Exported ${allHits.length} result${allHits.length !== 1 ? 's' : ''}`);
+                toast.success(t('search.toast.exported', { count: allHits.length }));
             }
         } catch (_err) {
             if (controller.signal.aborted) {
-                toast.info('Export cancelled');
+                toast.info(t('search.toast.exportCancelled'));
             } else {
-                toast.error('Export failed');
+                toast.error(t('search.toast.exportFailed'));
             }
         } finally {
             setExporting(false);
@@ -250,7 +256,7 @@ const SearchPage = (): ReactElement => {
     const columns = useMemo(
         () => [
             columnHelper.accessor('_score', {
-                header: 'Score',
+                header: t('search.column.score'),
                 cell: info => (
                     <span className="font-mono text-muted-foreground text-xs">
                         {info.getValue().toFixed(2)}
@@ -258,7 +264,7 @@ const SearchPage = (): ReactElement => {
                 ),
             }),
             columnHelper.accessor('_name', {
-                header: 'Name',
+                header: t('search.column.name'),
                 cell: info => (
                     <span className="font-mono text-[13px]">
                         {info.getValue() ?? '\u2014'}
@@ -266,7 +272,7 @@ const SearchPage = (): ReactElement => {
                 ),
             }),
             columnHelper.accessor('_path', {
-                header: 'Path',
+                header: t('search.column.path'),
                 cell: info => {
                     const hit = info.row.original;
                     const path = info.getValue();
@@ -289,19 +295,19 @@ const SearchPage = (): ReactElement => {
                 },
             }),
             columnHelper.accessor('_repoId', {
-                header: 'Repository',
+                header: t('search.column.repository'),
                 cell: info => (
                     <Badge variant="secondary">{info.getValue()}</Badge>
                 ),
             }),
             columnHelper.accessor('_branch', {
-                header: 'Branch',
+                header: t('search.column.branch'),
                 cell: info => (
                     <Badge variant="outline">{info.getValue()}</Badge>
                 ),
             }),
             columnHelper.accessor('_nodeType', {
-                header: 'Type',
+                header: t('search.column.type'),
                 cell: info => {
                     const value = info.getValue();
                     if (value == null) return <span className="text-muted-foreground">{'\u2014'}</span>;
@@ -309,7 +315,7 @@ const SearchPage = (): ReactElement => {
                 },
             }),
         ],
-        [],
+        [t],
     );
 
     const table = useReactTable({
@@ -330,14 +336,14 @@ const SearchPage = (): ReactElement => {
                 <div className="flex items-end gap-3">
                     <div>
                         <Label htmlFor="search-repo" className="text-xs">
-                            Repository
+                            {t('search.label.repository')}
                         </Label>
                         <Select value={repoId} onValueChange={handleRepoChange}>
                             <SelectTrigger id="search-repo" className="mt-1 h-9 w-48">
-                                <SelectValue placeholder="All repositories" />
+                                <SelectValue placeholder={t('search.label.allRepositories')} />
                             </SelectTrigger>
                             <SelectContent>
-                                <SelectItem value={ALL_REPOS}>All repositories</SelectItem>
+                                <SelectItem value={ALL_REPOS}>{t('search.label.allRepositories')}</SelectItem>
                                 {repositories.map((repo: Repository) => (
                                     <SelectItem key={repo.id} value={repo.id}>
                                         {repo.id}
@@ -350,7 +356,7 @@ const SearchPage = (): ReactElement => {
                     {repoId !== ALL_REPOS && branches.length > 0 && (
                         <div>
                             <Label htmlFor="search-branch" className="text-xs">
-                                Branch
+                                {t('search.label.branch')}
                             </Label>
                             <Select
                                 value={branch || branches[0]}
@@ -386,11 +392,11 @@ const SearchPage = (): ReactElement => {
                         )}
                     </button>
                     <input
-                        aria-label="NoQL query"
+                        aria-label={t('search.aria.queryInput')}
                         value={query}
                         onChange={e => setQuery(e.target.value)}
                         onKeyDown={handleKeyDown}
-                        placeholder="_name LIKE '*test*'"
+                        placeholder={t('search.field.queryPlaceholder')}
                         className="h-10 flex-1 bg-transparent px-3 font-mono text-sm placeholder:text-muted-foreground focus:outline-none"
                     />
                     {query !== '' && (
@@ -421,8 +427,8 @@ const SearchPage = (): ReactElement => {
             {result != null && result.hits.length === 0 && (
                 <EmptyState
                     icon={Search}
-                    title="No results"
-                    description="No nodes matched your query. Try adjusting your search criteria."
+                    title={t('search.empty.title')}
+                    description={t('search.empty.description')}
                 />
             )}
 
@@ -430,7 +436,7 @@ const SearchPage = (): ReactElement => {
                 <>
                     <div className="flex items-center gap-2 px-4">
                         <span className="font-mono text-muted-foreground text-xs">
-                            {total.toLocaleString()} result{total !== 1 ? 's' : ''} — {result.executionTimeMs}ms
+                            {t('search.stats', { total: total.toLocaleString(), count: total, ms: result.executionTimeMs })}
                         </span>
                         <div className="flex-1" />
                         <Button size="sm" disabled={exporting || searchMutation.isPending} onClick={() => handleExport('csv')}>
@@ -477,7 +483,7 @@ const SearchPage = (): ReactElement => {
                     {total > DEFAULT_COUNT && (
                         <div className="flex items-center justify-between border-border border-t px-4 pt-3">
                             <span className="font-mono text-muted-foreground text-xs">
-                                {start + 1}&ndash;{end} of {total.toLocaleString()}
+                                {t('common.pagination.range', { start: start + 1, end, total: total.toLocaleString() })}
                             </span>
                             <div className="flex gap-2">
                                 <Button
@@ -486,14 +492,14 @@ const SearchPage = (): ReactElement => {
                                     onClick={() => doSearch(Math.max(0, start - DEFAULT_COUNT))}
                                 >
                                     <ChevronLeft className="size-4" />
-                                    Previous
+                                    {t('common.pagination.previous')}
                                 </Button>
                                 <Button
                                     size="sm"
                                     disabled={exporting || !hasNext || searchMutation.isPending}
                                     onClick={() => doSearch(start + DEFAULT_COUNT)}
                                 >
-                                    Next
+                                    {t('common.pagination.next')}
                                     <ChevronRight className="size-4" />
                                 </Button>
                             </div>
@@ -506,13 +512,13 @@ const SearchPage = (): ReactElement => {
             <Dialog open={exporting}>
                 <DialogContent onPointerDownOutside={e => e.preventDefault()} onEscapeKeyDown={e => e.preventDefault()} className="[&>button:last-child]:hidden">
                     <DialogHeader>
-                        <DialogTitle>Exporting results</DialogTitle>
-                        <DialogDescription>Fetching search results for export...</DialogDescription>
+                        <DialogTitle>{t('search.dialog.export.title')}</DialogTitle>
+                        <DialogDescription>{t('search.dialog.export.description')}</DialogDescription>
                     </DialogHeader>
                     <Progress value={exportProgress} className="w-full" />
                     <p className="text-center text-muted-foreground text-sm">{Math.round(exportProgress)}%</p>
                     <DialogFooter>
-                        <Button onClick={handleCancelExport}>Cancel</Button>
+                        <Button onClick={handleCancelExport}>{t('common.action.cancel')}</Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
