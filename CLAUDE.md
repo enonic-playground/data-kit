@@ -16,13 +16,15 @@
 # Explicit dev build
 ./gradlew build -Penv=dev
 
-# Vite only (faster during development)
+# Vite+ only (faster during development)
 pnpm build          # dev build
 pnpm build:prod     # production build
-pnpm fix            # auto-fix lint issues (Biome)
+pnpm fix            # auto-fix lint issues (Vite+ / Oxlint)
 pnpm check          # lint + type-check + tests
-pnpm test           # vitest only
+pnpm test           # vitest only (via vp test)
 ```
+
+**Tooling:** `vite-plus` is the single CLI driving lint (Oxlint), build (Rolldown), and test (Vitest). Lint, test, and pre-commit (`staged`) are all configured in `vite.config.ts`. Type-check uses `tsgo` from `@typescript/native-preview`.
 
 ## Architecture
 
@@ -49,7 +51,7 @@ There is little official documentation on this yet, so don't rely on older XP do
 
 ## Adding XP Libraries
 
-1. Add to `build.gradle` dependencies: `include "com.enonic.xp:lib-auth:${xpVersion}"`
+1. Add to `build.gradle.kts` dependencies: `include("com.enonic.xp:lib-auth:${xpVersion}")`
 2. Add types: `pnpm add -D @enonic-types/lib-auth`
 3. Add `/lib/mustache`-style libs to `external` in `esbuild.server.js` if not covered by `/lib/xp/*` wildcard
 
