@@ -7,9 +7,6 @@ plugins {
 
 app {
     name = "${appName}"
-    displayName = "${appDisplayName}"
-    vendorName = "${vendorName}"
-    vendorUrl = "${vendorUrl}"
     systemVersion = "${xpVersion}"
     scriptEngine = "GraalJS"
 }
