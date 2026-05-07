@@ -8,6 +8,7 @@ import {
 } from '@tanstack/react-table';
 import { ArrowLeft, ArrowRightLeft, ChevronLeft, ChevronRight, Copy, Ellipsis, Eye, FileText, Folder, FolderOpen, LayoutGrid, LayoutList, Pencil, Plus, Send, Trash2 } from 'lucide-react';
 import { Fragment, type ReactElement, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { z } from 'zod';
 import { NodeDetailPanel } from '../components/node-detail-panel';
 import { Badge } from '../components/ui/badge';
@@ -116,6 +117,7 @@ const BreadcrumbToolbar = ({
     path,
     onNavigate,
 }: BreadcrumbToolbarProps): ReactElement => {
+    const { t } = useTranslation();
     const segments = path === '/' ? [] : path.split('/').filter(Boolean);
     const isRootPath = segments.length === 0;
 
@@ -125,7 +127,7 @@ const BreadcrumbToolbar = ({
             className="flex h-10 shrink-0 items-center gap-1.5 overflow-x-auto border-border border-b bg-card px-4"
         >
             <Link to="/repositories" className={crumbClasses}>
-                Repositories
+                {t('nav.repositories')}
             </Link>
             <ChevronRight className={separatorClasses} />
             <Link
@@ -179,21 +181,22 @@ type RenameDialogProps = {
 };
 
 const RenameDialog = ({ node, repoId, branch, open, onOpenChange }: RenameDialogProps): ReactElement => {
+    const { t } = useTranslation();
     const [name, setName] = useState(node._name);
     const [error, setError] = useState<string | undefined>();
     const renameMutation = useRenameNode();
 
     const handleSubmit = () => {
         if (name.trim() === '') {
-            setError('Name is required');
+            setError(t('node.error.nameRequired'));
             return;
         }
         if (name.includes('/')) {
-            setError('Name cannot contain slashes');
+            setError(t('node.error.nameNoSlashes'));
             return;
         }
         if (name === node._name) {
-            setError('Name must be different from current');
+            setError(t('node.error.nameSame'));
             return;
         }
 
@@ -201,11 +204,11 @@ const RenameDialog = ({ node, repoId, branch, open, onOpenChange }: RenameDialog
             { repoId, branch, key: node._id, newName: name },
             {
                 onSuccess: () => {
-                    toast.success(`Node renamed to '${name}'`);
+                    toast.success(t('node.toast.renamed', { name }));
                     onOpenChange(false);
                 },
                 onError: () => {
-                    toast.error('Failed to rename node');
+                    toast.error(t('node.toast.renameFailed'));
                 },
             },
         );
@@ -223,13 +226,13 @@ const RenameDialog = ({ node, repoId, branch, open, onOpenChange }: RenameDialog
         <Dialog open={open} onOpenChange={handleOpenChange}>
             <DialogContent>
                 <DialogHeader>
-                    <DialogTitle>Rename Node</DialogTitle>
+                    <DialogTitle>{t('node.dialog.rename.title')}</DialogTitle>
                     <DialogDescription>
-                        Enter a new name for &apos;{node._name}&apos;.
+                        {t('node.dialog.rename.description', { name: node._name })}
                     </DialogDescription>
                 </DialogHeader>
                 <div className="grid gap-2 py-4">
-                    <Label htmlFor="rename-name">Name</Label>
+                    <Label htmlFor="rename-name">{t('node.field.name')}</Label>
                     <Input
                         id="rename-name"
                         value={name}
@@ -247,14 +250,14 @@ const RenameDialog = ({ node, repoId, branch, open, onOpenChange }: RenameDialog
                 </div>
                 <DialogFooter>
                     <DialogClose asChild>
-                        <Button>Cancel</Button>
+                        <Button>{t('common.action.cancel')}</Button>
                     </DialogClose>
                     <Button
                         variant="primary"
                         onClick={handleSubmit}
                         disabled={renameMutation.isPending}
                     >
-                        Rename
+                        {t('common.action.rename')}
                     </Button>
                 </DialogFooter>
             </DialogContent>
@@ -275,17 +278,18 @@ type MoveDialogProps = {
 };
 
 const MoveDialog = ({ node, repoId, branch, open, onOpenChange }: MoveDialogProps): ReactElement => {
+    const { t } = useTranslation();
     const [targetPath, setTargetPath] = useState('');
     const [error, setError] = useState<string | undefined>();
     const moveMutation = useMoveNode();
 
     const handleSubmit = () => {
         if (targetPath.trim() === '') {
-            setError('Target path is required');
+            setError(t('node.error.pathRequired'));
             return;
         }
         if (!targetPath.startsWith('/')) {
-            setError('Path must start with /');
+            setError(t('node.error.pathLeadingSlash'));
             return;
         }
 
@@ -293,11 +297,11 @@ const MoveDialog = ({ node, repoId, branch, open, onOpenChange }: MoveDialogProp
             { repoId, branch, key: node._id, targetPath },
             {
                 onSuccess: () => {
-                    toast.success(`Node moved to '${targetPath}'`);
+                    toast.success(t('node.toast.moved', { path: targetPath }));
                     onOpenChange(false);
                 },
                 onError: () => {
-                    toast.error('Failed to move node');
+                    toast.error(t('node.toast.moveFailed'));
                 },
             },
         );
@@ -315,28 +319,28 @@ const MoveDialog = ({ node, repoId, branch, open, onOpenChange }: MoveDialogProp
         <Dialog open={open} onOpenChange={handleOpenChange}>
             <DialogContent>
                 <DialogHeader>
-                    <DialogTitle>Move Node</DialogTitle>
+                    <DialogTitle>{t('node.dialog.move.title')}</DialogTitle>
                     <DialogDescription>
-                        Move &apos;{node._name}&apos; to a new parent path.
+                        {t('node.dialog.move.description', { name: node._name })}
                     </DialogDescription>
                 </DialogHeader>
                 <div className="grid gap-4 py-4">
                     <div className="grid gap-1">
-                        <Label className="text-muted-foreground">Current Path</Label>
+                        <Label className="text-muted-foreground">{t('node.field.currentPath')}</Label>
                         <button
                             type="button"
                             className="cursor-pointer truncate text-left font-mono text-sm hover:text-foreground"
-                            title="Click to copy path"
+                            title={t('node.action.copyPath')}
                             onClick={() => {
                                 navigator.clipboard.writeText(node._path);
-                                toast.success('Path copied to clipboard');
+                                toast.success(t('node.toast.pathCopied'));
                             }}
                         >
                             {node._path}
                         </button>
                     </div>
                     <div className="grid gap-2">
-                        <Label htmlFor="move-path">Target Path</Label>
+                        <Label htmlFor="move-path">{t('node.field.targetPath')}</Label>
                         <Input
                             id="move-path"
                             value={targetPath}
@@ -347,7 +351,7 @@ const MoveDialog = ({ node, repoId, branch, open, onOpenChange }: MoveDialogProp
                             onKeyDown={e => {
                                 if (e.key === 'Enter') handleSubmit();
                             }}
-                            placeholder="/target/path"
+                            placeholder={t('node.field.targetPathPlaceholder')}
                         />
                         {error != null && (
                             <p className="text-destructive text-sm">{error}</p>
@@ -356,14 +360,14 @@ const MoveDialog = ({ node, repoId, branch, open, onOpenChange }: MoveDialogProp
                 </div>
                 <DialogFooter>
                     <DialogClose asChild>
-                        <Button>Cancel</Button>
+                        <Button>{t('common.action.cancel')}</Button>
                     </DialogClose>
                     <Button
                         variant="primary"
                         onClick={handleSubmit}
                         disabled={moveMutation.isPending}
                     >
-                        Move
+                        {t('common.action.move')}
                     </Button>
                 </DialogFooter>
             </DialogContent>
@@ -384,6 +388,7 @@ type PushDialogProps = {
 };
 
 const PushDialog = ({ node, repoId, branch, open, onOpenChange }: PushDialogProps): ReactElement => {
+    const { t } = useTranslation();
     const [target, setTarget] = useState('');
     const [includeChildren, setIncludeChildren] = useState(false);
     const [resolve, setResolve] = useState(true);
@@ -402,14 +407,21 @@ const PushDialog = ({ node, repoId, branch, open, onOpenChange }: PushDialogProp
                     const successCount = result.success.length;
                     const failedCount = result.failed.length;
                     if (failedCount > 0) {
-                        toast.warning(`Pushed to '${target}': ${successCount} succeeded, ${failedCount} failed`);
+                        toast.warning(t('node.toast.pushedPartial', {
+                            target,
+                            succeeded: successCount,
+                            failed: failedCount,
+                        }));
                     } else {
-                        toast.success(`Pushed to '${target}': ${successCount} nodes`);
+                        toast.success(t('node.toast.pushed', {
+                            target,
+                            count: successCount,
+                        }));
                     }
                     onOpenChange(false);
                 },
                 onError: () => {
-                    toast.error('Failed to push node');
+                    toast.error(t('node.toast.pushFailed'));
                 },
             },
         );
@@ -428,17 +440,17 @@ const PushDialog = ({ node, repoId, branch, open, onOpenChange }: PushDialogProp
         <Dialog open={open} onOpenChange={handleOpenChange}>
             <DialogContent>
                 <DialogHeader>
-                    <DialogTitle>Push Node</DialogTitle>
+                    <DialogTitle>{t('node.dialog.push.title')}</DialogTitle>
                     <DialogDescription>
-                        Push &apos;{node._name}&apos; to another branch.
+                        {t('node.dialog.push.description', { name: node._name })}
                     </DialogDescription>
                 </DialogHeader>
                 <div className="grid gap-4 py-4">
                     <div className="grid gap-2">
-                        <Label>Target Branch</Label>
+                        <Label>{t('node.field.targetBranch')}</Label>
                         <Select value={target} onValueChange={setTarget}>
                             <SelectTrigger>
-                                <SelectValue placeholder="Select branch" />
+                                <SelectValue placeholder={t('node.field.selectBranch')} />
                             </SelectTrigger>
                             <SelectContent>
                                 {availableBranches.map(b => (
@@ -456,7 +468,7 @@ const PushDialog = ({ node, repoId, branch, open, onOpenChange }: PushDialogProp
                             onCheckedChange={checked => setIncludeChildren(checked === true)}
                         />
                         <Label htmlFor="push-children" className="font-normal">
-                            Include children
+                            {t('node.field.includeChildren')}
                         </Label>
                     </div>
                     <div className="flex items-center gap-2">
@@ -466,20 +478,20 @@ const PushDialog = ({ node, repoId, branch, open, onOpenChange }: PushDialogProp
                             onCheckedChange={checked => setResolve(checked === true)}
                         />
                         <Label htmlFor="push-resolve" className="font-normal">
-                            Resolve dependencies
+                            {t('node.field.resolveDependencies')}
                         </Label>
                     </div>
                 </div>
                 <DialogFooter>
                     <DialogClose asChild>
-                        <Button>Cancel</Button>
+                        <Button>{t('common.action.cancel')}</Button>
                     </DialogClose>
                     <Button
                         variant="primary"
                         onClick={handleSubmit}
                         disabled={pushMutation.isPending || target === ''}
                     >
-                        Push
+                        {t('common.action.push')}
                     </Button>
                 </DialogFooter>
             </DialogContent>
@@ -500,6 +512,7 @@ type RowActionsProps = {
 };
 
 const RowActions = ({ node, repoId, branch, onPreview, onDeleted }: RowActionsProps): ReactElement => {
+    const { t } = useTranslation();
     const [renameOpen, setRenameOpen] = useState(false);
     const [moveOpen, setMoveOpen] = useState(false);
     const [pushOpen, setPushOpen] = useState(false);
@@ -513,10 +526,10 @@ const RowActions = ({ node, repoId, branch, onPreview, onDeleted }: RowActionsPr
             { repoId, branch, nodeId: node._id },
             {
                 onSuccess: (result) => {
-                    toast.success(`Node duplicated as '${result._name}'`);
+                    toast.success(t('node.toast.duplicated', { name: result._name }));
                 },
                 onError: () => {
-                    toast.error(`Failed to duplicate node '${node._name}'`);
+                    toast.error(t('node.toast.duplicateFailed', { name: node._name }));
                 },
             },
         );
@@ -529,16 +542,16 @@ const RowActions = ({ node, repoId, branch, onPreview, onDeleted }: RowActionsPr
                 onSuccess: (result) => {
                     if (result.branches != null) {
                         const count = result.branches.deleted.length;
-                        toast.success(`Node '${node._name}' deleted from ${count} branch${count !== 1 ? 'es' : ''}`);
+                        toast.success(t('node.toast.deletedFromBranches', { name: node._name, count }));
                     } else {
-                        toast.success(`Node '${node._name}' deleted`);
+                        toast.success(t('node.toast.deleted', { name: node._name }));
                     }
                     setDeleteOpen(false);
                     setDeleteAllBranches(false);
                     onDeleted?.();
                 },
                 onError: () => {
-                    toast.error(`Failed to delete node '${node._name}'`);
+                    toast.error(t('node.toast.deleteFailed', { name: node._name }));
                 },
             },
         );
@@ -565,7 +578,7 @@ const RowActions = ({ node, repoId, branch, onPreview, onDeleted }: RowActionsPr
                             }}
                         >
                             <Eye className="size-4" />
-                            Preview
+                            {t('common.action.preview')}
                         </DropdownMenuItem>
                     </DropdownMenuGroup>
                     <DropdownMenuSeparator />
@@ -577,7 +590,7 @@ const RowActions = ({ node, repoId, branch, onPreview, onDeleted }: RowActionsPr
                             }}
                         >
                             <Pencil className="size-4" />
-                            Rename
+                            {t('common.action.rename')}
                         </DropdownMenuItem>
                         <DropdownMenuItem
                             onClick={e => {
@@ -586,7 +599,7 @@ const RowActions = ({ node, repoId, branch, onPreview, onDeleted }: RowActionsPr
                             }}
                         >
                             <ArrowRightLeft className="size-4" />
-                            Move
+                            {t('common.action.move')}
                         </DropdownMenuItem>
                         <DropdownMenuItem
                             onClick={e => {
@@ -595,7 +608,7 @@ const RowActions = ({ node, repoId, branch, onPreview, onDeleted }: RowActionsPr
                             }}
                         >
                             <Copy className="size-4" />
-                            Duplicate
+                            {t('common.action.duplicate')}
                         </DropdownMenuItem>
                     </DropdownMenuGroup>
                     <DropdownMenuSeparator />
@@ -607,7 +620,7 @@ const RowActions = ({ node, repoId, branch, onPreview, onDeleted }: RowActionsPr
                             }}
                         >
                             <Send className="size-4" />
-                            Push
+                            {t('common.action.push')}
                         </DropdownMenuItem>
                     </DropdownMenuGroup>
                     <DropdownMenuSeparator />
@@ -620,7 +633,7 @@ const RowActions = ({ node, repoId, branch, onPreview, onDeleted }: RowActionsPr
                             }}
                         >
                             <Trash2 className="size-4" />
-                            Delete
+                            {t('common.action.delete')}
                         </DropdownMenuItem>
                     </DropdownMenuGroup>
                 </DropdownMenuContent>
@@ -653,9 +666,9 @@ const RowActions = ({ node, repoId, branch, onPreview, onDeleted }: RowActionsPr
             }}>
                 <DialogContent>
                     <DialogHeader>
-                        <DialogTitle>Delete Node</DialogTitle>
+                        <DialogTitle>{t('node.dialog.delete.title')}</DialogTitle>
                         <DialogDescription>
-                            Are you sure you want to delete &apos;{node._name}&apos; ({node._path})? This action cannot be undone.
+                            {t('node.dialog.delete.description', { name: node._name, path: node._path })}
                         </DialogDescription>
                     </DialogHeader>
                     <div className="flex items-center gap-2 py-2">
@@ -665,19 +678,19 @@ const RowActions = ({ node, repoId, branch, onPreview, onDeleted }: RowActionsPr
                             onCheckedChange={checked => setDeleteAllBranches(checked === true)}
                         />
                         <Label htmlFor={`delete-all-${node._id}`} className="font-normal">
-                            Delete from all branches
+                            {t('node.field.deleteFromAllBranches')}
                         </Label>
                     </div>
                     <DialogFooter>
                         <DialogClose asChild>
-                            <Button>Cancel</Button>
+                            <Button>{t('common.action.cancel')}</Button>
                         </DialogClose>
                         <Button
                             variant="destructive"
                             onClick={handleDelete}
                             disabled={deleteMutation.isPending}
                         >
-                            Delete
+                            {t('common.action.delete')}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
@@ -697,6 +710,7 @@ type CreateNodeDialogProps = {
 };
 
 const CreateNodeDialog = ({ repoId, branch, parentPath }: CreateNodeDialogProps): ReactElement => {
+    const { t } = useTranslation();
     const [open, setOpen] = useState(false);
     const [name, setName] = useState('');
     const [nodeType, setNodeType] = useState('');
@@ -705,11 +719,11 @@ const CreateNodeDialog = ({ repoId, branch, parentPath }: CreateNodeDialogProps)
 
     const handleSubmit = () => {
         if (name.trim() === '') {
-            setError('Name is required');
+            setError(t('node.error.nameRequired'));
             return;
         }
         if (name.includes('/')) {
-            setError('Name cannot contain slashes');
+            setError(t('node.error.nameNoSlashes'));
             return;
         }
 
@@ -723,14 +737,14 @@ const CreateNodeDialog = ({ repoId, branch, parentPath }: CreateNodeDialogProps)
             },
             {
                 onSuccess: () => {
-                    toast.success(`Node '${name}' created`);
+                    toast.success(t('node.toast.created', { name }));
                     setOpen(false);
                     setName('');
                     setNodeType('');
                     setError(undefined);
                 },
                 onError: () => {
-                    toast.error(`Failed to create node '${name}'`);
+                    toast.error(t('node.toast.createFailed', { name }));
                 },
             },
         );
@@ -750,19 +764,19 @@ const CreateNodeDialog = ({ repoId, branch, parentPath }: CreateNodeDialogProps)
             <DialogTrigger asChild>
                 <Button>
                     <Plus className="size-4" />
-                    Create Node
+                    {t('node.action.createNode')}
                 </Button>
             </DialogTrigger>
             <DialogContent>
                 <DialogHeader>
-                    <DialogTitle>Create Node</DialogTitle>
+                    <DialogTitle>{t('node.dialog.createNode.title')}</DialogTitle>
                     <DialogDescription>
-                        Create a new child node in &apos;{parentPath}&apos;.
+                        {t('node.dialog.createNode.description', { path: parentPath })}
                     </DialogDescription>
                 </DialogHeader>
                 <div className="grid gap-4 py-4">
                     <div className="grid gap-2">
-                        <Label htmlFor="create-name">Name</Label>
+                        <Label htmlFor="create-name">{t('node.field.name')}</Label>
                         <Input
                             id="create-name"
                             value={name}
@@ -773,32 +787,32 @@ const CreateNodeDialog = ({ repoId, branch, parentPath }: CreateNodeDialogProps)
                             onKeyDown={e => {
                                 if (e.key === 'Enter') handleSubmit();
                             }}
-                            placeholder="my-node"
+                            placeholder={t('node.field.namePlaceholder')}
                         />
                         {error != null && (
                             <p className="text-destructive text-sm">{error}</p>
                         )}
                     </div>
                     <div className="grid gap-2">
-                        <Label htmlFor="create-type">Node Type</Label>
+                        <Label htmlFor="create-type">{t('node.field.nodeType')}</Label>
                         <Input
                             id="create-type"
                             value={nodeType}
                             onChange={e => setNodeType(e.target.value)}
-                            placeholder="default"
+                            placeholder={t('node.field.nodeTypePlaceholder')}
                         />
                     </div>
                 </div>
                 <DialogFooter>
                     <DialogClose asChild>
-                        <Button>Cancel</Button>
+                        <Button>{t('common.action.cancel')}</Button>
                     </DialogClose>
                     <Button
                         variant="primary"
                         onClick={handleSubmit}
                         disabled={createMutation.isPending}
                     >
-                        Create
+                        {t('common.action.create')}
                     </Button>
                 </DialogFooter>
             </DialogContent>
@@ -811,6 +825,7 @@ const CreateNodeDialog = ({ repoId, branch, parentPath }: CreateNodeDialogProps)
 //
 
 const NodeBrowserPage = (): ReactElement => {
+    const { t } = useTranslation();
     const { repoId, branch } = Route.useParams();
     const { path, start, count, nodeId } = Route.useSearch();
     const navigate = useNavigate({ from: Route.fullPath });
@@ -849,7 +864,7 @@ const NodeBrowserPage = (): ReactElement => {
 
     const columns = [
         columnHelper.accessor('_name', {
-            header: 'Name',
+            header: t('node.column.name'),
             cell: info => {
                 const node = info.row.original;
                 const Icon = node.hasChildren ? Folder : FileText;
@@ -863,14 +878,14 @@ const NodeBrowserPage = (): ReactElement => {
             },
         }),
         columnHelper.accessor('_nodeType', {
-            header: 'Type',
+            header: t('node.column.type'),
             meta: { className: 'w-35' },
             cell: info => (
                 <Badge variant="secondary">{info.getValue()}</Badge>
             ),
         }),
         columnHelper.accessor('_ts', {
-            header: 'Modified',
+            header: t('node.column.modified'),
             meta: { className: 'w-45' },
             cell: info => (
                 <span className="font-mono text-muted-foreground text-xs">
@@ -1026,8 +1041,8 @@ const NodeBrowserPage = (): ReactElement => {
                         <div className="flex flex-1 items-center justify-center">
                             <EmptyState
                                 icon={FolderOpen}
-                                title="No nodes"
-                                description="This branch has no nodes yet."
+                                title={t('node.empty.title')}
+                                description={t('node.empty.description')}
                             />
                         </div>
                     ) : (
@@ -1037,7 +1052,7 @@ const NodeBrowserPage = (): ReactElement => {
                                 'border-border border-t',
                             )}>
                                 <span className="font-mono text-muted-foreground text-xs">
-                                    {start + 1}&ndash;{end} of {data.total}
+                                    {t('common.pagination.range', { start: start + 1, end, total: data.total })}
                                 </span>
                                 <div className="flex gap-2">
                                     <Button
@@ -1054,7 +1069,7 @@ const NodeBrowserPage = (): ReactElement => {
                                         }
                                     >
                                         <ChevronLeft className="size-4" />
-                                        Previous
+                                        {t('common.pagination.previous')}
                                     </Button>
                                     <Button
                                         size="sm"
@@ -1069,7 +1084,7 @@ const NodeBrowserPage = (): ReactElement => {
                                             })
                                         }
                                     >
-                                        Next
+                                        {t('common.pagination.next')}
                                         <ChevronRight className="size-4" />
                                     </Button>
                                 </div>

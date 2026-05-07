@@ -24,6 +24,8 @@ export type DataKitConfig = {
     };
     launcherUri: string;
     user: UserConfig | null;
+    locale: string;
+    phrases: Record<string, string>;
 };
 
 const CONFIG_ELEMENT_ID = 'datakit-config';

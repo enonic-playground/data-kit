@@ -1,24 +1,25 @@
 import { useRouterState } from '@tanstack/react-router';
 import type { ReactElement } from 'react';
+import { useTranslation } from 'react-i18next';
 import { cn } from '../lib/utils';
 
-const ROUTE_STATUS: Record<string, string> = {
-    '/repositories': 'Node store',
-    '/search': 'Full-text search across all repositories',
-    '/snapshots': 'Snapshots',
-    '/dumps': 'Dumps',
-    '/exports': 'Exports',
-    '/tasks': 'Tasks',
-    '/audit': 'Audit log',
-    '/events': 'Events',
-    '/system': 'System info',
+const ROUTE_STATUS_KEYS: Record<string, string> = {
+    '/repositories': 'statusBar.repositories',
+    '/search': 'statusBar.search',
+    '/snapshots': 'statusBar.snapshots',
+    '/dumps': 'statusBar.dumps',
+    '/exports': 'statusBar.exports',
+    '/tasks': 'statusBar.tasks',
+    '/audit': 'statusBar.audit',
+    '/events': 'statusBar.events',
+    '/system': 'statusBar.system',
 };
 
-function getStatusText(pathname: string): string {
-    for (const [route, label] of Object.entries(ROUTE_STATUS)) {
-        if (pathname.startsWith(route)) return label;
+function getStatusKey(pathname: string): string {
+    for (const [route, key] of Object.entries(ROUTE_STATUS_KEYS)) {
+        if (pathname.startsWith(route)) return key;
     }
-    return 'Ready';
+    return 'statusBar.ready';
 }
 
 export type StatusBarProps = {
@@ -28,8 +29,9 @@ export type StatusBarProps = {
 const STATUS_BAR_NAME = 'StatusBar';
 
 export const StatusBar = ({ className }: StatusBarProps): ReactElement => {
+    const { t } = useTranslation();
     const routerState = useRouterState();
-    const statusText = getStatusText(routerState.location.pathname);
+    const statusText = t(getStatusKey(routerState.location.pathname));
 
     const barClasses = cn(
         'flex h-6 shrink-0 items-center bg-primary px-3.5',
@@ -46,7 +48,7 @@ export const StatusBar = ({ className }: StatusBarProps): ReactElement => {
             </div>
             <div className="flex-1" />
             <span className="font-mono text-white/45 text-xs tracking-wider">
-                admin
+                {t('statusBar.role')}
             </span>
         </div>
     );

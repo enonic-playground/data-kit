@@ -17,6 +17,7 @@ import {
     Trash2,
 } from 'lucide-react';
 import { type ReactElement, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { z } from 'zod';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
@@ -66,11 +67,11 @@ const PROTECTED_REPOS = ['system-repo', 'com.enonic.cms.default'];
 
 const repoIdSchema = z
     .string()
-    .min(3, 'Must be at least 3 characters')
-    .max(100, 'Must be at most 100 characters')
+    .min(3, 'repo.error.tooShort')
+    .max(100, 'repo.error.tooLong')
     .regex(
         /^[a-z0-9][a-z0-9._-]*[a-z0-9]$/,
-        'Must contain only lowercase letters, digits, dots, and hyphens',
+        'repo.error.invalidChars',
     );
 
 const columnHelper = createColumnHelper<Repository>();
@@ -84,6 +85,7 @@ type RowActionsProps = {
 };
 
 const RowActions = ({ repo }: RowActionsProps): ReactElement => {
+    const { t } = useTranslation();
     const [deleteOpen, setDeleteOpen] = useState(false);
     const navigate = useNavigate();
     const deleteMutation = useDeleteRepository();
@@ -92,11 +94,11 @@ const RowActions = ({ repo }: RowActionsProps): ReactElement => {
     const handleDelete = () => {
         deleteMutation.mutate(repo.id, {
             onSuccess: () => {
-                toast.success(`Repository '${repo.id}' deleted`);
+                toast.success(t('repo.toast.deleted', { id: repo.id }));
                 setDeleteOpen(false);
             },
             onError: () => {
-                toast.error(`Failed to delete repository '${repo.id}'`);
+                toast.error(t('repo.toast.deleteFailed', { id: repo.id }));
             },
         });
     };
@@ -125,7 +127,7 @@ const RowActions = ({ repo }: RowActionsProps): ReactElement => {
                             }}
                         >
                             <Eye className="size-4" />
-                            Preview
+                            {t('common.action.preview')}
                         </DropdownMenuItem>
                     </DropdownMenuGroup>
                     <DropdownMenuSeparator />
@@ -138,21 +140,21 @@ const RowActions = ({ repo }: RowActionsProps): ReactElement => {
                             }}
                         >
                             <Trash2 className="size-4" />
-                            Delete
+                            {t('common.action.delete')}
                         </DropdownMenuItem>
                     </DropdownMenuGroup>
                 </DropdownMenuContent>
             </DropdownMenu>
 
             <ConfirmDialog
-                title={isProtected ? 'Protected Repository' : 'Delete Repository'}
+                title={isProtected ? t('repo.dialog.protected.title') : t('repo.dialog.delete.title')}
                 description={
                     isProtected
-                        ? `'${repo.id}' is a system repository and cannot be deleted.`
-                        : `Are you sure you want to delete '${repo.id}'? This action cannot be undone.`
+                        ? t('repo.dialog.protected.description', { id: repo.id })
+                        : t('repo.dialog.delete.description', { id: repo.id })
                 }
-                confirmLabel={isProtected ? 'OK' : 'Delete'}
-                cancelLabel={isProtected ? 'Close' : 'Cancel'}
+                confirmLabel={isProtected ? t('common.action.ok') : t('common.action.delete')}
+                cancelLabel={isProtected ? t('common.action.close') : t('common.action.cancel')}
                 variant={isProtected ? 'primary' : 'destructive'}
                 onConfirm={isProtected ? () => setDeleteOpen(false) : handleDelete}
                 open={deleteOpen}
@@ -167,6 +169,7 @@ const RowActions = ({ repo }: RowActionsProps): ReactElement => {
 //
 
 const CreateRepositoryDialog = (): ReactElement => {
+    const { t } = useTranslation();
     const [open, setOpen] = useState(false);
     const [name, setName] = useState('');
     const [error, setError] = useState<string | null>(null);
@@ -175,19 +178,19 @@ const CreateRepositoryDialog = (): ReactElement => {
     const handleSubmit = () => {
         const result = repoIdSchema.safeParse(name);
         if (!result.success) {
-            setError(result.error.issues[0].message);
+            setError(t(result.error.issues[0].message));
             return;
         }
 
         createMutation.mutate(name, {
             onSuccess: () => {
-                toast.success(`Repository '${name}' created`);
+                toast.success(t('repo.toast.created', { name }));
                 setOpen(false);
                 setName('');
                 setError(null);
             },
             onError: () => {
-                toast.error(`Failed to create repository '${name}'`);
+                toast.error(t('repo.toast.createFailed', { name }));
             },
         });
     };
@@ -205,19 +208,18 @@ const CreateRepositoryDialog = (): ReactElement => {
             <DialogTrigger asChild>
                 <Button>
                     <Plus className="size-4" />
-                    Create Repository
+                    {t('repo.action.createRepository')}
                 </Button>
             </DialogTrigger>
             <DialogContent>
                 <DialogHeader>
-                    <DialogTitle>Create Repository</DialogTitle>
+                    <DialogTitle>{t('repo.dialog.create.title')}</DialogTitle>
                     <DialogDescription>
-                        Enter a name for the new repository. Use lowercase
-                        letters, digits, dots, and hyphens.
+                        {t('repo.dialog.create.description')}
                     </DialogDescription>
                 </DialogHeader>
                 <div className="grid gap-2 py-4">
-                    <Label htmlFor="repo-name">Repository Name</Label>
+                    <Label htmlFor="repo-name">{t('repo.field.name')}</Label>
                     <Input
                         id="repo-name"
                         value={name}
@@ -228,7 +230,7 @@ const CreateRepositoryDialog = (): ReactElement => {
                         onKeyDown={e => {
                             if (e.key === 'Enter') handleSubmit();
                         }}
-                        placeholder="my-repository"
+                        placeholder={t('repo.field.namePlaceholder')}
                     />
                     {error != null && (
                         <p className="text-destructive text-sm">{error}</p>
@@ -236,14 +238,14 @@ const CreateRepositoryDialog = (): ReactElement => {
                 </div>
                 <DialogFooter>
                     <DialogClose asChild>
-                        <Button>Cancel</Button>
+                        <Button>{t('common.action.cancel')}</Button>
                     </DialogClose>
                     <Button
                         variant="primary"
                         onClick={handleSubmit}
                         disabled={createMutation.isPending}
                     >
-                        Create
+                        {t('common.action.create')}
                     </Button>
                 </DialogFooter>
             </DialogContent>
@@ -256,6 +258,7 @@ const CreateRepositoryDialog = (): ReactElement => {
 //
 
 const RepositoriesPage = (): ReactElement => {
+    const { t } = useTranslation();
     const { data: repositories } = useSuspenseQuery(
         repositoriesQueryOptions(),
     );
@@ -264,11 +267,11 @@ const RepositoriesPage = (): ReactElement => {
 
     const columns = [
         columnHelper.accessor('id', {
-            header: 'Name',
+            header: t('repo.column.name'),
             cell: info => info.getValue(),
         }),
         columnHelper.accessor('branches', {
-            header: 'Branches',
+            header: t('repo.column.branches'),
             cell: info => (
                 <div className="flex flex-wrap gap-1">
                     {info.getValue().map(b => (
@@ -299,7 +302,7 @@ const RepositoriesPage = (): ReactElement => {
         <div data-component={REPOSITORIES_PAGE_NAME} className="flex flex-col">
             {/* Breadcrumb bar */}
             <div className="flex h-10 shrink-0 items-center gap-1.5 overflow-x-auto border-border border-b bg-card px-4">
-                <span className="font-medium font-mono text-foreground text-xs">Repositories</span>
+                <span className="font-medium font-mono text-foreground text-xs">{t('nav.repositories')}</span>
             </div>
 
             {/* Action toolbar */}
@@ -330,8 +333,8 @@ const RepositoriesPage = (): ReactElement => {
             {repositories.length === 0 ? (
                 <EmptyState
                     icon={Database}
-                    title="No repositories"
-                    description="No repositories found. Create one to get started."
+                    title={t('repo.empty.title')}
+                    description={t('repo.empty.description')}
                     action={<CreateRepositoryDialog />}
                 />
             ) : (

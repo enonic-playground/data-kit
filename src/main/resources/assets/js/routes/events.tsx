@@ -8,6 +8,7 @@ import {
     useRef,
     useState,
 } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Badge, type BadgeProps } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Checkbox } from '../components/ui/checkbox';
@@ -34,13 +35,13 @@ const CATEGORY_PREFIX: Record<Exclude<EventCategory, 'other'>, string> = {
     custom: 'custom.',
 };
 
-const CATEGORY_LABEL: Record<EventCategory, string> = {
-    node: 'Node',
-    task: 'Task',
-    application: 'Application',
-    repository: 'Repository',
-    custom: 'Custom',
-    other: 'Other',
+const CATEGORY_LABEL_KEYS: Record<EventCategory, string> = {
+    node: 'events.category.node',
+    task: 'events.category.task',
+    application: 'events.category.application',
+    repository: 'events.category.repository',
+    custom: 'events.category.custom',
+    other: 'events.category.other',
 };
 
 const CATEGORY_VARIANT: Record<EventCategory, BadgeProps['variant']> = {
@@ -105,6 +106,7 @@ type EventRowProps = {
 const EVENT_ROW_NAME = 'EventRow';
 
 const EventRow = ({ event }: EventRowProps): ReactElement => {
+    const { t } = useTranslation();
     const [expanded, setExpanded] = useState(false);
     const category = categorize(event.type);
 
@@ -139,7 +141,7 @@ const EventRow = ({ event }: EventRowProps): ReactElement => {
                 </span>
                 {event.distributed && (
                     <Badge variant="outline" className="ml-auto shrink-0">
-                        distributed
+                        {t('events.badge.distributed')}
                     </Badge>
                 )}
             </button>
@@ -164,6 +166,7 @@ type Snapshot = {
 const EMPTY_SNAPSHOT: Snapshot = { events: [], total: 0 };
 
 const EventsPage = (): ReactElement => {
+    const { t } = useTranslation();
     const { status, subscribe } = useWebSocket();
     const [paused, setPaused] = useState(false);
     const [enabledCategories, setEnabledCategories] = useState<Set<EventCategory>>(
@@ -255,7 +258,11 @@ const EventsPage = (): ReactElement => {
                       : 'destructive'
             }
         >
-            {status === 'open' ? 'Live' : status === 'connecting' ? 'Connecting' : 'Offline'}
+            {status === 'open'
+                ? t('events.status.live')
+                : status === 'connecting'
+                  ? t('events.status.connecting')
+                  : t('events.status.offline')}
         </Badge>
     );
 
@@ -263,11 +270,14 @@ const EventsPage = (): ReactElement => {
         <div data-component={EVENTS_PAGE_NAME} className="flex h-full flex-col">
             {/* Header */}
             <div className="flex h-10 shrink-0 items-center justify-between gap-2 overflow-x-auto border-border border-b bg-card px-4">
-                <span className="font-medium font-mono text-foreground text-xs">Events</span>
+                <span className="font-medium font-mono text-foreground text-xs">{t('nav.events')}</span>
                 <div className="flex items-center gap-2">
                     <span className="text-muted-foreground text-xs">
-                        {snapshot.total} received · showing {visibleEvents.length} of{' '}
-                        {snapshot.events.length}
+                        {t('events.stats', {
+                            total: snapshot.total,
+                            visible: visibleEvents.length,
+                            buffered: snapshot.events.length,
+                        })}
                     </span>
                     {statusBadge}
                 </div>
@@ -282,7 +292,7 @@ const EventsPage = (): ReactElement => {
                     aria-pressed={paused}
                 >
                     {paused ? <Play className="size-4" /> : <Pause className="size-4" />}
-                    {paused ? 'Resume' : 'Pause'}
+                    {paused ? t('events.action.resume') : t('events.action.pause')}
                 </Button>
                 <Button
                     variant="ghost"
@@ -291,7 +301,7 @@ const EventsPage = (): ReactElement => {
                     disabled={snapshot.events.length === 0}
                 >
                     <Trash2 className="size-4" />
-                    Clear
+                    {t('common.action.clear')}
                 </Button>
 
                 <div className="mx-2 h-5 w-px bg-border" />
@@ -308,7 +318,7 @@ const EventsPage = (): ReactElement => {
                                 }
                             />
                             <Label htmlFor={id} className="cursor-pointer text-xs">
-                                {CATEGORY_LABEL[category]}
+                                {t(CATEGORY_LABEL_KEYS[category])}
                             </Label>
                         </div>
                     );
@@ -321,13 +331,13 @@ const EventsPage = (): ReactElement => {
                     icon={Activity}
                     title={
                         snapshot.events.length === 0
-                            ? 'No events yet'
-                            : 'No events match filters'
+                            ? t('events.empty.title')
+                            : t('events.filtered.title')
                     }
                     description={
                         snapshot.events.length === 0
-                            ? 'Live XP events will appear here as they happen.'
-                            : 'Adjust the type filters to see more events.'
+                            ? t('events.empty.description')
+                            : t('events.filtered.description')
                     }
                 />
             ) : (

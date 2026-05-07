@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import type { ChangeEvent, ReactElement } from 'react';
 import { useEffect, useRef, useState } from 'react';
+import { Trans, useTranslation } from 'react-i18next';
 import {
     AlertDialog,
     AlertDialogAction,
@@ -140,16 +141,16 @@ function parseDumpResult(info: string): DumpResult | undefined {
     }
 }
 
-const TASK_TYPE_LABELS: Record<ActiveTask['type'], string> = {
-    create: 'Creating dump',
-    load: 'Loading dump',
-    upgrade: 'Upgrading dump',
+const TASK_TYPE_KEYS: Record<ActiveTask['type'], string> = {
+    create: 'dump.task.creating',
+    load: 'dump.task.loading',
+    upgrade: 'dump.task.upgrading',
 };
 
-const TASK_COMPLETE_LABELS: Record<ActiveTask['type'], string> = {
-    create: 'Dump created',
-    load: 'Dump loaded',
-    upgrade: 'Dump upgraded',
+const TASK_COMPLETE_KEYS: Record<ActiveTask['type'], string> = {
+    create: 'dump.task.created',
+    load: 'dump.task.loaded',
+    upgrade: 'dump.task.upgraded',
 };
 
 const columnHelper = createColumnHelper<Dump>();
@@ -162,6 +163,7 @@ const COLUMN_COUNT = 6;
 //
 
 const DumpResultSummary = ({ result }: { result: DumpResult }): ReactElement => {
+    const { t } = useTranslation();
     const totalNodes = result.repositories.reduce(
         (sum, repo) => sum + repo.branches.reduce((s, b) => s + b.successful, 0),
         0,
@@ -172,14 +174,17 @@ const DumpResultSummary = ({ result }: { result: DumpResult }): ReactElement => 
     );
 
     const repoCount = result.repositories.length;
-    const repoLabel = repoCount === 1 ? 'repository' : 'repositories';
 
     return (
         <div className="space-y-3">
             <p className="text-muted-foreground text-sm">
-                {repoCount} {repoLabel}, {totalNodes} nodes
+                <Trans
+                    i18nKey="dump.result.summary"
+                    count={repoCount}
+                    values={{ repos: repoCount, nodes: totalNodes }}
+                />
                 {totalErrors > 0 && (
-                    <span className="text-destructive"> ({totalErrors} errors)</span>
+                    <span className="text-destructive"> {t('dump.result.errors', { count: totalErrors })}</span>
                 )}
             </p>
             <div className="max-h-48 space-y-2 overflow-y-auto">
@@ -188,7 +193,7 @@ const DumpResultSummary = ({ result }: { result: DumpResult }): ReactElement => 
                         <p className="font-medium font-mono text-xs">{repo.repositoryId}</p>
                         <p className="text-muted-foreground text-xs">
                             {repo.branches.map((b) => `${b.branch}: ${b.successful}`).join(' \u00b7 ')}
-                            {repo.versions > 0 && ` \u00b7 ${repo.versions} versions`}
+                            {repo.versions > 0 && ` \u00b7 ${t('dump.result.versions', { count: repo.versions })}`}
                         </p>
                         {repo.branches.some((b) => b.errors.length > 0) && (
                             <p className="text-destructive text-xs">
@@ -219,23 +224,29 @@ type LoadDumpWarningProps = {
 };
 
 const LoadDumpWarning = ({ dump, open, onOpenChange, onConfirm }: LoadDumpWarningProps): ReactElement => {
+    const { t } = useTranslation();
     return (
         <AlertDialog open={open} onOpenChange={onOpenChange}>
             <AlertDialogContent>
                 <AlertDialogHeader>
-                    <AlertDialogTitle>Load Dump</AlertDialogTitle>
-                    <AlertDialogDescription>
-                        Loading dump &apos;{dump.name}&apos; will <strong>overwrite all existing data</strong> in the
-                        system. This operation cannot be undone. Make sure you have a backup before proceeding.
+                    <AlertDialogTitle>{t('dump.dialog.load.title')}</AlertDialogTitle>
+                    <AlertDialogDescription asChild>
+                        <span>
+                            <Trans
+                                i18nKey="dump.dialog.load.description"
+                                values={{ name: dump.name }}
+                                components={{ strong: <strong /> }}
+                            />
+                        </span>
                     </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogCancel>{t('common.action.cancel')}</AlertDialogCancel>
                     <AlertDialogAction
                         onClick={onConfirm}
                         className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                     >
-                        Load Dump
+                        {t('dump.dialog.load.confirm')}
                     </AlertDialogAction>
                 </AlertDialogFooter>
             </AlertDialogContent>
@@ -253,6 +264,7 @@ type RowActionsProps = {
 };
 
 const RowActions = ({ dump, onStartTask }: RowActionsProps): ReactElement => {
+    const { t } = useTranslation();
     const [loadOpen, setLoadOpen] = useState(false);
     const [deleteOpen, setDeleteOpen] = useState(false);
     const loadMutation = useLoadDump();
@@ -268,7 +280,7 @@ const RowActions = ({ dump, onStartTask }: RowActionsProps): ReactElement => {
                     onStartTask({ id: result.taskId, type: 'load' });
                 },
                 onError: () => {
-                    toast.error(`Failed to start loading dump '${dump.name}'`);
+                    toast.error(t('dump.toast.loadStartFailed', { name: dump.name }));
                 },
             },
         );
@@ -280,7 +292,7 @@ const RowActions = ({ dump, onStartTask }: RowActionsProps): ReactElement => {
                 onStartTask({ id: result.taskId, type: 'upgrade' });
             },
             onError: () => {
-                toast.error(`Failed to start upgrading dump '${dump.name}'`);
+                toast.error(t('dump.toast.upgradeStartFailed', { name: dump.name }));
             },
         });
     };
@@ -288,11 +300,11 @@ const RowActions = ({ dump, onStartTask }: RowActionsProps): ReactElement => {
     const handleDelete = () => {
         deleteMutation.mutate(dump.name, {
             onSuccess: () => {
-                toast.success(`Dump '${dump.name}' deleted`);
+                toast.success(t('dump.toast.deleted', { name: dump.name }));
                 setDeleteOpen(false);
             },
             onError: () => {
-                toast.error(`Failed to delete dump '${dump.name}'`);
+                toast.error(t('dump.toast.deleteFailed', { name: dump.name }));
             },
         });
     };
@@ -321,7 +333,7 @@ const RowActions = ({ dump, onStartTask }: RowActionsProps): ReactElement => {
                                 }}
                             >
                                 <RotateCcw className="size-4" />
-                                Load
+                                {t('common.action.load')}
                             </DropdownMenuItem>
                         )}
                         {dump.type === 'versioned' && (
@@ -332,7 +344,7 @@ const RowActions = ({ dump, onStartTask }: RowActionsProps): ReactElement => {
                                 }}
                             >
                                 <ArrowUpCircle className="size-4" />
-                                Upgrade
+                                {t('dump.action.upgrade')}
                             </DropdownMenuItem>
                         )}
                         <DropdownMenuItem
@@ -342,7 +354,7 @@ const RowActions = ({ dump, onStartTask }: RowActionsProps): ReactElement => {
                             }}
                         >
                             <Download className="size-4" />
-                            Download
+                            {t('common.action.download')}
                         </DropdownMenuItem>
                     </DropdownMenuGroup>
                     <DropdownMenuSeparator />
@@ -355,7 +367,7 @@ const RowActions = ({ dump, onStartTask }: RowActionsProps): ReactElement => {
                             }}
                         >
                             <Trash2 className="size-4" />
-                            Delete
+                            {t('common.action.delete')}
                         </DropdownMenuItem>
                     </DropdownMenuGroup>
                 </DropdownMenuContent>
@@ -369,9 +381,9 @@ const RowActions = ({ dump, onStartTask }: RowActionsProps): ReactElement => {
             />
 
             <ConfirmDialog
-                title="Delete Dump"
-                description={`Are you sure you want to delete '${dump.name}'? This action cannot be undone.`}
-                confirmLabel="Delete"
+                title={t('dump.dialog.delete.title')}
+                description={t('dump.dialog.delete.description', { name: dump.name })}
+                confirmLabel={t('common.action.delete')}
                 variant="destructive"
                 onConfirm={handleDelete}
                 open={deleteOpen}
@@ -390,6 +402,7 @@ type CreateDumpDialogProps = {
 };
 
 const CreateDumpDialog = ({ onStartTask }: CreateDumpDialogProps): ReactElement => {
+    const { t } = useTranslation();
     const [open, setOpen] = useState(false);
     const [name, setName] = useState('');
     const [includeVersions, setIncludeVersions] = useState(false);
@@ -415,7 +428,7 @@ const CreateDumpDialog = ({ onStartTask }: CreateDumpDialogProps): ReactElement 
                     onStartTask({ id: result.taskId, type: 'create', name: dumpName });
                 },
                 onError: () => {
-                    toast.error('Failed to start creating dump');
+                    toast.error(t('dump.toast.createStartFailed'));
                 },
             },
         );
@@ -442,24 +455,24 @@ const CreateDumpDialog = ({ onStartTask }: CreateDumpDialogProps): ReactElement 
             <DialogTrigger asChild>
                 <Button>
                     <Plus className="size-4" />
-                    Create Dump
+                    {t('dump.action.createDump')}
                 </Button>
             </DialogTrigger>
             <DialogContent>
                 <DialogHeader>
-                    <DialogTitle>Create Dump</DialogTitle>
+                    <DialogTitle>{t('dump.dialog.create.title')}</DialogTitle>
                     <DialogDescription>
-                        Create a new system dump for backup or migration.
+                        {t('dump.dialog.create.description')}
                     </DialogDescription>
                 </DialogHeader>
                 <div className="grid gap-4 py-4">
                     <div className="grid gap-2">
-                        <Label htmlFor="dump-name">Name</Label>
+                        <Label htmlFor="dump-name">{t('dump.field.name')}</Label>
                         <Input
                             id="dump-name"
                             value={name}
                             onChange={e => setName(e.target.value)}
-                            placeholder="my-dump"
+                            placeholder={t('dump.field.namePlaceholder')}
                         />
                     </div>
                     <div className="flex items-center gap-2">
@@ -468,30 +481,30 @@ const CreateDumpDialog = ({ onStartTask }: CreateDumpDialogProps): ReactElement 
                             checked={includeVersions}
                             onCheckedChange={checked => setIncludeVersions(checked === true)}
                         />
-                        <Label htmlFor="dump-include-versions">Include versions</Label>
+                        <Label htmlFor="dump-include-versions">{t('dump.field.includeVersions')}</Label>
                     </div>
                     {includeVersions && (
                         <>
                             <div className="grid gap-2">
-                                <Label htmlFor="dump-max-versions">Max versions</Label>
+                                <Label htmlFor="dump-max-versions">{t('dump.field.maxVersions')}</Label>
                                 <Input
                                     id="dump-max-versions"
                                     type="number"
                                     min="1"
                                     value={maxVersions}
                                     onChange={e => setMaxVersions(e.target.value)}
-                                    placeholder="Optional"
+                                    placeholder={t('common.field.optional')}
                                 />
                             </div>
                             <div className="grid gap-2">
-                                <Label htmlFor="dump-max-age">Max age (days)</Label>
+                                <Label htmlFor="dump-max-age">{t('dump.field.maxAge')}</Label>
                                 <Input
                                     id="dump-max-age"
                                     type="number"
                                     min="1"
                                     value={maxAge}
                                     onChange={e => setMaxAge(e.target.value)}
-                                    placeholder="Optional"
+                                    placeholder={t('common.field.optional')}
                                 />
                             </div>
                         </>
@@ -499,14 +512,14 @@ const CreateDumpDialog = ({ onStartTask }: CreateDumpDialogProps): ReactElement 
                 </div>
                 <DialogFooter>
                     <DialogClose asChild>
-                        <Button>Cancel</Button>
+                        <Button>{t('common.action.cancel')}</Button>
                     </DialogClose>
                     <Button
                         variant="primary"
                         onClick={handleSubmit}
                         disabled={name.trim() === '' || createMutation.isPending}
                     >
-                        Create
+                        {t('common.action.create')}
                     </Button>
                 </DialogFooter>
             </DialogContent>
@@ -519,6 +532,7 @@ const CreateDumpDialog = ({ onStartTask }: CreateDumpDialogProps): ReactElement 
 //
 
 const UploadDumpDialog = (): ReactElement => {
+    const { t } = useTranslation();
     const [open, setOpen] = useState(false);
     const [uploadProgress, setUploadProgress] = useState(0);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -532,12 +546,12 @@ const UploadDumpDialog = (): ReactElement => {
         uploadMutation.mutate({ file, onProgress: setUploadProgress }, {
             onSuccess: () => {
                 const displayName = file.name.endsWith('.zip') ? file.name.slice(0, -4) : file.name;
-                toast.success(`Dump '${displayName}' uploaded`);
+                toast.success(t('dump.toast.uploaded', { name: displayName }));
                 setOpen(false);
                 setUploadProgress(0);
             },
             onError: (error) => {
-                const message = (error as { message?: string })?.message ?? 'Upload failed';
+                const message = (error as { message?: string })?.message ?? t('dump.toast.uploadFailed');
                 toast.error(message);
                 setUploadProgress(0);
             },
@@ -561,14 +575,14 @@ const UploadDumpDialog = (): ReactElement => {
             <DialogTrigger asChild>
                 <Button>
                     <Upload className="size-4" />
-                    Upload
+                    {t('common.action.upload')}
                 </Button>
             </DialogTrigger>
             <DialogContent>
                 <DialogHeader>
-                    <DialogTitle>Upload Dump</DialogTitle>
+                    <DialogTitle>{t('dump.dialog.upload.title')}</DialogTitle>
                     <DialogDescription>
-                        Upload a ZIP archive containing a dump.
+                        {t('dump.dialog.upload.description')}
                     </DialogDescription>
                 </DialogHeader>
                 <div className="grid gap-4 py-4">
@@ -583,7 +597,7 @@ const UploadDumpDialog = (): ReactElement => {
                         onClick={() => fileInputRef.current?.click()}
                         disabled={uploadMutation.isPending}
                     >
-                        Select ZIP file
+                        {t('dump.action.selectZip')}
                     </Button>
                     {uploadMutation.isPending && (
                         <div className="flex items-center gap-2">
@@ -596,7 +610,7 @@ const UploadDumpDialog = (): ReactElement => {
                 </div>
                 <DialogFooter>
                     <DialogClose asChild>
-                        <Button disabled={uploadMutation.isPending}>Close</Button>
+                        <Button disabled={uploadMutation.isPending}>{t('common.action.close')}</Button>
                     </DialogClose>
                 </DialogFooter>
             </DialogContent>
@@ -609,6 +623,7 @@ const UploadDumpDialog = (): ReactElement => {
 //
 
 const DumpsPage = (): ReactElement => {
+    const { t } = useTranslation();
     const { data: dumps } = useSuspenseQuery(dumpsQueryOptions());
     const [activeTask, setActiveTask] = useState<ActiveTask | undefined>(undefined);
     const [dialogOpen, setDialogOpen] = useState(false);
@@ -649,23 +664,23 @@ const DumpsPage = (): ReactElement => {
 
     const columns = [
         columnHelper.accessor('name', {
-            header: 'Name',
+            header: t('dump.column.name'),
             cell: info => info.getValue(),
         }),
         columnHelper.accessor('timestamp', {
-            header: 'Timestamp',
+            header: t('dump.column.timestamp'),
             cell: info => formatTimestamp(info.getValue()),
         }),
         columnHelper.accessor('xpVersion', {
-            header: 'XP Version',
+            header: t('dump.column.xpVersion'),
             cell: info => info.getValue() || '\u2014',
         }),
         columnHelper.accessor('modelVersion', {
-            header: 'Model Version',
+            header: t('dump.column.modelVersion'),
             cell: info => info.getValue() || '\u2014',
         }),
         columnHelper.accessor('size', {
-            header: 'Size',
+            header: t('dump.column.size'),
             cell: info => formatSize(info.getValue()),
         }),
         columnHelper.display({
@@ -689,7 +704,7 @@ const DumpsPage = (): ReactElement => {
         <div data-component={DUMPS_PAGE_NAME} className="flex flex-col">
             {/* Breadcrumb bar */}
             <div className="flex h-10 shrink-0 items-center gap-1.5 overflow-x-auto border-border border-b bg-card px-4">
-                <span className="font-medium font-mono text-foreground text-xs">Dumps</span>
+                <span className="font-medium font-mono text-foreground text-xs">{t('nav.dumps')}</span>
             </div>
 
             {/* Action toolbar */}
@@ -702,8 +717,8 @@ const DumpsPage = (): ReactElement => {
             {dumps.length === 0 && !isCreating ? (
                 <EmptyState
                     icon={HardDrive}
-                    title="No dumps"
-                    description="No dumps found. Create one to get started."
+                    title={t('dump.empty.title')}
+                    description={t('dump.empty.description')}
                     action={<CreateDumpDialog onStartTask={handleStartTask} />}
                 />
             ) : (
@@ -763,13 +778,13 @@ const DumpsPage = (): ReactElement => {
                             <DialogTitle>
                                 {isTaskTerminal
                                     ? (task?.state === 'FINISHED'
-                                        ? TASK_COMPLETE_LABELS[activeTask.type]
-                                        : 'Operation failed')
-                                    : TASK_TYPE_LABELS[activeTask.type]}
+                                        ? t(TASK_COMPLETE_KEYS[activeTask.type])
+                                        : t('common.operation.failed'))
+                                    : t(TASK_TYPE_KEYS[activeTask.type])}
                             </DialogTitle>
                             {!isTaskTerminal && (
                                 <DialogDescription>
-                                    {task?.progress.info || 'Starting...'}
+                                    {task?.progress.info || t('common.progress.starting')}
                                 </DialogDescription>
                             )}
                         </DialogHeader>
@@ -786,20 +801,20 @@ const DumpsPage = (): ReactElement => {
                             if (result != null) return <DumpResultSummary result={result} />;
                             return (
                                 <p className="text-muted-foreground text-sm">
-                                    {task.progress.info || 'Operation completed successfully.'}
+                                    {task.progress.info || t('common.operation.completed')}
                                 </p>
                             );
                         })()}
                         {task?.state === 'FAILED' && (
                             <p className="text-destructive text-sm">
-                                {task.progress.info || 'Operation failed.'}
+                                {task.progress.info || t('common.operation.failed')}
                             </p>
                         )}
                         <DialogFooter>
                             <DialogClose asChild>
                                 {isTaskTerminal
-                                    ? <Button>Close</Button>
-                                    : <Button variant="ghost">Close</Button>}
+                                    ? <Button>{t('common.action.close')}</Button>
+                                    : <Button variant="ghost">{t('common.action.close')}</Button>}
                             </DialogClose>
                         </DialogFooter>
                     </DialogContent>

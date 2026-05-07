@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import type { ChangeEvent, ReactElement } from 'react';
 import { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { z } from 'zod';
 import { Button } from '../components/ui/button';
 import { Checkbox } from '../components/ui/checkbox';
@@ -77,11 +78,11 @@ const EXPORTS_PAGE_NAME = 'ExportsPage';
 
 const exportNameSchema = z
     .string()
-    .min(3, 'Must be at least 3 characters')
-    .max(100, 'Must be at most 100 characters')
+    .min(3, 'export.error.tooShort')
+    .max(100, 'export.error.tooLong')
     .regex(
         /^[A-Za-z0-9][A-Za-z0-9._-]{1,98}[A-Za-z0-9]$/,
-        'Must contain only letters, digits, dots, hyphens, and underscores',
+        'export.error.invalidChars',
     );
 
 //
@@ -150,14 +151,14 @@ function parseImportResult(info: string): ImportResult | undefined {
     }
 }
 
-const TASK_TYPE_LABELS: Record<ActiveTask['type'], string> = {
-    create: 'Exporting nodes',
-    import: 'Importing nodes',
+const TASK_TYPE_KEYS: Record<ActiveTask['type'], string> = {
+    create: 'export.task.exporting',
+    import: 'export.task.importing',
 };
 
-const TASK_COMPLETE_LABELS: Record<ActiveTask['type'], string> = {
-    create: 'Export completed',
-    import: 'Import completed',
+const TASK_COMPLETE_KEYS: Record<ActiveTask['type'], string> = {
+    create: 'export.task.exportCompleted',
+    import: 'export.task.importCompleted',
 };
 
 const columnHelper = createColumnHelper<ExportEntry>();
@@ -170,6 +171,7 @@ const COLUMN_COUNT = 5;
 //
 
 const ExportResultSummary = ({ result }: { result: ExportResult }): ReactElement => {
+    const { t } = useTranslation();
     const nodeCount = result.exportedNodes.length;
     const binaryCount = result.exportedBinaries.length;
     const errorCount = result.exportErrors.length;
@@ -177,9 +179,9 @@ const ExportResultSummary = ({ result }: { result: ExportResult }): ReactElement
     return (
         <div className="space-y-2">
             <p className="text-muted-foreground text-sm">
-                {nodeCount} nodes exported, {binaryCount} binaries
+                {t('export.result.summary', { nodes: nodeCount, binaries: binaryCount })}
                 {errorCount > 0 && (
-                    <span className="text-destructive"> ({errorCount} errors)</span>
+                    <span className="text-destructive"> {t('dump.result.errors', { count: errorCount })}</span>
                 )}
             </p>
             {errorCount > 0 && (
@@ -200,6 +202,7 @@ ExportResultSummary.displayName = 'ExportResultSummary';
 //
 
 const ImportResultSummary = ({ result }: { result: ImportResult }): ReactElement => {
+    const { t } = useTranslation();
     const addedCount = result.addedNodes.length;
     const updatedCount = result.updatedNodes.length;
     const binaryCount = result.importedBinaries.length;
@@ -208,9 +211,9 @@ const ImportResultSummary = ({ result }: { result: ImportResult }): ReactElement
     return (
         <div className="space-y-2">
             <p className="text-muted-foreground text-sm">
-                {addedCount} added, {updatedCount} updated, {binaryCount} binaries
+                {t('export.result.importSummary', { added: addedCount, updated: updatedCount, binaries: binaryCount })}
                 {errorCount > 0 && (
-                    <span className="text-destructive"> ({errorCount} errors)</span>
+                    <span className="text-destructive"> {t('dump.result.errors', { count: errorCount })}</span>
                 )}
             </p>
             {errorCount > 0 && (
@@ -235,17 +238,18 @@ type RowActionsProps = {
 };
 
 const RowActions = ({ exportEntry }: RowActionsProps): ReactElement => {
+    const { t } = useTranslation();
     const [deleteOpen, setDeleteOpen] = useState(false);
     const deleteMutation = useDeleteExport();
 
     const handleDelete = () => {
         deleteMutation.mutate(exportEntry.name, {
             onSuccess: () => {
-                toast.success(`Export '${exportEntry.name}' deleted`);
+                toast.success(t('export.toast.deleted', { name: exportEntry.name }));
                 setDeleteOpen(false);
             },
             onError: () => {
-                toast.error(`Failed to delete export '${exportEntry.name}'`);
+                toast.error(t('export.toast.deleteFailed', { name: exportEntry.name }));
             },
         });
     };
@@ -271,7 +275,7 @@ const RowActions = ({ exportEntry }: RowActionsProps): ReactElement => {
                             }}
                         >
                             <Download className="size-4" />
-                            Download
+                            {t('common.action.download')}
                         </DropdownMenuItem>
                     </DropdownMenuGroup>
                     <DropdownMenuSeparator />
@@ -284,16 +288,16 @@ const RowActions = ({ exportEntry }: RowActionsProps): ReactElement => {
                             }}
                         >
                             <Trash2 className="size-4" />
-                            Delete
+                            {t('common.action.delete')}
                         </DropdownMenuItem>
                     </DropdownMenuGroup>
                 </DropdownMenuContent>
             </DropdownMenu>
 
             <ConfirmDialog
-                title="Delete Export"
-                description={`Are you sure you want to delete '${exportEntry.name}'? This action cannot be undone.`}
-                confirmLabel="Delete"
+                title={t('export.dialog.delete.title')}
+                description={t('export.dialog.delete.description', { name: exportEntry.name })}
+                confirmLabel={t('common.action.delete')}
                 variant="destructive"
                 onConfirm={handleDelete}
                 open={deleteOpen}
@@ -313,6 +317,7 @@ type CreateExportDialogProps = {
 };
 
 const CreateExportDialog = ({ repositories, onStartTask }: CreateExportDialogProps): ReactElement => {
+    const { t } = useTranslation();
     const [open, setOpen] = useState(false);
     const [repositoryId, setRepositoryId] = useState('');
     const [branch, setBranch] = useState('');
@@ -328,7 +333,7 @@ const CreateExportDialog = ({ repositories, onStartTask }: CreateExportDialogPro
     const handleSubmit = () => {
         const parsed = exportNameSchema.safeParse(exportName.trim());
         if (!parsed.success) {
-            setNameError(parsed.error.issues[0].message);
+            setNameError(t(parsed.error.issues[0].message));
             return;
         }
         if (repositoryId === '' || branch === '' || nodePath.trim() === '') return;
@@ -348,7 +353,7 @@ const CreateExportDialog = ({ repositories, onStartTask }: CreateExportDialogPro
                     onStartTask({ id: result.taskId, type: 'create', name });
                 },
                 onError: () => {
-                    toast.error('Failed to start export');
+                    toast.error(t('export.toast.createStartFailed'));
                 },
             },
         );
@@ -400,22 +405,22 @@ const CreateExportDialog = ({ repositories, onStartTask }: CreateExportDialogPro
             <DialogTrigger asChild>
                 <Button>
                     <Plus className="size-4" />
-                    Create Export
+                    {t('export.action.createExport')}
                 </Button>
             </DialogTrigger>
             <DialogContent>
                 <DialogHeader>
-                    <DialogTitle>Create Export</DialogTitle>
+                    <DialogTitle>{t('export.dialog.create.title')}</DialogTitle>
                     <DialogDescription>
-                        Export a node subtree from a repository branch.
+                        {t('export.dialog.create.description')}
                     </DialogDescription>
                 </DialogHeader>
                 <div className="grid gap-4 py-4">
                     <div className="grid gap-2">
-                        <Label htmlFor="export-repo">Repository</Label>
+                        <Label htmlFor="export-repo">{t('export.field.repository')}</Label>
                         <Select value={repositoryId} onValueChange={handleRepositoryChange}>
                             <SelectTrigger id="export-repo">
-                                <SelectValue placeholder="Select a repository" />
+                                <SelectValue placeholder={t('export.field.selectRepository')} />
                             </SelectTrigger>
                             <SelectContent>
                                 {repositories.map(repo => (
@@ -427,10 +432,10 @@ const CreateExportDialog = ({ repositories, onStartTask }: CreateExportDialogPro
                         </Select>
                     </div>
                     <div className="grid gap-2">
-                        <Label htmlFor="export-branch">Branch</Label>
+                        <Label htmlFor="export-branch">{t('export.field.branch')}</Label>
                         <Select value={branch} onValueChange={handleBranchChange} disabled={repositoryId === ''}>
                             <SelectTrigger id="export-branch">
-                                <SelectValue placeholder="Select a branch" />
+                                <SelectValue placeholder={t('export.field.selectBranch')} />
                             </SelectTrigger>
                             <SelectContent>
                                 {branches.map(b => (
@@ -442,7 +447,7 @@ const CreateExportDialog = ({ repositories, onStartTask }: CreateExportDialogPro
                         </Select>
                     </div>
                     <div className="grid gap-2">
-                        <Label htmlFor="export-node-path">Node path</Label>
+                        <Label htmlFor="export-node-path">{t('export.field.nodePath')}</Label>
                         <Input
                             id="export-node-path"
                             value={nodePath}
@@ -451,12 +456,12 @@ const CreateExportDialog = ({ repositories, onStartTask }: CreateExportDialogPro
                         />
                     </div>
                     <div className="grid gap-2">
-                        <Label htmlFor="export-name">Export name</Label>
+                        <Label htmlFor="export-name">{t('export.field.exportName')}</Label>
                         <Input
                             id="export-name"
                             value={exportName}
                             onChange={e => handleNameChange(e.target.value)}
-                            placeholder="my-export"
+                            placeholder={t('export.field.exportNamePlaceholder')}
                         />
                         {nameError != null && (
                             <p className="text-destructive text-sm">{nameError}</p>
@@ -465,14 +470,14 @@ const CreateExportDialog = ({ repositories, onStartTask }: CreateExportDialogPro
                 </div>
                 <DialogFooter>
                     <DialogClose asChild>
-                        <Button>Cancel</Button>
+                        <Button>{t('common.action.cancel')}</Button>
                     </DialogClose>
                     <Button
                         variant="primary"
                         onClick={handleSubmit}
                         disabled={!isValid || createMutation.isPending}
                     >
-                        Export
+                        {t('export.action.export')}
                     </Button>
                 </DialogFooter>
             </DialogContent>
@@ -491,6 +496,7 @@ type ImportDialogProps = {
 };
 
 const ImportDialog = ({ exports, repositories, onStartTask }: ImportDialogProps): ReactElement => {
+    const { t } = useTranslation();
     const [open, setOpen] = useState(false);
     const [exportName, setExportName] = useState('');
     const [repositoryId, setRepositoryId] = useState('');
@@ -522,7 +528,7 @@ const ImportDialog = ({ exports, repositories, onStartTask }: ImportDialogProps)
                     onStartTask({ id: result.taskId, type: 'import' });
                 },
                 onError: () => {
-                    toast.error('Failed to start import');
+                    toast.error(t('export.toast.importStartFailed'));
                 },
             },
         );
@@ -556,22 +562,22 @@ const ImportDialog = ({ exports, repositories, onStartTask }: ImportDialogProps)
             <DialogTrigger asChild>
                 <Button>
                     <Import className="size-4" />
-                    Import
+                    {t('export.action.import')}
                 </Button>
             </DialogTrigger>
             <DialogContent>
                 <DialogHeader>
-                    <DialogTitle>Import Export</DialogTitle>
+                    <DialogTitle>{t('export.dialog.import.title')}</DialogTitle>
                     <DialogDescription>
-                        Import an existing export into a repository branch.
+                        {t('export.dialog.import.description')}
                     </DialogDescription>
                 </DialogHeader>
                 <div className="grid gap-4 py-4">
                     <div className="grid gap-2">
-                        <Label htmlFor="import-export">Export</Label>
+                        <Label htmlFor="import-export">{t('export.field.export')}</Label>
                         <Select value={exportName} onValueChange={setExportName}>
                             <SelectTrigger id="import-export">
-                                <SelectValue placeholder="Select an export" />
+                                <SelectValue placeholder={t('export.field.selectExport')} />
                             </SelectTrigger>
                             <SelectContent>
                                 {exports.map(exp => (
@@ -583,10 +589,10 @@ const ImportDialog = ({ exports, repositories, onStartTask }: ImportDialogProps)
                         </Select>
                     </div>
                     <div className="grid gap-2">
-                        <Label htmlFor="import-repo">Repository</Label>
+                        <Label htmlFor="import-repo">{t('export.field.repository')}</Label>
                         <Select value={repositoryId} onValueChange={handleRepositoryChange}>
                             <SelectTrigger id="import-repo">
-                                <SelectValue placeholder="Select a repository" />
+                                <SelectValue placeholder={t('export.field.selectRepository')} />
                             </SelectTrigger>
                             <SelectContent>
                                 {repositories.map(repo => (
@@ -598,10 +604,10 @@ const ImportDialog = ({ exports, repositories, onStartTask }: ImportDialogProps)
                         </Select>
                     </div>
                     <div className="grid gap-2">
-                        <Label htmlFor="import-branch">Branch</Label>
+                        <Label htmlFor="import-branch">{t('export.field.branch')}</Label>
                         <Select value={branch} onValueChange={setBranch} disabled={repositoryId === ''}>
                             <SelectTrigger id="import-branch">
-                                <SelectValue placeholder="Select a branch" />
+                                <SelectValue placeholder={t('export.field.selectBranch')} />
                             </SelectTrigger>
                             <SelectContent>
                                 {branches.map(b => (
@@ -613,7 +619,7 @@ const ImportDialog = ({ exports, repositories, onStartTask }: ImportDialogProps)
                         </Select>
                     </div>
                     <div className="grid gap-2">
-                        <Label htmlFor="import-target-path">Target path</Label>
+                        <Label htmlFor="import-target-path">{t('export.field.targetPath')}</Label>
                         <Input
                             id="import-target-path"
                             value={targetNodePath}
@@ -627,7 +633,7 @@ const ImportDialog = ({ exports, repositories, onStartTask }: ImportDialogProps)
                             checked={includeNodeIds}
                             onCheckedChange={checked => setIncludeNodeIds(checked === true)}
                         />
-                        <Label htmlFor="import-node-ids">Include node IDs</Label>
+                        <Label htmlFor="import-node-ids">{t('export.field.includeNodeIds')}</Label>
                     </div>
                     <div className="flex items-center gap-2">
                         <Checkbox
@@ -635,19 +641,19 @@ const ImportDialog = ({ exports, repositories, onStartTask }: ImportDialogProps)
                             checked={includePermissions}
                             onCheckedChange={checked => setIncludePermissions(checked === true)}
                         />
-                        <Label htmlFor="import-permissions">Include permissions</Label>
+                        <Label htmlFor="import-permissions">{t('export.field.includePermissions')}</Label>
                     </div>
                 </div>
                 <DialogFooter>
                     <DialogClose asChild>
-                        <Button>Cancel</Button>
+                        <Button>{t('common.action.cancel')}</Button>
                     </DialogClose>
                     <Button
                         variant="primary"
                         onClick={handleSubmit}
                         disabled={!isValid || importMutation.isPending}
                     >
-                        Import
+                        {t('export.action.import')}
                     </Button>
                 </DialogFooter>
             </DialogContent>
@@ -660,6 +666,7 @@ const ImportDialog = ({ exports, repositories, onStartTask }: ImportDialogProps)
 //
 
 const UploadExportDialog = (): ReactElement => {
+    const { t } = useTranslation();
     const [open, setOpen] = useState(false);
     const [uploadProgress, setUploadProgress] = useState(0);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -673,12 +680,12 @@ const UploadExportDialog = (): ReactElement => {
         uploadMutation.mutate({ file, onProgress: setUploadProgress }, {
             onSuccess: () => {
                 const displayName = file.name.endsWith('.zip') ? file.name.slice(0, -4) : file.name;
-                toast.success(`Export '${displayName}' uploaded`);
+                toast.success(t('export.toast.uploaded', { name: displayName }));
                 setOpen(false);
                 setUploadProgress(0);
             },
             onError: (error) => {
-                const message = (error as { message?: string })?.message ?? 'Upload failed';
+                const message = (error as { message?: string })?.message ?? t('export.toast.uploadFailed');
                 toast.error(message);
                 setUploadProgress(0);
             },
@@ -702,14 +709,14 @@ const UploadExportDialog = (): ReactElement => {
             <DialogTrigger asChild>
                 <Button>
                     <Upload className="size-4" />
-                    Upload
+                    {t('common.action.upload')}
                 </Button>
             </DialogTrigger>
             <DialogContent>
                 <DialogHeader>
-                    <DialogTitle>Upload Export</DialogTitle>
+                    <DialogTitle>{t('export.dialog.upload.title')}</DialogTitle>
                     <DialogDescription>
-                        Upload a ZIP archive containing an export.
+                        {t('export.dialog.upload.description')}
                     </DialogDescription>
                 </DialogHeader>
                 <div className="grid gap-4 py-4">
@@ -724,7 +731,7 @@ const UploadExportDialog = (): ReactElement => {
                         onClick={() => fileInputRef.current?.click()}
                         disabled={uploadMutation.isPending}
                     >
-                        Select ZIP file
+                        {t('dump.action.selectZip')}
                     </Button>
                     {uploadMutation.isPending && (
                         <div className="flex items-center gap-2">
@@ -737,7 +744,7 @@ const UploadExportDialog = (): ReactElement => {
                 </div>
                 <DialogFooter>
                     <DialogClose asChild>
-                        <Button disabled={uploadMutation.isPending}>Close</Button>
+                        <Button disabled={uploadMutation.isPending}>{t('common.action.close')}</Button>
                     </DialogClose>
                 </DialogFooter>
             </DialogContent>
@@ -750,6 +757,7 @@ const UploadExportDialog = (): ReactElement => {
 //
 
 const ExportsPage = (): ReactElement => {
+    const { t } = useTranslation();
     const { data: exports } = useSuspenseQuery(exportsQueryOptions());
     const { data: repositories } = useSuspenseQuery(repositoriesQueryOptions());
     const [activeTask, setActiveTask] = useState<ActiveTask | undefined>(undefined);
@@ -788,19 +796,19 @@ const ExportsPage = (): ReactElement => {
 
     const columns = [
         columnHelper.accessor('name', {
-            header: 'Name',
+            header: t('export.column.name'),
             cell: info => info.getValue(),
         }),
         columnHelper.accessor('timestamp', {
-            header: 'Timestamp',
+            header: t('export.column.timestamp'),
             cell: info => formatTimestamp(info.getValue()),
         }),
         columnHelper.accessor('format', {
-            header: 'Format',
+            header: t('export.column.format'),
             cell: info => info.getValue(),
         }),
         columnHelper.accessor('nodeCount', {
-            header: 'Nodes',
+            header: t('export.column.nodes'),
             cell: info => {
                 const count = info.getValue();
                 return count < 0 ? '\u2014' : count;
@@ -827,7 +835,7 @@ const ExportsPage = (): ReactElement => {
         <div data-component={EXPORTS_PAGE_NAME} className="flex flex-col">
             {/* Breadcrumb bar */}
             <div className="flex h-10 shrink-0 items-center gap-1.5 overflow-x-auto border-border border-b bg-card px-4">
-                <span className="font-medium font-mono text-foreground text-xs">Exports</span>
+                <span className="font-medium font-mono text-foreground text-xs">{t('nav.exports')}</span>
             </div>
 
             {/* Action toolbar */}
@@ -841,8 +849,8 @@ const ExportsPage = (): ReactElement => {
             {exports.length === 0 && !isCreating ? (
                 <EmptyState
                     icon={FileOutput}
-                    title="No exports"
-                    description="No exports found. Create one to get started."
+                    title={t('export.empty.title')}
+                    description={t('export.empty.description')}
                     action={<CreateExportDialog repositories={repositories} onStartTask={handleStartTask} />}
                 />
             ) : (
@@ -897,7 +905,7 @@ const ExportsPage = (): ReactElement => {
             {/* Non-dismissable progress dialog while task is running */}
             {isTaskRunning && (
                 <ProgressDialog
-                    title={TASK_TYPE_LABELS[activeTask.type]}
+                    title={t(TASK_TYPE_KEYS[activeTask.type])}
                     taskId={activeTask.id}
                     open={dialogOpen}
                 />
@@ -910,8 +918,8 @@ const ExportsPage = (): ReactElement => {
                         <DialogHeader>
                             <DialogTitle>
                                 {task?.state === 'FINISHED'
-                                    ? TASK_COMPLETE_LABELS[activeTask.type]
-                                    : 'Operation failed'}
+                                    ? t(TASK_COMPLETE_KEYS[activeTask.type])
+                                    : t('common.operation.failed')}
                             </DialogTitle>
                         </DialogHeader>
                         {task?.state === 'FINISHED' && (() => {
@@ -925,18 +933,18 @@ const ExportsPage = (): ReactElement => {
                             }
                             return (
                                 <p className="text-muted-foreground text-sm">
-                                    {task.progress.info || 'Operation completed successfully.'}
+                                    {task.progress.info || t('common.operation.completed')}
                                 </p>
                             );
                         })()}
                         {task?.state === 'FAILED' && (
                             <p className="text-destructive text-sm">
-                                {task.progress.info || 'Operation failed.'}
+                                {task.progress.info || t('common.operation.failed')}
                             </p>
                         )}
                         <DialogFooter>
                             <DialogClose asChild>
-                                <Button>Close</Button>
+                                <Button>{t('common.action.close')}</Button>
                             </DialogClose>
                         </DialogFooter>
                     </DialogContent>

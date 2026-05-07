@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
 import { ChevronLeft, ChevronRight, Shield } from 'lucide-react';
 import { type ReactElement, useCallback, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { EmptyState } from '../components/ui/empty-state';
@@ -131,6 +132,7 @@ AuditRow.displayName = AUDIT_ROW_NAME;
 //
 
 const AuditPage = (): ReactElement => {
+    const { t } = useTranslation();
     const [draftFilters, setDraftFilters] = useState<Filters>(EMPTY_FILTERS);
     const [activeFilters, setActiveFilters] = useState<Filters>(EMPTY_FILTERS);
     const [start, setStart] = useState(0);
@@ -194,17 +196,17 @@ const AuditPage = (): ReactElement => {
             {/* Header */}
             <div className="flex h-10 shrink-0 items-center justify-between gap-2 overflow-x-auto border-border border-b bg-card px-4">
                 <span className="font-medium font-mono text-foreground text-xs">
-                    Audit Log
+                    {t('audit.title')}
                 </span>
                 <span className="text-muted-foreground text-xs">
-                    {total.toLocaleString()} {total === 1 ? 'entry' : 'entries'}
-                    {hits.length > 0 && ` · showing ${hits.length}`}
+                    {t('audit.entries', { count: total, total: total.toLocaleString() })}
+                    {hits.length > 0 && ` · ${t('audit.showing', { count: hits.length })}`}
                 </span>
             </div>
 
             {/* Filter toolbar */}
             <div className="flex flex-wrap items-end gap-3 border-border border-b bg-card px-4 py-2">
-                <FilterField label="From" htmlFor="audit-from">
+                <FilterField label={t('audit.filter.from')} htmlFor="audit-from">
                     <Input
                         id="audit-from"
                         type="date"
@@ -213,7 +215,7 @@ const AuditPage = (): ReactElement => {
                         className="h-8 w-[10rem]"
                     />
                 </FilterField>
-                <FilterField label="To" htmlFor="audit-to">
+                <FilterField label={t('audit.filter.to')} htmlFor="audit-to">
                     <Input
                         id="audit-to"
                         type="date"
@@ -222,7 +224,7 @@ const AuditPage = (): ReactElement => {
                         className="h-8 w-[10rem]"
                     />
                 </FilterField>
-                <FilterField label="Type" htmlFor="audit-type">
+                <FilterField label={t('audit.filter.type')} htmlFor="audit-type">
                     <Input
                         id="audit-type"
                         placeholder="system.content.publish"
@@ -231,7 +233,7 @@ const AuditPage = (): ReactElement => {
                         className="h-8 w-[16rem]"
                     />
                 </FilterField>
-                <FilterField label="User" htmlFor="audit-user">
+                <FilterField label={t('audit.filter.user')} htmlFor="audit-user">
                     <Input
                         id="audit-user"
                         placeholder="user:system:su"
@@ -240,7 +242,7 @@ const AuditPage = (): ReactElement => {
                         className="h-8 w-[14rem]"
                     />
                 </FilterField>
-                <FilterField label="Source" htmlFor="audit-source">
+                <FilterField label={t('audit.filter.source')} htmlFor="audit-source">
                     <Input
                         id="audit-source"
                         placeholder="com.enonic.xp.*"
@@ -251,10 +253,10 @@ const AuditPage = (): ReactElement => {
                 </FilterField>
                 <div className="ml-auto flex items-center gap-2">
                     <Button size="sm" variant="ghost" onClick={handleReset}>
-                        Reset
+                        {t('common.action.reset')}
                     </Button>
                     <Button size="sm" onClick={handleApply}>
-                        Apply
+                        {t('common.action.apply')}
                     </Button>
                 </div>
             </div>
@@ -273,7 +275,7 @@ const AuditPage = (): ReactElement => {
             {total > 0 && (
                 <div className="flex shrink-0 items-center justify-end gap-2 border-border border-t bg-card px-4 py-2">
                     <span className="text-muted-foreground text-xs">
-                        Page {page} of {totalPages}
+                        {t('common.pagination.page', { page, total: totalPages })}
                     </span>
                     <Button
                         size="sm"
@@ -282,7 +284,7 @@ const AuditPage = (): ReactElement => {
                         disabled={!canPrev}
                     >
                         <ChevronLeft className="size-4" />
-                        Previous
+                        {t('common.pagination.previous')}
                     </Button>
                     <Button
                         size="sm"
@@ -290,7 +292,7 @@ const AuditPage = (): ReactElement => {
                         onClick={handleNext}
                         disabled={!canNext}
                     >
-                        Next
+                        {t('common.pagination.next')}
                         <ChevronRight className="size-4" />
                     </Button>
                 </div>
@@ -345,15 +347,16 @@ const AuditBody = ({
     expanded,
     onToggle,
 }: AuditBodyProps): ReactElement => {
+    const { t } = useTranslation();
     if (isError) {
         const message =
             error != null && typeof error === 'object' && 'message' in error
                 ? String((error as { message: unknown }).message)
-                : 'Failed to load audit log.';
+                : t('audit.error.loadFailed');
         return (
             <EmptyState
                 icon={Shield}
-                title="Failed to load audit log"
+                title={t('audit.error.loadFailed.title')}
                 description={message}
             />
         );
@@ -375,8 +378,8 @@ const AuditBody = ({
         return (
             <EmptyState
                 icon={Shield}
-                title="No audit entries"
-                description="No entries match the current filters."
+                title={t('audit.empty.title')}
+                description={t('audit.empty.description')}
             />
         );
     }
@@ -387,11 +390,11 @@ const AuditBody = ({
                 <TableHeader>
                     <TableRow>
                         <TableHead className="w-8" />
-                        <TableHead>Time</TableHead>
-                        <TableHead>Type</TableHead>
-                        <TableHead>User</TableHead>
-                        <TableHead>Source</TableHead>
-                        <TableHead>Objects</TableHead>
+                        <TableHead>{t('audit.column.time')}</TableHead>
+                        <TableHead>{t('audit.column.type')}</TableHead>
+                        <TableHead>{t('audit.column.user')}</TableHead>
+                        <TableHead>{t('audit.column.source')}</TableHead>
+                        <TableHead>{t('audit.column.objects')}</TableHead>
                     </TableRow>
                 </TableHeader>
                 <TableBody>

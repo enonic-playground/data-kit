@@ -1,5 +1,6 @@
 import { Moon, Sun, SunMoon } from 'lucide-react';
 import type { ReactElement } from 'react';
+import { useTranslation } from 'react-i18next';
 import { cn } from '../lib/utils';
 import { useTheme } from './theme-provider';
 
@@ -11,7 +12,20 @@ const THEME_TOGGLE_NAME = 'ThemeToggle';
 
 const THEME_CYCLE = ['light', 'dark', 'system'] as const;
 
+const THEME_ICON_MAP = {
+    light: <Sun className="size-4" />,
+    dark: <Moon className="size-4" />,
+    system: <SunMoon className="size-4.5" />,
+};
+
+const THEME_LABEL_KEYS = {
+    light: 'theme.light',
+    dark: 'theme.dark',
+    system: 'theme.system',
+};
+
 export const ThemeToggle = ({ className }: ThemeToggleProps): ReactElement => {
+    const { t } = useTranslation();
     const { theme, setTheme } = useTheme();
 
     const handleClick = (): void => {
@@ -20,21 +34,8 @@ export const ThemeToggle = ({ className }: ThemeToggleProps): ReactElement => {
         setTheme(THEME_CYCLE[nextIndex]);
     };
 
-    const icon =
-        theme === 'light' ? (
-            <Sun className="size-4" />
-        ) : theme === 'dark' ? (
-            <Moon className="size-4" />
-        ) : (
-            <SunMoon className="size-4.5" />
-        );
-
-    const label =
-        theme === 'light'
-            ? 'Light'
-            : theme === 'dark'
-              ? 'Dark'
-              : 'System';
+    const icon = THEME_ICON_MAP[theme];
+    const label = t(THEME_LABEL_KEYS[theme]);
 
     const classNames = cn(
         'inline-flex size-8 items-center justify-center rounded-md',
@@ -50,8 +51,8 @@ export const ThemeToggle = ({ className }: ThemeToggleProps): ReactElement => {
             type="button"
             onClick={handleClick}
             className={classNames}
-            aria-label={`Theme: ${label}`}
-            title={`Theme: ${label}`}
+            aria-label={t('theme.toggle.aria', { label })}
+            title={t('theme.toggle.aria', { label })}
         >
             {icon}
         </button>

@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import type { ReactElement } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
     getProgress,
     isTerminalState,
@@ -36,6 +37,7 @@ export const ProgressDialog = ({
     open,
     onOpenChange,
 }: ProgressDialogProps): ReactElement => {
+    const { t } = useTranslation();
     const { status } = useWebSocket();
     useTaskProgress(taskId);
 
@@ -49,7 +51,7 @@ export const ProgressDialog = ({
 
     const resolvedProgress = taskId != null ? getProgress(task) : (progress ?? 0);
     const resolvedDescription = taskId != null
-        ? (task?.progress.info || 'Starting…')
+        ? (task?.progress.info || t('common.progress.starting'))
         : description;
 
     return (

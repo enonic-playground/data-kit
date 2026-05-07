@@ -1,4 +1,5 @@
 import type { ReactElement, ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
     AlertDialog,
     AlertDialogAction,
@@ -14,7 +15,7 @@ import { buttonVariants } from './button';
 
 export type ConfirmDialogProps = {
     title: string;
-    description: string;
+    description: ReactNode;
     confirmLabel?: string;
     cancelLabel?: string;
     variant?: 'primary' | 'destructive';
@@ -30,8 +31,8 @@ const CONFIRM_DIALOG_NAME = 'ConfirmDialog';
 export const ConfirmDialog = ({
     title,
     description,
-    confirmLabel = 'Confirm',
-    cancelLabel = 'Cancel',
+    confirmLabel,
+    cancelLabel,
     variant = 'primary',
     onConfirm,
     onCancel,
@@ -39,6 +40,7 @@ export const ConfirmDialog = ({
     onOpenChange,
     children,
 }: ConfirmDialogProps): ReactElement => {
+    const { t } = useTranslation();
     return (
         <AlertDialog open={open} onOpenChange={onOpenChange}>
             {children != null && (
@@ -53,13 +55,13 @@ export const ConfirmDialog = ({
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                     <AlertDialogCancel onClick={onCancel}>
-                        {cancelLabel}
+                        {cancelLabel ?? t('common.action.cancel')}
                     </AlertDialogCancel>
                     <AlertDialogAction
                         onClick={onConfirm}
                         className={buttonVariants({ variant })}
                     >
-                        {confirmLabel}
+                        {confirmLabel ?? t('common.action.confirm')}
                     </AlertDialogAction>
                 </AlertDialogFooter>
             </AlertDialogContent>

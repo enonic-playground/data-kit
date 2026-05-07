@@ -1,6 +1,7 @@
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { ChevronRight, Copy, GitCommit, History, RotateCcw } from 'lucide-react';
 import { type MouseEvent, type ReactElement, type ReactNode, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
     type NodeVersionEntry,
     useSetActiveVersion,
@@ -121,6 +122,7 @@ export const NodeVersionsTab = ({
     nodeKey,
     nodeName,
 }: NodeVersionsTabProps): ReactElement => {
+    const { t } = useTranslation();
     const [expanded, setExpanded] = useState<Set<string>>(new Set());
     const [pendingVersion, setPendingVersion] = useState<NodeVersionEntry | undefined>(undefined);
 
@@ -156,11 +158,11 @@ export const NodeVersionsTab = ({
             { repoId, branch, key: nodeKey, versionId: pendingVersion.versionId },
             {
                 onSuccess: () => {
-                    toast.success('Version set as active');
+                    toast.success(t('versions.toast.activated'));
                     setPendingVersion(undefined);
                 },
                 onError: () => {
-                    toast.error('Failed to set active version');
+                    toast.error(t('versions.toast.activateFailed'));
                 },
             },
         );
@@ -183,7 +185,7 @@ export const NodeVersionsTab = ({
                 data-component={NODE_VERSIONS_TAB_NAME}
                 className="py-8 text-center text-destructive text-sm"
             >
-                Failed to load versions.
+                {t('versions.error.loadFailed')}
             </div>
         );
     }
@@ -193,8 +195,8 @@ export const NodeVersionsTab = ({
             <div data-component={NODE_VERSIONS_TAB_NAME}>
                 <EmptyState
                     icon={History}
-                    title="No version history"
-                    description="This node has no stored versions yet."
+                    title={t('versions.empty.title')}
+                    description={t('versions.empty.description')}
                 />
             </div>
         );
@@ -234,36 +236,36 @@ export const NodeVersionsTab = ({
                                 </span>
                                 {isActive && (
                                     <Badge variant="outline" className="ml-auto">
-                                        Active
+                                        {t('versions.badge.active')}
                                     </Badge>
                                 )}
                             </button>
 
                             {isExpanded && (
                                 <div className="space-y-2 bg-muted/30 px-4 pt-1 pb-3">
-                                    <VersionDetailRow label="Version">
+                                    <VersionDetailRow label={t('versions.label.version')}>
                                         <span className="break-all font-mono text-xs">
                                             {v.versionId}
                                         </span>
                                         <CopyIconButton
                                             value={v.versionId}
-                                            label="Copy version ID"
-                                            toastText="Version ID copied"
+                                            label={t('versions.action.copyVersionId')}
+                                            toastText={t('versions.toast.versionIdCopied')}
                                         />
                                     </VersionDetailRow>
-                                    <VersionDetailRow label="Committed">
+                                    <VersionDetailRow label={t('versions.label.committed')}>
                                         <span className="font-mono text-xs">
                                             {formatFullTimestamp(v.timestamp)}
                                         </span>
                                     </VersionDetailRow>
                                     {v.commit != null && (
-                                        <VersionDetailRow label="Commit">
+                                        <VersionDetailRow label={t('versions.label.commit')}>
                                             <GitCommit className="size-3.5 shrink-0 text-muted-foreground" />
                                             <span className="break-all font-mono text-xs">
                                                 {shortId(v.commit.id)} — {v.commit.message}
                                             </span>
                                             <span className="shrink-0 text-muted-foreground text-xs">
-                                                by {v.commit.committer}
+                                                {t('versions.label.committedBy', { committer: v.commit.committer })}
                                             </span>
                                         </VersionDetailRow>
                                     )}
@@ -275,7 +277,7 @@ export const NodeVersionsTab = ({
                                                 onClick={() => setPendingVersion(v)}
                                             >
                                                 <RotateCcw className="size-3.5" />
-                                                Set as Active
+                                                {t('versions.action.setActive')}
                                             </Button>
                                         </div>
                                     )}
@@ -294,7 +296,7 @@ export const NodeVersionsTab = ({
                         disabled={isFetchingNextPage}
                         onClick={() => fetchNextPage()}
                     >
-                        {isFetchingNextPage ? 'Loading…' : 'Load more'}
+                        {isFetchingNextPage ? t('common.loading') : t('common.action.loadMore')}
                     </Button>
                 </div>
             )}
@@ -305,13 +307,17 @@ export const NodeVersionsTab = ({
                     if (!open) setPendingVersion(undefined);
                 }}
                 variant="primary"
-                title="Set as active version?"
+                title={t('versions.dialog.activate.title')}
                 description={
                     pendingVersion != null
-                        ? `Version ${shortId(pendingVersion.versionId)} (created ${formatFullTimestamp(pendingVersion.timestamp)}) will become the active version of '${nodeName}'. The node's current content will be replaced.`
+                        ? t('versions.dialog.activate.description', {
+                              version: shortId(pendingVersion.versionId),
+                              timestamp: formatFullTimestamp(pendingVersion.timestamp),
+                              name: nodeName,
+                          })
                         : ''
                 }
-                confirmLabel="Set as Active"
+                confirmLabel={t('versions.action.setActive')}
                 onConfirm={handleSetActive}
             />
         </div>

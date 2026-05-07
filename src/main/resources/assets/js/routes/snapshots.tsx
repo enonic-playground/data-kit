@@ -15,6 +15,7 @@ import {
     Trash2,
 } from 'lucide-react';
 import { type ReactElement, type ReactNode, useEffect, useState } from 'react';
+import { Trans, useTranslation } from 'react-i18next';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Code } from '../components/ui/code';
@@ -86,6 +87,7 @@ type RowActionsProps = {
 };
 
 const RowActions = ({ snapshot }: RowActionsProps): ReactElement => {
+    const { t } = useTranslation();
     const [restoreOpen, setRestoreOpen] = useState(false);
     const [deleteOpen, setDeleteOpen] = useState(false);
     const restoreMutation = useRestoreSnapshot();
@@ -96,11 +98,11 @@ const RowActions = ({ snapshot }: RowActionsProps): ReactElement => {
             { snapshotName: snapshot.name },
             {
                 onSuccess: () => {
-                    toast.success(`Snapshot '${snapshot.name}' restored`);
+                    toast.success(t('snapshot.toast.restored', { name: snapshot.name }));
                     setRestoreOpen(false);
                 },
                 onError: () => {
-                    toast.error(`Failed to restore snapshot '${snapshot.name}'`);
+                    toast.error(t('snapshot.toast.restoreFailed', { name: snapshot.name }));
                 },
             },
         );
@@ -109,11 +111,11 @@ const RowActions = ({ snapshot }: RowActionsProps): ReactElement => {
     const handleDelete = () => {
         deleteMutation.mutate(snapshot.name, {
             onSuccess: () => {
-                toast.success(`Snapshot '${snapshot.name}' deleted`);
+                toast.success(t('snapshot.toast.deleted', { name: snapshot.name }));
                 setDeleteOpen(false);
             },
             onError: () => {
-                toast.error(`Failed to delete snapshot '${snapshot.name}'`);
+                toast.error(t('snapshot.toast.deleteFailed', { name: snapshot.name }));
             },
         });
     };
@@ -139,7 +141,7 @@ const RowActions = ({ snapshot }: RowActionsProps): ReactElement => {
                             }}
                         >
                             <RotateCcw className="size-4" />
-                            Restore
+                            {t('snapshot.action.restore')}
                         </DropdownMenuItem>
                     </DropdownMenuGroup>
                     <DropdownMenuSeparator />
@@ -152,16 +154,16 @@ const RowActions = ({ snapshot }: RowActionsProps): ReactElement => {
                             }}
                         >
                             <Trash2 className="size-4" />
-                            Delete
+                            {t('common.action.delete')}
                         </DropdownMenuItem>
                     </DropdownMenuGroup>
                 </DropdownMenuContent>
             </DropdownMenu>
 
             <ConfirmDialog
-                title="Restore Snapshot"
-                description={`Are you sure you want to restore '${snapshot.name}'? This will overwrite existing data in the affected repositories.`}
-                confirmLabel="Restore"
+                title={t('snapshot.dialog.restore.title')}
+                description={t('snapshot.dialog.restore.description', { name: snapshot.name })}
+                confirmLabel={t('snapshot.action.restore')}
                 variant="destructive"
                 onConfirm={handleRestore}
                 open={restoreOpen}
@@ -169,9 +171,9 @@ const RowActions = ({ snapshot }: RowActionsProps): ReactElement => {
             />
 
             <ConfirmDialog
-                title="Delete Snapshot"
-                description={`Are you sure you want to delete '${snapshot.name}'? This action cannot be undone.`}
-                confirmLabel="Delete"
+                title={t('snapshot.dialog.delete.title')}
+                description={t('snapshot.dialog.delete.description', { name: snapshot.name })}
+                confirmLabel={t('common.action.delete')}
                 variant="destructive"
                 onConfirm={handleDelete}
                 open={deleteOpen}
@@ -186,6 +188,7 @@ const RowActions = ({ snapshot }: RowActionsProps): ReactElement => {
 //
 
 const CreateSnapshotDialog = (): ReactElement => {
+    const { t } = useTranslation();
     const [open, setOpen] = useState(false);
     const [repositoryId, setRepositoryId] = useState('');
     const { data: repositories } = useQuery(repositoriesQueryOptions());
@@ -196,12 +199,12 @@ const CreateSnapshotDialog = (): ReactElement => {
 
         createMutation.mutate(repositoryId, {
             onSuccess: () => {
-                toast.success('Snapshot created');
+                toast.success(t('snapshot.toast.created'));
                 setOpen(false);
                 setRepositoryId('');
             },
             onError: () => {
-                toast.error('Failed to create snapshot');
+                toast.error(t('snapshot.toast.createFailed'));
             },
         });
     };
@@ -218,21 +221,21 @@ const CreateSnapshotDialog = (): ReactElement => {
             <DialogTrigger asChild>
                 <Button>
                     <Plus className="size-4" />
-                    Create Snapshot
+                    {t('snapshot.action.createSnapshot')}
                 </Button>
             </DialogTrigger>
             <DialogContent>
                 <DialogHeader>
-                    <DialogTitle>Create Snapshot</DialogTitle>
+                    <DialogTitle>{t('snapshot.dialog.create.title')}</DialogTitle>
                     <DialogDescription>
-                        Select a repository to create a snapshot for.
+                        {t('snapshot.dialog.create.description')}
                     </DialogDescription>
                 </DialogHeader>
                 <div className="grid gap-2 py-4">
-                    <Label htmlFor="snapshot-repo">Repository</Label>
+                    <Label htmlFor="snapshot-repo">{t('snapshot.field.repository')}</Label>
                     <Select value={repositoryId} onValueChange={setRepositoryId}>
                         <SelectTrigger id="snapshot-repo">
-                            <SelectValue placeholder="Select a repository" />
+                            <SelectValue placeholder={t('snapshot.field.selectRepository')} />
                         </SelectTrigger>
                         <SelectContent>
                             {repositories?.map(repo => (
@@ -245,14 +248,14 @@ const CreateSnapshotDialog = (): ReactElement => {
                 </div>
                 <DialogFooter>
                     <DialogClose asChild>
-                        <Button>Cancel</Button>
+                        <Button>{t('common.action.cancel')}</Button>
                     </DialogClose>
                     <Button
                         variant="primary"
                         onClick={handleSubmit}
                         disabled={repositoryId === '' || createMutation.isPending}
                     >
-                        Create
+                        {t('common.action.create')}
                     </Button>
                 </DialogFooter>
             </DialogContent>
@@ -273,35 +276,35 @@ function isApiError(error: unknown): error is ApiError {
     );
 }
 
-function getErrorContent(error: unknown): { title: string; description: ReactNode } {
+function getErrorContent(error: unknown, t: (key: string) => string): { title: string; description: ReactNode } {
     if (!isApiError(error)) {
         return {
-            title: 'Failed to load snapshots',
-            description: 'An unexpected error occurred. Please try again later.',
+            title: t('snapshot.error.loadFailed.title'),
+            description: t('snapshot.error.loadFailed.description'),
         };
     }
 
     if (error.code === 'FORBIDDEN') {
         return {
-            title: 'Access denied',
-            description: 'You need the system.admin role to manage snapshots.',
+            title: t('snapshot.error.forbidden.title'),
+            description: t('snapshot.error.forbidden.description'),
         };
     }
 
     if (error.code === 'MANAGEMENT_API_ERROR') {
         return {
-            title: 'Management API not available',
+            title: t('snapshot.error.managementApi.title'),
             description: (
-                <>
-                    Could not connect to the Management API. Make sure the API is running and
-                    credentials are configured in <Code>$XP_HOME/config/com.enonic.app.datakit.cfg</Code>.
-                </>
+                <Trans
+                    i18nKey="snapshot.error.managementApi.description"
+                    components={{ code: <Code /> }}
+                />
             ),
         };
     }
 
     return {
-        title: 'Failed to load snapshots',
+        title: t('snapshot.error.loadFailed.title'),
         description: error.message,
     };
 }
@@ -309,13 +312,14 @@ function getErrorContent(error: unknown): { title: string; description: ReactNod
 const SNAPSHOTS_ERROR_NAME = 'SnapshotsError';
 
 const SnapshotsError = ({ error }: ErrorComponentProps): ReactElement => {
-    const { title, description } = getErrorContent(error);
+    const { t } = useTranslation();
+    const { title, description } = getErrorContent(error, t);
 
     return (
         <div data-component={SNAPSHOTS_ERROR_NAME} className="flex flex-col">
             {/* Breadcrumb bar */}
             <div className="flex h-10 shrink-0 items-center gap-1.5 overflow-x-auto border-border border-b bg-card px-4">
-                <span className="font-medium font-mono text-foreground text-xs">Snapshots</span>
+                <span className="font-medium font-mono text-foreground text-xs">{t('nav.snapshots')}</span>
             </div>
 
             {/* Action toolbar */}
@@ -323,7 +327,7 @@ const SnapshotsError = ({ error }: ErrorComponentProps): ReactElement => {
                 <div className="flex-1" />
                 <Button disabled>
                     <Plus className="size-4" />
-                    Create Snapshot
+                    {t('snapshot.action.createSnapshot')}
                 </Button>
             </div>
 
@@ -343,6 +347,7 @@ SnapshotsError.displayName = SNAPSHOTS_ERROR_NAME;
 //
 
 const SnapshotsPage = (): ReactElement => {
+    const { t } = useTranslation();
     const { data: snapshots } = useSuspenseQuery(snapshotsQueryOptions());
     const queryClient = useQueryClient();
 
@@ -353,15 +358,15 @@ const SnapshotsPage = (): ReactElement => {
 
     const columns = [
         columnHelper.accessor('name', {
-            header: 'Name',
+            header: t('snapshot.column.name'),
             cell: info => info.getValue(),
         }),
         columnHelper.accessor('timestamp', {
-            header: 'Timestamp',
+            header: t('snapshot.column.timestamp'),
             cell: info => formatTimestamp(info.getValue()),
         }),
         columnHelper.accessor('state', {
-            header: 'State',
+            header: t('snapshot.column.state'),
             cell: info => (
                 <Badge variant={info.getValue() === 'SUCCESS' ? 'default' : 'destructive'}>
                     {info.getValue()}
@@ -369,7 +374,7 @@ const SnapshotsPage = (): ReactElement => {
             ),
         }),
         columnHelper.accessor('indices', {
-            header: 'Indices',
+            header: t('snapshot.column.indices'),
             cell: info => info.getValue().length,
         }),
         columnHelper.display({
@@ -393,7 +398,7 @@ const SnapshotsPage = (): ReactElement => {
         <div data-component={SNAPSHOTS_PAGE_NAME} className="flex flex-col">
             {/* Breadcrumb bar */}
             <div className="flex h-10 shrink-0 items-center gap-1.5 overflow-x-auto border-border border-b bg-card px-4">
-                <span className="font-medium font-mono text-foreground text-xs">Snapshots</span>
+                <span className="font-medium font-mono text-foreground text-xs">{t('nav.snapshots')}</span>
             </div>
 
             {/* Action toolbar */}
@@ -405,8 +410,8 @@ const SnapshotsPage = (): ReactElement => {
             {snapshots.length === 0 ? (
                 <EmptyState
                     icon={Camera}
-                    title="No snapshots"
-                    description="No snapshots found. Create one to get started."
+                    title={t('snapshot.empty.title')}
+                    description={t('snapshot.empty.description')}
                     action={<CreateSnapshotDialog />}
                 />
             ) : (

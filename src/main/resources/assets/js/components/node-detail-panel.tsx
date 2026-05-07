@@ -1,6 +1,7 @@
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { ArrowRightLeft, Braces, Copy, Download, Ellipsis, History, Info, Pencil, Plus, Send, Shield, Table2, Trash2, X } from 'lucide-react';
 import { type ReactElement, type MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { createHighlighterCore } from 'shiki/core';
 import langJson from 'shiki/dist/langs/json.mjs';
 import themeGithubDarkDefault from 'shiki/dist/themes/github-dark-default.mjs';
@@ -169,6 +170,7 @@ type PropertiesTabProps = {
 const PROPERTIES_TAB_NAME = 'PropertiesTab';
 
 const PropertiesTab = ({ node, repoId, branch, onNavigateToNode }: PropertiesTabProps): ReactElement => {
+    const { t } = useTranslation();
     const attachments = node._attachments ?? {};
 
     const properties = useMemo<PropertyEntry[]>(() => {
@@ -197,7 +199,7 @@ const PropertiesTab = ({ node, repoId, branch, onNavigateToNode }: PropertiesTab
                 className="flex flex-col items-center gap-2 py-8 text-muted-foreground"
             >
                 <Table2 className="size-8" />
-                <p className="text-sm">No user properties</p>
+                <p className="text-sm">{t('node.properties.empty')}</p>
             </div>
         );
     }
@@ -207,9 +209,9 @@ const PropertiesTab = ({ node, repoId, branch, onNavigateToNode }: PropertiesTab
             <Table>
                 <TableHeader>
                     <TableRow>
-                        <TableHead>Name</TableHead>
-                        <TableHead>Type</TableHead>
-                        <TableHead>Value</TableHead>
+                        <TableHead>{t('node.properties.column.name')}</TableHead>
+                        <TableHead>{t('node.properties.column.type')}</TableHead>
+                        <TableHead>{t('node.properties.column.value')}</TableHead>
                     </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -246,8 +248,8 @@ const PropertiesTab = ({ node, repoId, branch, onNavigateToNode }: PropertiesTab
                                                 </a>
                                             </TooltipTrigger>
                                             <TooltipContent>
-                                                <p>{prop.binaryInfo?.mimeType ?? 'unknown'}</p>
-                                                <p>{prop.binaryInfo != null ? formatFileSize(prop.binaryInfo.size) : 'unknown size'}</p>
+                                                <p>{prop.binaryInfo?.mimeType ?? t('node.binary.unknownMime')}</p>
+                                                <p>{prop.binaryInfo != null ? formatFileSize(prop.binaryInfo.size) : t('node.binary.unknownSize')}</p>
                                             </TooltipContent>
                                         </Tooltip>
                                     </span>
@@ -280,13 +282,14 @@ PropertiesTab.displayName = PROPERTIES_TAB_NAME;
 const METADATA_TAB_NAME = 'MetadataTab';
 
 const MetadataTab = ({ node }: { node: NodeDetail }): ReactElement => {
+    const { t } = useTranslation();
     return (
         <div data-component={METADATA_TAB_NAME}>
             <Table>
                 <TableHeader>
                     <TableRow>
-                        <TableHead>Field</TableHead>
-                        <TableHead>Value</TableHead>
+                        <TableHead>{t('node.metadata.column.field')}</TableHead>
+                        <TableHead>{t('node.metadata.column.value')}</TableHead>
                     </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -330,6 +333,7 @@ const PermissionsTab = ({
 }: {
     permissions: AccessControlEntry[];
 }): ReactElement => {
+    const { t } = useTranslation();
     if (permissions.length === 0) {
         return (
             <div
@@ -337,7 +341,7 @@ const PermissionsTab = ({
                 className="flex flex-col items-center gap-2 py-8 text-muted-foreground"
             >
                 <Shield className="size-8" />
-                <p className="text-sm">No permissions defined</p>
+                <p className="text-sm">{t('node.permissions.empty')}</p>
             </div>
         );
     }
@@ -347,9 +351,9 @@ const PermissionsTab = ({
             <Table>
                 <TableHeader>
                     <TableRow>
-                        <TableHead>Principal</TableHead>
-                        <TableHead>Allow</TableHead>
-                        <TableHead>Deny</TableHead>
+                        <TableHead>{t('node.permissions.column.principal')}</TableHead>
+                        <TableHead>{t('node.permissions.column.allow')}</TableHead>
+                        <TableHead>{t('node.permissions.column.deny')}</TableHead>
                     </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -456,6 +460,7 @@ type PanelActionsProps = {
 };
 
 const PanelActions = ({ node, repoId, branch, onNodeMutated }: PanelActionsProps): ReactElement => {
+    const { t } = useTranslation();
     const [createOpen, setCreateOpen] = useState(false);
     const [renameOpen, setRenameOpen] = useState(false);
     const [moveOpen, setMoveOpen] = useState(false);
@@ -491,80 +496,80 @@ const PanelActions = ({ node, repoId, branch, onNodeMutated }: PanelActionsProps
             { repoId, branch, nodeId: node._id },
             {
                 onSuccess: (result) => {
-                    toast.success(`Node duplicated as '${result._name}'`);
+                    toast.success(t('node.toast.duplicated', { name: result._name }));
                 },
-                onError: () => toast.error(`Failed to duplicate node '${node._name}'`),
+                onError: () => toast.error(t('node.toast.duplicateFailed', { name: node._name })),
             },
         );
     };
 
     const handleCreate = () => {
         if (createName.trim() === '') {
-            setCreateError('Name is required');
+            setCreateError(t('node.error.nameRequired'));
             return;
         }
         if (createName.includes('/')) {
-            setCreateError('Name cannot contain slashes');
+            setCreateError(t('node.error.nameNoSlashes'));
             return;
         }
         createMutation.mutate(
             { repoId, branch, parentPath: node._path, name: createName, nodeType: createType.trim() || undefined },
             {
                 onSuccess: () => {
-                    toast.success(`Node '${createName}' created`);
+                    toast.success(t('node.toast.created', { name: createName }));
                     setCreateOpen(false);
                     setCreateName('');
                     setCreateType('');
                     setCreateError(undefined);
                 },
-                onError: () => toast.error(`Failed to create node '${createName}'`),
+                onError: () => toast.error(t('node.toast.createFailed', { name: createName })),
             },
         );
     };
 
     const handleRename = () => {
         if (renameName.trim() === '') {
-            setRenameError('Name is required');
+            setRenameError(t('node.error.nameRequired'));
             return;
         }
         if (renameName.includes('/')) {
-            setRenameError('Name cannot contain slashes');
+            setRenameError(t('node.error.nameNoSlashes'));
             return;
         }
         if (renameName === node._name) {
-            setRenameError('Name must be different from current');
+            setRenameError(t('node.error.nameSame'));
             return;
         }
         renameMutation.mutate(
             { repoId, branch, key: node._id, newName: renameName },
             {
                 onSuccess: () => {
-                    toast.success(`Node renamed to '${renameName}'`);
+                    toast.success(t('node.toast.renamed', { name: renameName }));
                     setRenameOpen(false);
                 },
-                onError: () => toast.error('Failed to rename node'),
+                onError: () => toast.error(t('node.toast.renameFailed')),
             },
         );
     };
 
     const handleMove = () => {
         if (movePath.trim() === '') {
-            setMoveError('Target path is required');
+            setMoveError(t('node.error.pathRequired'));
             return;
         }
         if (!movePath.startsWith('/')) {
-            setMoveError('Path must start with /');
+            setMoveError(t('node.error.pathLeadingSlash'));
             return;
         }
         moveMutation.mutate(
             { repoId, branch, key: node._id, targetPath: movePath },
             {
                 onSuccess: () => {
-                    toast.success(`Node moved to '${movePath}'`);
+                    toast.success(t('node.toast.moved', { path: movePath }));
                     setMoveOpen(false);
                     onNodeMutated?.();
                 },
-                onError: () => toast.error('Failed to move node'),
+                onError: () => toast.error(t('node.toast.moveFailed')),
             },
         );
     };
@@ -577,13 +582,20 @@ const PanelActions = ({ node, repoId, branch, onNodeMutated }: PanelActionsProps
                 onSuccess: (result) => {
                     const failedCount = result.failed.length;
                     if (failedCount > 0) {
-                        toast.warning(`Pushed to '${pushTarget}': ${result.success.length} succeeded, ${failedCount} failed`);
+                        toast.warning(t('node.toast.pushedPartial', {
+                            target: pushTarget,
+                            succeeded: result.success.length,
+                            failed: failedCount,
+                        }));
                     } else {
-                        toast.success(`Pushed to '${pushTarget}': ${result.success.length} nodes`);
+                        toast.success(t('node.toast.pushed', {
+                            target: pushTarget,
+                            count: result.success.length,
+                        }));
                     }
                     setPushOpen(false);
                 },
-                onError: () => toast.error('Failed to push node'),
+                onError: () => toast.error(t('node.toast.pushFailed')),
             },
         );
     };
@@ -595,15 +607,15 @@ const PanelActions = ({ node, repoId, branch, onNodeMutated }: PanelActionsProps
                 onSuccess: (result) => {
                     if (result.branches != null) {
                         const count = result.branches.deleted.length;
-                        toast.success(`Node '${node._name}' deleted from ${count} branch${count !== 1 ? 'es' : ''}`);
+                        toast.success(t('node.toast.deletedFromBranches', { name: node._name, count }));
                     } else {
-                        toast.success(`Node '${node._name}' deleted`);
+                        toast.success(t('node.toast.deleted', { name: node._name }));
                     }
                     setDeleteOpen(false);
                     setDeleteAllBranches(false);
                     onNodeMutated?.();
                 },
-                onError: () => toast.error(`Failed to delete node '${node._name}'`),
+                onError: () => toast.error(t('node.toast.deleteFailed', { name: node._name })),
             },
         );
     };
@@ -619,7 +631,7 @@ const PanelActions = ({ node, repoId, branch, onNodeMutated }: PanelActionsProps
                             'text-muted-foreground transition-colors',
                             'hover:bg-accent hover:text-accent-foreground',
                         )}
-                        aria-label="Node actions"
+                        aria-label={t('node.actions.aria')}
                     >
                         <Ellipsis className="size-4" />
                     </button>
@@ -628,7 +640,7 @@ const PanelActions = ({ node, repoId, branch, onNodeMutated }: PanelActionsProps
                     <DropdownMenuGroup>
                         <DropdownMenuItem onClick={() => setCreateOpen(true)}>
                             <Plus className="size-4" />
-                            Create Child
+                            {t('node.action.createChild')}
                         </DropdownMenuItem>
                     </DropdownMenuGroup>
                     <DropdownMenuSeparator />
@@ -638,22 +650,22 @@ const PanelActions = ({ node, repoId, branch, onNodeMutated }: PanelActionsProps
                             setRenameOpen(true);
                         }}>
                             <Pencil className="size-4" />
-                            Rename
+                            {t('common.action.rename')}
                         </DropdownMenuItem>
                         <DropdownMenuItem disabled={isRoot} onClick={() => setMoveOpen(true)}>
                             <ArrowRightLeft className="size-4" />
-                            Move
+                            {t('common.action.move')}
                         </DropdownMenuItem>
                         <DropdownMenuItem onClick={handleDuplicate}>
                             <Copy className="size-4" />
-                            Duplicate
+                            {t('common.action.duplicate')}
                         </DropdownMenuItem>
                     </DropdownMenuGroup>
                     <DropdownMenuSeparator />
                     <DropdownMenuGroup>
                         <DropdownMenuItem onClick={() => setPushOpen(true)}>
                             <Send className="size-4" />
-                            Push
+                            {t('common.action.push')}
                         </DropdownMenuItem>
                     </DropdownMenuGroup>
                     <DropdownMenuSeparator />
@@ -664,7 +676,7 @@ const PanelActions = ({ node, repoId, branch, onNodeMutated }: PanelActionsProps
                             onClick={() => setDeleteOpen(true)}
                         >
                             <Trash2 className="size-4" />
-                            Delete
+                            {t('common.action.delete')}
                         </DropdownMenuItem>
                     </DropdownMenuGroup>
                 </DropdownMenuContent>
@@ -677,36 +689,36 @@ const PanelActions = ({ node, repoId, branch, onNodeMutated }: PanelActionsProps
             }}>
                 <DialogContent>
                     <DialogHeader>
-                        <DialogTitle>Create Child Node</DialogTitle>
+                        <DialogTitle>{t('node.dialog.create.title')}</DialogTitle>
                         <DialogDescription>
-                            Create a new child node under &apos;{node._path}&apos;.
+                            {t('node.dialog.create.description', { path: node._path })}
                         </DialogDescription>
                     </DialogHeader>
                     <div className="grid gap-4 py-4">
                         <div className="grid gap-2">
-                            <Label htmlFor="panel-create-name">Name</Label>
+                            <Label htmlFor="panel-create-name">{t('node.field.name')}</Label>
                             <Input
                                 id="panel-create-name"
                                 value={createName}
                                 onChange={e => { setCreateName(e.target.value); setCreateError(undefined); }}
                                 onKeyDown={e => { if (e.key === 'Enter') handleCreate(); }}
-                                placeholder="my-node"
+                                placeholder={t('node.field.namePlaceholder')}
                             />
                             {createError != null && <p className="text-destructive text-sm">{createError}</p>}
                         </div>
                         <div className="grid gap-2">
-                            <Label htmlFor="panel-create-type">Node Type</Label>
+                            <Label htmlFor="panel-create-type">{t('node.field.nodeType')}</Label>
                             <Input
                                 id="panel-create-type"
                                 value={createType}
                                 onChange={e => setCreateType(e.target.value)}
-                                placeholder="default"
+                                placeholder={t('node.field.nodeTypePlaceholder')}
                             />
                         </div>
                     </div>
                     <DialogFooter>
-                        <DialogClose asChild><Button>Cancel</Button></DialogClose>
-                        <Button variant="primary" onClick={handleCreate} disabled={createMutation.isPending}>Create</Button>
+                        <DialogClose asChild><Button>{t('common.action.cancel')}</Button></DialogClose>
+                        <Button variant="primary" onClick={handleCreate} disabled={createMutation.isPending}>{t('common.action.create')}</Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
@@ -718,11 +730,11 @@ const PanelActions = ({ node, repoId, branch, onNodeMutated }: PanelActionsProps
             }}>
                 <DialogContent>
                     <DialogHeader>
-                        <DialogTitle>Rename Node</DialogTitle>
-                        <DialogDescription>Enter a new name for &apos;{node._name}&apos;.</DialogDescription>
+                        <DialogTitle>{t('node.dialog.rename.title')}</DialogTitle>
+                        <DialogDescription>{t('node.dialog.rename.description', { name: node._name })}</DialogDescription>
                     </DialogHeader>
                     <div className="grid gap-2 py-4">
-                        <Label htmlFor="panel-rename-name">Name</Label>
+                        <Label htmlFor="panel-rename-name">{t('node.field.name')}</Label>
                         <Input
                             id="panel-rename-name"
                             value={renameName}
@@ -732,8 +744,8 @@ const PanelActions = ({ node, repoId, branch, onNodeMutated }: PanelActionsProps
                         {renameError != null && <p className="text-destructive text-sm">{renameError}</p>}
                     </div>
                     <DialogFooter>
-                        <DialogClose asChild><Button>Cancel</Button></DialogClose>
-                        <Button variant="primary" onClick={handleRename} disabled={renameMutation.isPending}>Rename</Button>
+                        <DialogClose asChild><Button>{t('common.action.cancel')}</Button></DialogClose>
+                        <Button variant="primary" onClick={handleRename} disabled={renameMutation.isPending}>{t('common.action.rename')}</Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
@@ -745,39 +757,39 @@ const PanelActions = ({ node, repoId, branch, onNodeMutated }: PanelActionsProps
             }}>
                 <DialogContent>
                     <DialogHeader>
-                        <DialogTitle>Move Node</DialogTitle>
-                        <DialogDescription>Move &apos;{node._name}&apos; to a new parent path.</DialogDescription>
+                        <DialogTitle>{t('node.dialog.move.title')}</DialogTitle>
+                        <DialogDescription>{t('node.dialog.move.description', { name: node._name })}</DialogDescription>
                     </DialogHeader>
                     <div className="grid gap-4 py-4">
                         <div className="grid gap-1">
-                            <Label className="text-muted-foreground">Current Path</Label>
+                            <Label className="text-muted-foreground">{t('node.field.currentPath')}</Label>
                             <button
                                 type="button"
                                 className="cursor-pointer truncate text-left font-mono text-sm hover:text-foreground"
-                                title="Click to copy path"
+                                title={t('node.action.copyPath')}
                                 onClick={() => {
                                     navigator.clipboard.writeText(node._path);
-                                    toast.success('Path copied to clipboard');
+                                    toast.success(t('node.toast.pathCopied'));
                                 }}
                             >
                                 {node._path}
                             </button>
                         </div>
                         <div className="grid gap-2">
-                            <Label htmlFor="panel-move-path">Target Path</Label>
+                            <Label htmlFor="panel-move-path">{t('node.field.targetPath')}</Label>
                             <Input
                                 id="panel-move-path"
                                 value={movePath}
                                 onChange={e => { setMovePath(e.target.value); setMoveError(undefined); }}
                                 onKeyDown={e => { if (e.key === 'Enter') handleMove(); }}
-                                placeholder="/target/path"
+                                placeholder={t('node.field.targetPathPlaceholder')}
                             />
                             {moveError != null && <p className="text-destructive text-sm">{moveError}</p>}
                         </div>
                     </div>
                     <DialogFooter>
-                        <DialogClose asChild><Button>Cancel</Button></DialogClose>
-                        <Button variant="primary" onClick={handleMove} disabled={moveMutation.isPending}>Move</Button>
+                        <DialogClose asChild><Button>{t('common.action.cancel')}</Button></DialogClose>
+                        <Button variant="primary" onClick={handleMove} disabled={moveMutation.isPending}>{t('common.action.move')}</Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
@@ -789,15 +801,15 @@ const PanelActions = ({ node, repoId, branch, onNodeMutated }: PanelActionsProps
             }}>
                 <DialogContent>
                     <DialogHeader>
-                        <DialogTitle>Push Node</DialogTitle>
-                        <DialogDescription>Push &apos;{node._name}&apos; to another branch.</DialogDescription>
+                        <DialogTitle>{t('node.dialog.push.title')}</DialogTitle>
+                        <DialogDescription>{t('node.dialog.push.description', { name: node._name })}</DialogDescription>
                     </DialogHeader>
                     <div className="grid gap-4 py-4">
                         <div className="grid gap-2">
-                            <Label>Target Branch</Label>
+                            <Label>{t('node.field.targetBranch')}</Label>
                             <Select value={pushTarget} onValueChange={setPushTarget}>
                                 <SelectTrigger>
-                                    <SelectValue placeholder="Select branch" />
+                                    <SelectValue placeholder={t('node.field.selectBranch')} />
                                 </SelectTrigger>
                                 <SelectContent>
                                     {availableBranches.map(b => (
@@ -808,16 +820,16 @@ const PanelActions = ({ node, repoId, branch, onNodeMutated }: PanelActionsProps
                         </div>
                         <div className="flex items-center gap-2">
                             <Checkbox id="panel-push-children" checked={pushChildren} onCheckedChange={checked => setPushChildren(checked === true)} />
-                            <Label htmlFor="panel-push-children" className="font-normal">Include children</Label>
+                            <Label htmlFor="panel-push-children" className="font-normal">{t('node.field.includeChildren')}</Label>
                         </div>
                         <div className="flex items-center gap-2">
                             <Checkbox id="panel-push-resolve" checked={pushResolve} onCheckedChange={checked => setPushResolve(checked === true)} />
-                            <Label htmlFor="panel-push-resolve" className="font-normal">Resolve dependencies</Label>
+                            <Label htmlFor="panel-push-resolve" className="font-normal">{t('node.field.resolveDependencies')}</Label>
                         </div>
                     </div>
                     <DialogFooter>
-                        <DialogClose asChild><Button>Cancel</Button></DialogClose>
-                        <Button variant="primary" onClick={handlePush} disabled={pushMutation.isPending || pushTarget === ''}>Push</Button>
+                        <DialogClose asChild><Button>{t('common.action.cancel')}</Button></DialogClose>
+                        <Button variant="primary" onClick={handlePush} disabled={pushMutation.isPending || pushTarget === ''}>{t('common.action.push')}</Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
@@ -829,9 +841,9 @@ const PanelActions = ({ node, repoId, branch, onNodeMutated }: PanelActionsProps
             }}>
                 <DialogContent>
                     <DialogHeader>
-                        <DialogTitle>Delete Node</DialogTitle>
+                        <DialogTitle>{t('node.dialog.delete.title')}</DialogTitle>
                         <DialogDescription>
-                            Are you sure you want to delete &apos;{node._name}&apos; ({node._path})? This action cannot be undone.
+                            {t('node.dialog.delete.description', { name: node._name, path: node._path })}
                         </DialogDescription>
                     </DialogHeader>
                     <div className="flex items-center gap-2 py-2">
@@ -841,13 +853,13 @@ const PanelActions = ({ node, repoId, branch, onNodeMutated }: PanelActionsProps
                             onCheckedChange={checked => setDeleteAllBranches(checked === true)}
                         />
                         <Label htmlFor="panel-delete-all" className="font-normal">
-                            Delete from all branches
+                            {t('node.field.deleteFromAllBranches')}
                         </Label>
                     </div>
                     <DialogFooter>
-                        <DialogClose asChild><Button>Cancel</Button></DialogClose>
+                        <DialogClose asChild><Button>{t('common.action.cancel')}</Button></DialogClose>
                         <Button variant="destructive" onClick={handleDelete} disabled={deleteMutation.isPending}>
-                            Delete
+                            {t('common.action.delete')}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
@@ -873,6 +885,7 @@ const NodeDetailContent = ({
     onNodeMutated?: () => void;
     onNavigateToNode?: (nodeId: string) => void;
 }): ReactElement => {
+    const { t } = useTranslation();
     const { data: node, isLoading, error } = useQuery(nodeDetailQueryOptions(params));
     const versionsInfinite = useInfiniteQuery(
         versionsInfiniteQueryOptions({
@@ -902,7 +915,7 @@ const NodeDetailContent = ({
                 data-component={NODE_DETAIL_CONTENT_NAME}
                 className="py-8 text-center text-destructive text-sm"
             >
-                Failed to load node details.
+                {t('node.error.loadFailed')}
             </div>
         );
     }
@@ -934,7 +947,7 @@ const NodeDetailContent = ({
                             'text-muted-foreground transition-colors',
                             'hover:bg-accent hover:text-accent-foreground',
                         )}
-                        aria-label="Close panel"
+                        aria-label={t('node.action.closePanel')}
                     >
                         <X className="size-4" />
                     </button>
@@ -944,30 +957,30 @@ const NodeDetailContent = ({
             {/* Tabs */}
             <Tabs defaultValue="properties" className="flex flex-1 flex-col overflow-hidden">
                 <TabsList className="mx-4 mt-2 w-auto">
-                    <TabsTrigger value="properties" title="Properties" className="@[576px]:px-3 px-2">
+                    <TabsTrigger value="properties" title={t('node.tab.properties')} className="@[576px]:px-3 px-2">
                         <Table2 className="size-3.5" />
-                        <span className="ml-1.5 @[576px]:inline hidden">Properties</span>
+                        <span className="ml-1.5 @[576px]:inline hidden">{t('node.tab.properties')}</span>
                     </TabsTrigger>
-                    <TabsTrigger value="metadata" title="Metadata" className="@[576px]:px-3 px-2">
+                    <TabsTrigger value="metadata" title={t('node.tab.metadata')} className="@[576px]:px-3 px-2">
                         <Info className="size-3.5" />
-                        <span className="ml-1.5 @[576px]:inline hidden">Metadata</span>
+                        <span className="ml-1.5 @[576px]:inline hidden">{t('node.tab.metadata')}</span>
                     </TabsTrigger>
-                    <TabsTrigger value="permissions" title="Permissions" className="@[576px]:px-3 px-2">
+                    <TabsTrigger value="permissions" title={t('node.tab.permissions')} className="@[576px]:px-3 px-2">
                         <Shield className="size-3.5" />
-                        <span className="ml-1.5 @[576px]:inline hidden">Permissions</span>
+                        <span className="ml-1.5 @[576px]:inline hidden">{t('node.tab.permissions')}</span>
                     </TabsTrigger>
-                    <TabsTrigger value="versions" title="Versions" className="@[576px]:px-3 px-2">
+                    <TabsTrigger value="versions" title={t('node.tab.versions')} className="@[576px]:px-3 px-2">
                         <History className="size-3.5" />
-                        <span className="ml-1.5 @[576px]:inline hidden">Versions</span>
+                        <span className="ml-1.5 @[576px]:inline hidden">{t('node.tab.versions')}</span>
                         {versionsTotal != null && (
                             <Badge variant="secondary" className="ml-1.5 @[576px]:inline-flex hidden">
                                 {versionsTotal}
                             </Badge>
                         )}
                     </TabsTrigger>
-                    <TabsTrigger value="json" title="JSON" className="@[576px]:px-3 px-2">
+                    <TabsTrigger value="json" title={t('node.tab.json')} className="@[576px]:px-3 px-2">
                         <Braces className="size-3.5" />
-                        <span className="ml-1.5 @[576px]:inline hidden">JSON</span>
+                        <span className="ml-1.5 @[576px]:inline hidden">{t('node.tab.json')}</span>
                     </TabsTrigger>
                 </TabsList>
                 <div className="flex-1 overflow-auto">
@@ -1045,6 +1058,7 @@ export const NodeDetailPanel = ({
     onNodeMutated,
     onNavigateToNode,
 }: NodeDetailPanelProps): ReactElement => {
+    const { t } = useTranslation();
     const [width, setWidth] = useState<number>(readStoredWidth);
     const dragStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
 
@@ -1098,8 +1112,8 @@ export const NodeDetailPanel = ({
         >
             <button
                 type="button"
-                aria-label="Resize detail panel"
-                title="Drag to resize, double-click to reset"
+                aria-label={t('node.action.resizePanel')}
+                title={t('node.action.resizePanelHint')}
                 onMouseDown={handleDragStart}
                 onDoubleClick={handleDoubleClick}
                 className={cn(

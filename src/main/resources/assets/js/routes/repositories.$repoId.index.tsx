@@ -18,6 +18,7 @@ import {
     Trash2,
 } from 'lucide-react';
 import { type ReactElement, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { z } from 'zod';
 import { Button } from '../components/ui/button';
 import { ConfirmDialog } from '../components/ui/confirm-dialog';
@@ -66,11 +67,11 @@ const PROTECTED_BRANCHES = ['master'];
 
 const branchIdSchema = z
     .string()
-    .min(2, 'Must be at least 2 characters')
-    .max(100, 'Must be at most 100 characters')
+    .min(2, 'branch.error.tooShort')
+    .max(100, 'branch.error.tooLong')
     .regex(
         /^[a-z0-9][a-z0-9._-]*[a-z0-9]$/,
-        'Must contain only lowercase letters, digits, dots, and hyphens',
+        'branch.error.invalidChars',
     );
 
 const columnHelper = createColumnHelper<Branch>();
@@ -85,6 +86,7 @@ type RowActionsProps = {
 };
 
 const RowActions = ({ repoId, branch }: RowActionsProps): ReactElement => {
+    const { t } = useTranslation();
     const [deleteOpen, setDeleteOpen] = useState(false);
     const navigate = useNavigate();
     const deleteMutation = useDeleteBranch();
@@ -95,11 +97,11 @@ const RowActions = ({ repoId, branch }: RowActionsProps): ReactElement => {
             { repoId, branchId: branch.id },
             {
                 onSuccess: () => {
-                    toast.success(`Branch '${branch.id}' deleted`);
+                    toast.success(t('branch.toast.deleted', { id: branch.id }));
                     setDeleteOpen(false);
                 },
                 onError: () => {
-                    toast.error(`Failed to delete branch '${branch.id}'`);
+                    toast.error(t('branch.toast.deleteFailed', { id: branch.id }));
                 },
             },
         );
@@ -129,7 +131,7 @@ const RowActions = ({ repoId, branch }: RowActionsProps): ReactElement => {
                             }}
                         >
                             <Eye className="size-4" />
-                            Preview
+                            {t('common.action.preview')}
                         </DropdownMenuItem>
                     </DropdownMenuGroup>
                     <DropdownMenuSeparator />
@@ -142,21 +144,21 @@ const RowActions = ({ repoId, branch }: RowActionsProps): ReactElement => {
                             }}
                         >
                             <Trash2 className="size-4" />
-                            Delete
+                            {t('common.action.delete')}
                         </DropdownMenuItem>
                     </DropdownMenuGroup>
                 </DropdownMenuContent>
             </DropdownMenu>
 
             <ConfirmDialog
-                title={isProtected ? 'Protected Branch' : 'Delete Branch'}
+                title={isProtected ? t('branch.dialog.protected.title') : t('branch.dialog.delete.title')}
                 description={
                     isProtected
-                        ? `'${branch.id}' is a default branch and cannot be deleted.`
-                        : `Are you sure you want to delete '${branch.id}'? This action cannot be undone.`
+                        ? t('branch.dialog.protected.description', { id: branch.id })
+                        : t('branch.dialog.delete.description', { id: branch.id })
                 }
-                confirmLabel={isProtected ? 'OK' : 'Delete'}
-                cancelLabel={isProtected ? 'Close' : 'Cancel'}
+                confirmLabel={isProtected ? t('common.action.ok') : t('common.action.delete')}
+                cancelLabel={isProtected ? t('common.action.close') : t('common.action.cancel')}
                 variant={isProtected ? 'primary' : 'destructive'}
                 onConfirm={isProtected ? () => setDeleteOpen(false) : handleDelete}
                 open={deleteOpen}
@@ -175,6 +177,7 @@ type CreateBranchDialogProps = {
 };
 
 const CreateBranchDialog = ({ repoId }: CreateBranchDialogProps): ReactElement => {
+    const { t } = useTranslation();
     const [open, setOpen] = useState(false);
     const [name, setName] = useState('');
     const [error, setError] = useState<string | null>(null);
@@ -183,7 +186,7 @@ const CreateBranchDialog = ({ repoId }: CreateBranchDialogProps): ReactElement =
     const handleSubmit = () => {
         const result = branchIdSchema.safeParse(name);
         if (!result.success) {
-            setError(result.error.issues[0].message);
+            setError(t(result.error.issues[0].message));
             return;
         }
 
@@ -191,13 +194,13 @@ const CreateBranchDialog = ({ repoId }: CreateBranchDialogProps): ReactElement =
             { repoId, branchId: name },
             {
                 onSuccess: () => {
-                    toast.success(`Branch '${name}' created`);
+                    toast.success(t('branch.toast.created', { name }));
                     setOpen(false);
                     setName('');
                     setError(null);
                 },
                 onError: () => {
-                    toast.error(`Failed to create branch '${name}'`);
+                    toast.error(t('branch.toast.createFailed', { name }));
                 },
             },
         );
@@ -216,19 +219,18 @@ const CreateBranchDialog = ({ repoId }: CreateBranchDialogProps): ReactElement =
             <DialogTrigger asChild>
                 <Button>
                     <Plus className="size-4" />
-                    Create Branch
+                    {t('branch.action.createBranch')}
                 </Button>
             </DialogTrigger>
             <DialogContent>
                 <DialogHeader>
-                    <DialogTitle>Create Branch</DialogTitle>
+                    <DialogTitle>{t('branch.dialog.create.title')}</DialogTitle>
                     <DialogDescription>
-                        Enter a name for the new branch. Use lowercase
-                        letters, digits, dots, and hyphens.
+                        {t('branch.dialog.create.description')}
                     </DialogDescription>
                 </DialogHeader>
                 <div className="grid gap-2 py-4">
-                    <Label htmlFor="branch-name">Branch Name</Label>
+                    <Label htmlFor="branch-name">{t('branch.field.name')}</Label>
                     <Input
                         id="branch-name"
                         value={name}
@@ -239,7 +241,7 @@ const CreateBranchDialog = ({ repoId }: CreateBranchDialogProps): ReactElement =
                         onKeyDown={e => {
                             if (e.key === 'Enter') handleSubmit();
                         }}
-                        placeholder="draft"
+                        placeholder={t('branch.field.namePlaceholder')}
                     />
                     {error != null && (
                         <p className="text-destructive text-sm">{error}</p>
@@ -247,14 +249,14 @@ const CreateBranchDialog = ({ repoId }: CreateBranchDialogProps): ReactElement =
                 </div>
                 <DialogFooter>
                     <DialogClose asChild>
-                        <Button>Cancel</Button>
+                        <Button>{t('common.action.cancel')}</Button>
                     </DialogClose>
                     <Button
                         variant="primary"
                         onClick={handleSubmit}
                         disabled={createMutation.isPending}
                     >
-                        Create
+                        {t('common.action.create')}
                     </Button>
                 </DialogFooter>
             </DialogContent>
@@ -267,6 +269,7 @@ const CreateBranchDialog = ({ repoId }: CreateBranchDialogProps): ReactElement =
 //
 
 const BranchListPage = (): ReactElement => {
+    const { t } = useTranslation();
     const { repoId } = Route.useParams();
     const navigate = useNavigate();
     const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
@@ -276,7 +279,7 @@ const BranchListPage = (): ReactElement => {
 
     const columns = [
         columnHelper.accessor('id', {
-            header: 'Name',
+            header: t('branch.column.name'),
             cell: info => info.getValue(),
         }),
         columnHelper.display({
@@ -302,7 +305,7 @@ const BranchListPage = (): ReactElement => {
             {/* Breadcrumb bar */}
             <div className="flex h-10 shrink-0 items-center gap-1.5 overflow-x-auto border-border border-b bg-card px-4">
                 <Link to="/repositories" className="font-mono text-muted-foreground text-xs hover:text-foreground">
-                    Repositories
+                    {t('nav.repositories')}
                 </Link>
                 <ChevronRight className="size-2.5 shrink-0 text-text-dimmed" />
                 <span className="font-medium font-mono text-foreground text-xs">{repoId}</span>
@@ -393,8 +396,8 @@ const BranchListPage = (): ReactElement => {
             {branches.length === 0 && (
                 <EmptyState
                     icon={GitBranch}
-                    title="No branches"
-                    description="No branches found. Create one to get started."
+                    title={t('branch.empty.title')}
+                    description={t('branch.empty.description')}
                 />
             )}
         </div>
