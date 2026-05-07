@@ -171,9 +171,9 @@ const PROPERTIES_TAB_NAME = 'PropertiesTab';
 
 const PropertiesTab = ({ node, repoId, branch, onNavigateToNode }: PropertiesTabProps): ReactElement => {
     const { t } = useTranslation();
-    const attachments = node._attachments ?? {};
 
     const properties = useMemo<PropertyEntry[]>(() => {
+        const attachments = node._attachments ?? {};
         const entries: PropertyEntry[] = [];
         const keys = Object.keys(node);
         for (let i = 0; i < keys.length; i++) {
@@ -190,7 +190,7 @@ const PropertiesTab = ({ node, repoId, branch, onNavigateToNode }: PropertiesTab
             });
         }
         return entries;
-    }, [node, attachments]);
+    }, [node]);
 
     if (properties.length === 0) {
         return (

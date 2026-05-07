@@ -81,7 +81,7 @@ function queryAllRepos(
     const startTime = Date.now();
 
     const repos = list();
-    const sources: Array<{ repoId: string; branch: string; principals: PrincipalKey[] }> = [];
+    const sources: { repoId: string; branch: string; principals: PrincipalKey[] }[] = [];
 
     for (const repo of repos) {
         for (const branch of repo.branches) {
