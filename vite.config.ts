@@ -147,7 +147,7 @@ export default defineConfig({
         },
     },
     staged: {
-        '*': 'vp lint --fix',
+        '*.{ts,tsx,js,jsx}': 'vp lint --fix',
     },
     test: {
         root: __dirname,

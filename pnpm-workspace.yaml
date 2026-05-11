@@ -1,13 +1,17 @@
+allowBuilds:
+  esbuild: false
+
 catalog:
-  vite: npm:@voidzero-dev/vite-plus-core@^0.1.19
-  vite-plus: ^0.1.19
-  vitest: npm:@voidzero-dev/vite-plus-test@latest
+  vite: npm:@voidzero-dev/vite-plus-core@^0.1.20
+  vite-plus: ^0.1.20
+  vitest: npm:@voidzero-dev/vite-plus-test@~0.1.20
 
 ignoredBuiltDependencies:
   - esbuild
   - unrs-resolver
 
 minimumReleaseAge: 1440
+
 minimumReleaseAgeExclude:
   - '@typescript/native-preview*'
 
