@@ -1,8 +1,9 @@
 ---
 paths:
-  - "src/test/**/*.test.ts"
-  - "src/test/**/*.test.tsx"
+  - 'src/test/**/*.test.ts'
+  - 'src/test/**/*.test.tsx'
 ---
+
 # Testing Standards
 
 ## Test Structure
@@ -85,9 +86,15 @@ expect(onChangeMock).toHaveBeenCalledWith(expectedArg);
 
 describe('ClassName', () => {
   describe('methodName', () => {
-    it('should return expected value for valid input', () => { /* ... */ });
-    it('should throw when input is null', () => { /* ... */ });
-    it('should handle edge case correctly', () => { /* ... */ });
+    it('should return expected value for valid input', () => {
+      /* ... */
+    });
+    it('should throw when input is null', () => {
+      /* ... */
+    });
+    it('should handle edge case correctly', () => {
+      /* ... */
+    });
   });
 });
 ```
@@ -140,6 +147,7 @@ vi.mock('../../../../main/resources/assets/js/lib/config', () => ({
 ### Query priority
 
 Follow Testing Library's query priority:
+
 1. `getByRole` — accessible queries first
 2. `getByText` — visible text
 3. `getByLabelText` — form elements

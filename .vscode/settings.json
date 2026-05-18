@@ -1,11 +1,12 @@
 {
-    "oxc.path.oxlint": "./node_modules/vite-plus/bin/oxlint",
-    "editor.codeActionsOnSave": {
-        "source.fixAll.oxc": "explicit"
-    },
-    "editor.tabSize": 4,
-    "js/ts.experimental.useTsgo": true,
-    "files.associations": {
-        "*.css": "tailwindcss"
-    }
+  "oxc.path.oxlint": "./node_modules/vite-plus/bin/oxlint",
+  "editor.codeActionsOnSave": {
+    "source.fixAll.oxc": "explicit",
+    "source.organizeImports": "never",
+    "source.sortImports": "never"
+  },
+  "js/ts.experimental.useTsgo": true,
+  "files.associations": {
+    "*.css": "tailwindcss"
+  }
 }

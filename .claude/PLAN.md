@@ -7,6 +7,7 @@
 This plan covers every step needed to reach 100% feature completeness: 24 issues organized into 6 phases, each building on the previous.
 
 **Key architecture decisions:**
+
 - Backend APIs use the XP 8 `apis/` directory pattern (XML descriptor + TS controller)
 - Snapshots and dumps go through `lib-http-client` to the XP Management API (port 4848)
 - TanStack Router (file-based, type-safe) + TanStack Query (caching, mutations)
@@ -23,6 +24,7 @@ This plan covers every step needed to reach 100% feature completeness: 24 issues
 Install all packages the project needs.
 
 **Frontend (pnpm):**
+
 - Routing: `@tanstack/react-router`, `@tanstack/react-router-vite-plugin`, `@tanstack/react-router-devtools`
 - Data: `@tanstack/react-query`, `@tanstack/react-query-devtools`, `@tanstack/react-table`
 - UI: `@radix-ui/*` (dialog, dropdown-menu, select, checkbox, tooltip, tabs, scroll-area, separator, alert-dialog, label, slot), `class-variance-authority`, `clsx`, `tailwind-merge`, `lucide-react`, `sonner`
@@ -30,6 +32,7 @@ Install all packages the project needs.
 - Syntax highlighting: `shiki`
 
 **Backend (build.gradle):**
+
 - `lib-node`, `lib-repo`, `lib-auth`, `lib-context`, `lib-io`, `lib-export`, `lib-auditlog`, `lib-websocket`, `lib-http-client`, `lib-task`, `lib-event`, `lib-i18n`
 - Type packages: `@enonic-types/lib-node`, `@enonic-types/lib-repo`, `@enonic-types/lib-auth`, `@enonic-types/lib-context`, `@enonic-types/lib-io`, `@enonic-types/lib-export`, `@enonic-types/lib-auditlog`, `@enonic-types/lib-websocket`, `@enonic-types/lib-event`, `@enonic-types/lib-task`, `@enonic-types/lib-i18n`
 - Note: `lib-http-client` types may need manual `.d.ts` if not available on npm
@@ -45,16 +48,19 @@ Install all packages the project needs.
 Replace the current `data-*` attribute config injection with the standard JSON-in-script-tag pattern used by other Enonic admin apps. Set up theming and core utilities.
 
 **Config injection:**
+
 - Update `main.ts` controller: compute full config JSON (appId, assetsUri, toolUri, API URLs via `portal.apiUrl()`, launcher widget URL, current user) and inject into template
 - Update `main.html`: add `<script type="application/json" id="datakit-config">{{{configAsJson}}}</script>`, update bundle script tag to use `data-config-script-id="datakit-config"`
 - Update `main.yml`: add custom API names to the `apis:` list as they're created in later issues
 - Create `assets/js/lib/config.ts`: reads config from the JSON script tag at bootstrap time
 
 **Theme system:**
+
 - In `assets/styles/main.css`: define CSS custom properties for theme tokens (background, foreground, card, popover, primary, secondary, muted, accent, destructive, border, input, ring) with light defaults and `.dark` overrides
 - Create `assets/js/components/theme-provider.tsx`: reads/persists theme preference to localStorage, toggles `.dark` class on `<html>`
 
 **Utilities:**
+
 - Create `assets/js/lib/utils.ts`: `cn()` function (clsx + tailwind-merge)
 - Create `assets/js/types/api.ts`: `ApiResponse<T>`, `ApiError`, `PaginatedResponse<T>`, common entity types
 
@@ -70,6 +76,7 @@ Replace the current `data-*` attribute config injection with the standard JSON-i
 Replace the placeholder `<App>` component with a full router setup and app shell.
 
 **Router:**
+
 - Create `assets/js/router.tsx` with `createRouter()`, basepath from config `toolUri`, router context (queryClient, config)
 - Install TanStack Router Vite plugin in `vite.config.ts` for file-based route generation
 - Create `routes/__root.tsx`: app shell layout with `<Sidebar>`, `<Header>`, `<Outlet />`
@@ -77,6 +84,7 @@ Replace the placeholder `<App>` component with a full router setup and app shell
 - Create placeholder route files for all sections: `repositories/`, `search.tsx`, `snapshots.tsx`, `dumps.tsx`, `exports.tsx`, `tasks.tsx`, `audit.tsx`, `events.tsx`, `system.tsx`
 
 **App shell components (`components/layout/`):**
+
 - `Sidebar`: collapsible navigation drawer with icon + label links for each section (Repositories, Search, Snapshots, Dumps, Exports, Tasks, Audit, Events, System). Active state styling. Collapse to icon-only mode.
 - `Header`: app title/breadcrumbs slot, theme toggle button, optional launcher integration
 - Update `app.tsx`: mount `RouterProvider` wrapped in `ThemeProvider`
@@ -93,11 +101,13 @@ Replace the placeholder `<App>` component with a full router setup and app shell
 Build the data fetching infrastructure and prove it end-to-end with a system info endpoint.
 
 **Backend:**
+
 - Create `src/main/resources/lib/api.ts`: shared server utilities -- `jsonResponse(data)`, `errorResponse(message, status)`, `getParam(req, name)`, `requireAdmin(req)` helpers
 - Create `apis/system/system.xml`: API descriptor with `role:system.admin`
 - Create `apis/system/system.ts`: `GET` handler returning `{ xpVersion, appVersion, appName }` from `app` global
 
 **Frontend:**
+
 - Create `assets/js/lib/api/client.ts`: `apiFetch<T>(endpoint, options?)` wrapper -- reads base URL from config, appends endpoint, handles `{ success }` / `{ error }` envelope, throws typed `ApiError` on failure, supports GET/POST/PUT/DELETE
 - Create `assets/js/lib/api/system.ts`: `fetchSystemInfo()` + `systemInfoQueryOptions()`
 - Set up `QueryClientProvider` in `app.tsx` with defaults (staleTime: 30s, retry: 1)
@@ -115,6 +125,7 @@ Build the data fetching infrastructure and prove it end-to-end with a system inf
 Add the foundational UI components that all feature views depend on. Every component follows project conventions: arrow functions, `displayName`, `data-component`, `className` as last `cn()` argument.
 
 **Components to create in `assets/js/components/ui/`:**
+
 - Layout: `Card`, `Separator`, `ScrollArea`, `Skeleton`
 - Forms: `Button` (with cva variants), `Input`, `Label`, `Textarea`, `Select`, `Checkbox`
 - Feedback: `Badge`, `Tooltip`, `Progress`
@@ -123,6 +134,7 @@ Add the foundational UI components that all feature views depend on. Every compo
 - Toast: integrate Sonner with `Toaster` component + `toast()` helper
 
 **Shared components in `assets/js/components/shared/`:**
+
 - `ConfirmDialog`: wraps AlertDialog for destructive action confirmation
 - `ProgressDialog`: non-dismissable modal with progress bar and status text (for async tasks)
 - `EmptyState`: icon + title + description + optional action button
@@ -138,12 +150,14 @@ Add the foundational UI components that all feature views depend on. Every compo
 ### Issue 6 -- `feat: implement repository list with create and delete`
 
 **Backend:**
+
 - Create `apis/repositories/repositories.xml` + `repositories.ts`
 - `GET`: list all repos via `repoLib.list()`, return `{ id, branches }[]`
 - `POST`: create repo via `repoLib.create({ id })`, validate name
 - `DELETE`: delete repo via `repoLib.delete(id)`, guard against `system-repo` and `com.enonic.cms.default`
 
 **Frontend:**
+
 - Create `lib/api/repositories.ts`: query options + mutation hooks
 - Create `routes/repositories/index.tsx`: table with columns (name, branch count), row click navigates to branches
 - "Create Repository" button with dialog (name input, Zod validation)
@@ -160,12 +174,14 @@ Add the foundational UI components that all feature views depend on. Every compo
 ### Issue 7 -- `feat: implement branch list with create and delete`
 
 **Backend:**
+
 - Extend or create `apis/branches/branches.xml` + `branches.ts`
 - `GET /?repoId=X`: list branches via `repoLib.get(repoId).branches`
 - `POST`: create branch via `repoLib.createBranch({ repoId, branchId })`
 - `DELETE`: delete branch via `repoLib.deleteBranch({ repoId, branchId })`
 
 **Frontend:**
+
 - Create `lib/api/branches.ts`: query options + mutations
 - Create `routes/repositories/$repoId/index.tsx`: table of branches, click navigates to node browser
 - Breadcrumbs: Repositories > {repoId}
@@ -183,11 +199,13 @@ Add the foundational UI components that all feature views depend on. Every compo
 Build the core data browsing experience -- flat table of child nodes with drill-down navigation.
 
 **Backend:**
+
 - Create `apis/nodes/nodes.xml` + `nodes.ts`
 - `GET /?repoId=X&branch=Y&parentPath=Z&start=N&count=N`: connect to repo/branch via `nodeLib.connect()`, query children with `_parentPath = Z`, return `{ _id, _name, _path, hasChildren, _nodeType, _ts }`
 - Support `sort` param for child ordering
 
 **Frontend:**
+
 - Create `lib/api/nodes.ts`: query options with search params
 - Create `routes/repositories/$repoId/$branch/index.tsx` using search params `{ path, start, count }`
 - TanStack Table with columns: icon (folder if hasChildren, file otherwise), name (clickable for drill-down), type, modified time
@@ -206,11 +224,13 @@ Build the core data browsing experience -- flat table of child nodes with drill-
 ### Issue 9 -- `feat: implement node detail view with properties, metadata, and permissions`
 
 **Backend:**
+
 - Extend `apis/nodes/nodes.ts`: `GET /?repoId=X&branch=Y&key=Z` returns full node with all properties, metadata, permissions
 - Create `apis/properties/properties.xml` + `properties.ts`: `POST` (add property), `PUT` (update), `DELETE` (remove) -- modifies node via `nodeLib.modify()`
 - Create `apis/security/security.xml` + `security.ts`: `GET /?repoId=X&branch=Y&key=Z` returns permissions list, `PUT` updates permissions
 
 **Frontend:**
+
 - Create a detail panel component (slide-over or split view) with `Tabs`:
   - **Properties tab**: typed key-value table (name, type badge, value), inline edit, add/delete rows. Type selector: String, Long, Double, Boolean, DateTime, GeoPoint, Reference, BinaryReference, PropertySet, etc.
   - **Metadata tab**: read-only display of `_id`, `_name`, `_path`, `_nodeType`, `_childOrder`, `_ts`, `_state`, `_versionKey`
@@ -229,6 +249,7 @@ Build the core data browsing experience -- flat table of child nodes with drill-
 ### Issue 10 -- `feat: implement node actions (create, rename, move, delete, push)`
 
 **Backend:**
+
 - Extend `apis/nodes/nodes.ts`:
   - `POST`: create child node (parentPath, name, optional nodeType)
   - `PUT /?action=rename`: rename node via `nodeLib.move({ source, target: newName })`
@@ -237,6 +258,7 @@ Build the core data browsing experience -- flat table of child nodes with drill-
   - `POST /?action=push`: push node to target branch via `nodeLib.push({ key, target, resolve: true, includeChildren })`
 
 **Frontend:**
+
 - Add toolbar actions and row context menu (DropdownMenu) to node browser
 - Dialogs: "New Child" (name + optional type input), "Rename" (name input, prefilled), "Move" (target path input), "Delete" (AlertDialog with node path), "Push" (branch selector + options: include children, resolve dependencies)
 - All mutations invalidate node list queries
@@ -251,11 +273,13 @@ Build the core data browsing experience -- flat table of child nodes with drill-
 ### Issue 11 -- `feat: implement binary download and reference navigation`
 
 **Backend:**
+
 - Create `apis/binary/binary.xml` + `binary.ts`:
   - `GET /?repoId=X&branch=Y&key=Z&binaryReference=R`: read binary via `nodeLib.connect().getBinary()`, return as stream with `Content-Disposition: attachment` header
   - `GET /?repoId=X&branch=Y&key=Z&binaryReference=R&info=true`: return metadata only (content type, size estimate)
 
 **Frontend:**
+
 - In property editor, detect `BinaryReference` values: render with download icon button that triggers `window.open()` to the binary endpoint
 - Detect `Reference` type values: render as clickable links that resolve the reference ID and navigate to that node in the same repo/branch (via a lookup query)
 - Add small info tooltip on binary refs showing available metadata
@@ -272,10 +296,12 @@ Build the core data browsing experience -- flat table of child nodes with drill-
 ### Issue 12 -- `feat: implement NoQL search with results table`
 
 **Backend:**
+
 - Create `apis/search/search.xml` + `search.ts`:
   - `POST` with `{ query, repoId?, branch?, start, count, sort, filters? }`: multi-repo search via `multiRepoConnect()` or single-repo via `nodeLib.connect().query()`. Return `{ _id, _name, _path, _score, _repoId, _branch, _nodeType }[]` + total
 
 **Frontend:**
+
 - Create `routes/search.tsx` with Zod-validated search params (`query`, `repo`, `branch`, `start`, `count`, `sort`)
 - Search form: repo selector dropdown (from repos API, with "All" option), branch selector, query textarea, submit button
 - Results table (TanStack Table): score, name, path (clickable -- navigates to node detail), repo, branch, type. Column header sorting
@@ -307,11 +333,13 @@ Client-side feature that re-fetches all matching results and exports them as a f
 ### Issue 14 -- `feat: implement node version management`
 
 **Backend:**
+
 - Create `apis/versions/versions.xml` + `versions.ts`:
   - `GET /?repoId=X&nodeId=Z&start=N&count=N`: list versions via `nodeLib.findVersions()`, return `{ versionId, timestamp, commitId }[]` + total
   - `PUT /?repoId=X&branch=Y&nodeId=Z&versionId=V`: set active version via `nodeLib.setActiveVersion()`
 
 **Frontend:**
+
 - Add "Versions" tab in node detail view
 - Table: version ID (truncated with copy), timestamp (formatted), commit ID, active badge
 - "Set Active" button on non-active versions with confirmation dialog
@@ -329,6 +357,7 @@ Client-side feature that re-fetches all matching results and exports them as a f
 ### Issue 15 -- `feat: implement snapshot management via Management API`
 
 **Backend:**
+
 - Create `src/main/resources/lib/management-api.ts`: shared wrapper for `lib-http-client` calls to `localhost:4848`. Handle auth (JWT or basic), response parsing, error mapping
 - Create `apis/snapshots/snapshots.xml` + `snapshots.ts`:
   - `GET`: list snapshots via Management API `GET /api/repo/snapshot/list`
@@ -337,6 +366,7 @@ Client-side feature that re-fetches all matching results and exports them as a f
   - `DELETE`: delete via `POST /api/repo/snapshot/delete`
 
 **Frontend:**
+
 - Create `routes/snapshots.tsx`: table of snapshots (name, timestamp, indices)
 - "Create Snapshot" button with repo selector dialog
 - "Restore" with warning AlertDialog (destructive action)
@@ -353,6 +383,7 @@ Client-side feature that re-fetches all matching results and exports them as a f
 ### Issue 16 -- `feat: implement dump management (list, create, load, delete)`
 
 **Backend:**
+
 - Create `apis/dumps/dumps.xml` + `dumps.ts`:
   - `GET`: list dumps via Management API `POST /api/system/dump` (list variant) or by reading dump directory
   - `POST`: create dump with options (name, includeVersions, archive, maxVersions, maxAge) -- async task
@@ -361,6 +392,7 @@ Client-side feature that re-fetches all matching results and exports them as a f
   - `POST /?action=upgrade`: upgrade dump format
 
 **Frontend:**
+
 - Create `routes/dumps.tsx`: table (name, timestamp, XP version, model version, size, loadable indicator)
 - "Create Dump" dialog with options: name, include version history toggle, archive toggle, max versions, max age
 - "Load" with warning AlertDialog + ProgressDialog polling task status
@@ -380,10 +412,12 @@ Client-side feature that re-fetches all matching results and exports them as a f
 Extend dumps and exports with file transfer capabilities. This issue may require Java beans for ZIP operations -- if not feasible with pure JS, document the limitation and implement a simplified version.
 
 **Backend:**
+
 - Extend `apis/dumps/dumps.ts`: download (archive dump dir to stream), upload (multipart file, extract to dump dir)
 - Extend `apis/exports/exports.ts` (from issue 18): same download/upload pattern
 
 **Frontend:**
+
 - Add "Download" button per dump/export (triggers file download)
 - Add "Upload" button in toolbar (file input accepting .zip)
 - Upload progress indicator
@@ -397,6 +431,7 @@ Extend dumps and exports with file transfer capabilities. This issue may require
 ### Issue 18 -- `feat: implement export/import management`
 
 **Backend:**
+
 - Create `apis/exports/exports.xml` + `exports.ts`:
   - `POST`: export nodes via `exportLib.exportNodes({ sourceNodePath, exportName, ... })` -- async task
   - `POST /?action=import`: import nodes via `exportLib.importNodes({ source, targetNodePath, ... })` -- async task
@@ -404,6 +439,7 @@ Extend dumps and exports with file transfer capabilities. This issue may require
   - `DELETE`: remove export
 
 **Frontend:**
+
 - Create `routes/exports.tsx`: table (name, timestamp, node count)
 - "Create Export" dialog: source repo, branch, node path, export name
 - "Import" dialog: target repo, branch, node path, select existing export
@@ -422,10 +458,12 @@ Extend dumps and exports with file transfer capabilities. This issue may require
 ### Issue 19 -- `feat: implement WebSocket infrastructure and task monitoring`
 
 **Backend:**
+
 - Create `apis/events/events.xml` + `events.ts`: WebSocket endpoint using `lib-websocket`. On open, register client. Forward XP server events (task progress, node changes) as JSON messages. Support subscription messages from client for filtering
 - Create `apis/tasks/tasks.xml` + `tasks.ts`: `GET` lists tasks via `taskLib.list()` with state and progress info
 
 **Frontend:**
+
 - Create `assets/js/lib/websocket.ts`: `WebSocketClient` class -- manages connection, auto-reconnect with exponential backoff, heartbeat
 - Create `assets/js/lib/hooks/use-websocket.ts`: React hook wrapping the WebSocket client
 - Create `assets/js/lib/hooks/use-task-progress.ts`: hook that subscribes to task events and merges progress into TanStack Query cache
@@ -442,10 +480,12 @@ Extend dumps and exports with file transfer capabilities. This issue may require
 ### Issue 20 -- `feat: implement audit log viewer`
 
 **Backend:**
+
 - Create `apis/audit/audit.xml` + `audit.ts`:
   - `GET /?from=X&to=Y&type=T&user=U&start=N&count=N`: query via `auditLogLib.find()`, return entries with `{ id, type, source, user, objectUris, timestamp, data }`
 
 **Frontend:**
+
 - Create `routes/audit.tsx`: filterable table
 - Filter bar: date range (two date inputs), event type dropdown, user/principal input
 - Table columns: timestamp (formatted), type (badge), user, source, objects (truncated)
@@ -480,9 +520,11 @@ Extend dumps and exports with file transfer capabilities. This issue may require
 Extend the proof-of-concept system page from issue 4 with full information.
 
 **Backend:**
+
 - Extend `apis/system/system.ts`: add Java version, OS info, XP home directory. Optionally add disk space (may need Java bean -- if not feasible, skip and note as future enhancement)
 
 **Frontend:**
+
 - Update `routes/system.tsx`: card-based layout with info sections (XP version, home dir, app version, Java runtime, OS)
 - Optional disk space visualization bar if backend supports it
 - Theme settings section
@@ -501,12 +543,14 @@ Extend the proof-of-concept system page from issue 4 with full information.
 Standalone widget that runs inside Content Studio's context panel. It's a separate small UI, not part of the main React app.
 
 **Backend:**
+
 - Create `admin/widgets/export/export.yml`: widget descriptor with `role:system.admin`, interface `contentstudio.contextpanel`
 - Create `admin/widgets/export/export.ts`: controller that reads Content Studio context params (repository, branch, contentId), resolves content path, renders widget HTML
 - Create `admin/widgets/export/export.html`: minimal Mustache template with inline styles (or a small CSS include)
 - Reuse export API from issue 18 for the actual export operation
 
 **Frontend (widget-specific, minimal):**
+
 - Small form: export name input, "Export" button
 - Progress indicator during export
 - Success/error display
@@ -523,15 +567,18 @@ Standalone widget that runs inside Content Studio's context panel. It's a separa
 Final polish pass across the entire application.
 
 **i18n:**
+
 - Create `assets/js/lib/i18n.ts`: simple translation function reading from a loaded phrases map (fetch from `lib-i18n` API or bundle phrases). English-only initially, but all user-facing strings go through `t()` calls
 - Add `i18n/phrases.properties` entries for all section names, action labels, dialog titles, error messages
 
 **Loading & error states:**
+
 - Add `Skeleton` loading states to all list views (repos, branches, nodes, snapshots, dumps, exports, tasks, audit)
 - Add error boundary component with retry button for route-level errors
 - Add empty state components for all list views
 
 **Accessibility & polish:**
+
 - Ensure all dialogs trap focus and close on Escape
 - Add ARIA labels to icon buttons, tables, navigation
 - Keyboard navigation: Tab through sidebar items, Enter to activate
@@ -569,6 +616,7 @@ Final polish pass across the entire application.
 ```
 
 **Parallel opportunities:**
+
 - Issues 3, 4, 5 can run in parallel after 1-2
 - Issues 12-22 (Phase 3-5) can mostly run in parallel after Phase 2 core is done
 - Issue 23 (widget) is independent once export API exists
@@ -593,6 +641,7 @@ These are intentionally excluded from the plan:
 ## Verification
 
 After each issue, verify:
+
 1. `pnpm check` passes (lint + types + tests)
 2. `./gradlew build -Penv=dev` produces a deployable JAR
 3. Deploy to XP sandbox and manually test the new feature

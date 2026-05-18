@@ -7,6 +7,7 @@ XP data management application for admins
 Data Kit uses the XP Management API (port 4848) for snapshot operations. The API requires authentication with an admin user.
 
 Auth is resolved in this order:
+
 1. Browser `Authorization` header (forwarded from the logged-in admin session)
 2. JWT service account from `.cfg` (recommended)
 3. Basic Auth from `.cfg` (legacy, discouraged since XP 7.15.0)

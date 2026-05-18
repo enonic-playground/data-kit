@@ -8,13 +8,13 @@ const FALLBACK_LOCALE = 'en';
 const config = getConfig();
 
 void i18n.use(initReactI18next).init({
-    lng: config.locale,
-    fallbackLng: FALLBACK_LOCALE,
-    resources: {
-        [config.locale]: { translation: config.phrases },
-    },
-    interpolation: { escapeValue: false },
-    returnNull: false,
+  lng: config.locale,
+  fallbackLng: FALLBACK_LOCALE,
+  resources: {
+    [config.locale]: { translation: config.phrases },
+  },
+  interpolation: { escapeValue: false },
+  returnNull: false,
 });
 
 export default i18n;

@@ -1,4 +1,4 @@
-kind: "API"
-title: "Search API"
+kind: 'API'
+title: 'Search API'
 allow:
-  - "role:system.admin"
+  - 'role:system.admin'

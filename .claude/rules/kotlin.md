@@ -1,7 +1,8 @@
 ---
 paths:
-  - "**/*.kt"
+  - '**/*.kt'
 ---
+
 # Kotlin Coding Standards
 
 These rules optimize for Enonic XP / OSGi code that is called from Java and XP server-side TypeScript. Prioritize predictable bytecode, stable cross-language boundaries, and small runtime surface area over clever Kotlin features.

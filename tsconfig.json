@@ -1,21 +1,18 @@
 {
-    "compilerOptions": {
-        "module": "ES2022",
-        "moduleResolution": "bundler",
-        "target": "ES2023",
-        "lib": ["ES2023", "DOM"],
-        "jsx": "react-jsx",
-        "allowSyntheticDefaultImports": true,
-        "forceConsistentCasingInFileNames": true,
-        "useDefineForClassFields": false,
-        "strict": true,
-        "skipLibCheck": true,
-        "isolatedModules": true,
-        "types": ["vite/client"]
-    },
-    "include": [
-        "src/main/resources/assets/**/*.ts",
-        "src/main/resources/assets/**/*.tsx"
-    ],
-    "exclude": ["**/*.d.ts"]
+  "compilerOptions": {
+    "module": "ES2022",
+    "moduleResolution": "bundler",
+    "target": "ES2023",
+    "lib": ["ES2023", "DOM"],
+    "jsx": "react-jsx",
+    "allowSyntheticDefaultImports": true,
+    "forceConsistentCasingInFileNames": true,
+    "useDefineForClassFields": false,
+    "strict": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "types": ["vite/client"]
+  },
+  "include": ["src/main/resources/assets/**/*.ts", "src/main/resources/assets/**/*.tsx"],
+  "exclude": ["**/*.d.ts"]
 }

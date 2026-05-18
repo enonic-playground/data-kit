@@ -1,26 +1,26 @@
-kind: "AdminTool"
+kind: 'AdminTool'
 title:
-  text: "Data Kit"
-  i18n: "admin.tool.main.displayName"
+  text: 'Data Kit'
+  i18n: 'admin.tool.main.displayName'
 description:
-  text: "XP data management for admins"
-  i18n: "admin.tool.main.description"
+  text: 'XP data management for admins'
+  i18n: 'admin.tool.main.description'
 allow:
-  - "role:system.admin"
+  - 'role:system.admin'
 apis:
-  - "admin:extension"
-  - "admin:event"
-  - "admin:status"
-  - "system"
-  - "repositories"
-  - "branches"
-  - "nodes"
-  - "search"
-  - "binary"
-  - "snapshots"
-  - "dumps"
-  - "exports"
-  - "tasks"
-  - "events"
-  - "audit"
-  - "versions"
+  - 'admin:extension'
+  - 'admin:event'
+  - 'admin:status'
+  - 'system'
+  - 'repositories'
+  - 'branches'
+  - 'nodes'
+  - 'search'
+  - 'binary'
+  - 'snapshots'
+  - 'dumps'
+  - 'exports'
+  - 'tasks'
+  - 'events'
+  - 'audit'
+  - 'versions'

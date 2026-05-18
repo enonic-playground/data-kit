@@ -12,47 +12,47 @@ Extracted from the reference design (`data-kit-dashboard.jsx`). This document de
 
 ### Dark Theme
 
-| Token        | Hex                        | Usage                                      |
-|-------------|----------------------------|----------------------------------------------|
-| `bg`         | `#0c0c0e`                  | Page background                              |
-| `surface`    | `#111114`                  | Sidebar, header, cards                       |
-| `surface-el` | `#17171b`                  | Elevated surfaces (table headers, inputs)    |
-| `border`     | `#232328`                  | Default borders                              |
-| `border-acc` | `#2e2e36`                  | Accented borders (active filters)            |
-| `text`       | `#f0f0f4`                  | Primary text                                 |
-| `text-sub`   | `#8888a0`                  | Secondary text (paths, timestamps)           |
-| `text-muted` | `#44445a`                  | Muted text (placeholders, column headers)    |
-| `accent`     | `#e63946`                  | Accent color (red) — active states, status bar |
-| `accent-dim` | `#1e1214`                  | Dimmed accent (selected row background)      |
-| `success`    | `#22c55e`                  | Success indicators                           |
-| `warning`    | `#f59e0b`                  | Warning indicators                           |
-| `info`       | `#3b82f6`                  | Info indicators                              |
-| `tag`        | `#1e1e26`                  | Badge/tag background                         |
-| `tag-text`   | `#7070a0`                  | Badge/tag text                               |
-| `row-hover`  | `rgba(255,255,255,0.045)`  | Row hover background                        |
-| `nav-active` | `#1e1e26`                  | Active nav item background                   |
+| Token        | Hex                       | Usage                                          |
+| ------------ | ------------------------- | ---------------------------------------------- |
+| `bg`         | `#0c0c0e`                 | Page background                                |
+| `surface`    | `#111114`                 | Sidebar, header, cards                         |
+| `surface-el` | `#17171b`                 | Elevated surfaces (table headers, inputs)      |
+| `border`     | `#232328`                 | Default borders                                |
+| `border-acc` | `#2e2e36`                 | Accented borders (active filters)              |
+| `text`       | `#f0f0f4`                 | Primary text                                   |
+| `text-sub`   | `#8888a0`                 | Secondary text (paths, timestamps)             |
+| `text-muted` | `#44445a`                 | Muted text (placeholders, column headers)      |
+| `accent`     | `#e63946`                 | Accent color (red) — active states, status bar |
+| `accent-dim` | `#1e1214`                 | Dimmed accent (selected row background)        |
+| `success`    | `#22c55e`                 | Success indicators                             |
+| `warning`    | `#f59e0b`                 | Warning indicators                             |
+| `info`       | `#3b82f6`                 | Info indicators                                |
+| `tag`        | `#1e1e26`                 | Badge/tag background                           |
+| `tag-text`   | `#7070a0`                 | Badge/tag text                                 |
+| `row-hover`  | `rgba(255,255,255,0.045)` | Row hover background                           |
+| `nav-active` | `#1e1e26`                 | Active nav item background                     |
 
 ### Light Theme
 
-| Token        | Hex          | Usage                                      |
-|-------------|--------------|----------------------------------------------|
-| `bg`         | `#f2f2f5`    | Page background (light gray, NOT white)      |
-| `surface`    | `#ffffff`    | Sidebar, header, cards                       |
-| `surface-el` | `#f7f7fa`    | Elevated surfaces                            |
-| `border`     | `#e4e4ec`    | Default borders                              |
-| `border-acc` | `#c8c8da`    | Accented borders                             |
-| `text`       | `#111118`    | Primary text                                 |
-| `text-sub`   | `#5a5a72`    | Secondary text                               |
-| `text-muted` | `#aaaabc`    | Muted text                                   |
-| `accent`     | `#e63946`    | Accent (same red in both themes)             |
-| `accent-dim` | `#fef2f3`    | Dimmed accent                                |
-| `success`    | `#16a34a`    | Success                                      |
-| `warning`    | `#d97706`    | Warning                                      |
-| `info`       | `#2563eb`    | Info                                         |
-| `tag`        | `#ebebf2`    | Badge/tag background                         |
-| `tag-text`   | `#5a5a72`    | Badge/tag text                               |
-| `row-hover`  | `#f0f0f6`    | Row hover background                        |
-| `nav-active` | `#ebebf6`    | Active nav item background                   |
+| Token        | Hex       | Usage                                   |
+| ------------ | --------- | --------------------------------------- |
+| `bg`         | `#f2f2f5` | Page background (light gray, NOT white) |
+| `surface`    | `#ffffff` | Sidebar, header, cards                  |
+| `surface-el` | `#f7f7fa` | Elevated surfaces                       |
+| `border`     | `#e4e4ec` | Default borders                         |
+| `border-acc` | `#c8c8da` | Accented borders                        |
+| `text`       | `#111118` | Primary text                            |
+| `text-sub`   | `#5a5a72` | Secondary text                          |
+| `text-muted` | `#aaaabc` | Muted text                              |
+| `accent`     | `#e63946` | Accent (same red in both themes)        |
+| `accent-dim` | `#fef2f3` | Dimmed accent                           |
+| `success`    | `#16a34a` | Success                                 |
+| `warning`    | `#d97706` | Warning                                 |
+| `info`       | `#2563eb` | Info                                    |
+| `tag`        | `#ebebf2` | Badge/tag background                    |
+| `tag-text`   | `#5a5a72` | Badge/tag text                          |
+| `row-hover`  | `#f0f0f6` | Row hover background                    |
+| `nav-active` | `#ebebf6` | Active nav item background              |
 
 ## Layout
 
@@ -202,26 +202,27 @@ Extracted from the reference design (`data-kit-dashboard.jsx`). This document de
 
 ## Typography Summary
 
-| Element           | Size | Weight | Font  | Color       |
-|-------------------|------|--------|-------|-------------|
-| Header title      | 14px | 600    | UI    | `text`      |
-| Nav label         | 13px | 400/500| UI    | `text-sub`/`text` |
-| Table header      | 10px | 700    | UI    | `text-muted`|
-| Row name          | 13px | 400    | Mono  | `text`      |
-| Row detail        | 12px | 400    | Mono  | `text-sub`  |
-| Row path          | 11px | 400    | Mono  | `text-sub`  |
-| Badge             | 10px | 500    | Mono  | `tag-text`  |
-| Status bar        | 11px | 400    | Mono  | white/alpha |
-| Breadcrumb        | 12px | 400/500| Mono  | `text-sub`/`text` |
-| Button label      | 12px | 500    | UI    | `text`      |
-| Preview panel name| 15px | 600    | UI    | `text`      |
-| Preview path      | 11px | 400    | Mono  | `text-muted`|
+| Element            | Size | Weight  | Font | Color             |
+| ------------------ | ---- | ------- | ---- | ----------------- |
+| Header title       | 14px | 600     | UI   | `text`            |
+| Nav label          | 13px | 400/500 | UI   | `text-sub`/`text` |
+| Table header       | 10px | 700     | UI   | `text-muted`      |
+| Row name           | 13px | 400     | Mono | `text`            |
+| Row detail         | 12px | 400     | Mono | `text-sub`        |
+| Row path           | 11px | 400     | Mono | `text-sub`        |
+| Badge              | 10px | 500     | Mono | `tag-text`        |
+| Status bar         | 11px | 400     | Mono | white/alpha       |
+| Breadcrumb         | 12px | 400/500 | Mono | `text-sub`/`text` |
+| Button label       | 12px | 500     | UI   | `text`            |
+| Preview panel name | 15px | 600     | UI   | `text`            |
+| Preview path       | 11px | 400     | Mono | `text-muted`      |
 
 ## Icons
 
 Using `lucide-react`. Default size 13-15px for nav/actions, 11-12px for small indicators.
 
 **Icon mapping** (reference icon name → lucide-react):
+
 - `db` → `Database`
 - `search` → `Search`
 - `camera` → `Camera`

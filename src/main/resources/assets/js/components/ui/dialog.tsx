@@ -1,7 +1,9 @@
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { X } from 'lucide-react';
-import type { ComponentProps, MouseEvent, ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
+
+import type { ComponentProps, MouseEvent, ReactElement } from 'react';
+
 import { cn } from '../../lib/utils';
 
 // Prevents React synthetic events from portaled content from bubbling
@@ -39,20 +41,20 @@ export const DialogPortal = DialogPrimitive.Portal;
 const DIALOG_OVERLAY_NAME = 'DialogOverlay';
 
 export const DialogOverlay = ({
-    ref,
-    className,
-    ...props
+  ref,
+  className,
+  ...props
 }: ComponentProps<typeof DialogPrimitive.Overlay>): ReactElement => {
-    return (
-        <DialogPrimitive.Overlay
-            ref={ref}
-            className={cn(
-                'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50 bg-black/80 data-[state=closed]:animate-out data-[state=open]:animate-in',
-                className,
-            )}
-            {...props}
-        />
-    );
+  return (
+    <DialogPrimitive.Overlay
+      ref={ref}
+      className={cn(
+        'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:animate-out data-[state=open]:animate-in fixed inset-0 z-50 bg-black/80',
+        className,
+      )}
+      {...props}
+    />
+  );
 };
 
 DialogOverlay.displayName = DIALOG_OVERLAY_NAME;
@@ -64,37 +66,37 @@ DialogOverlay.displayName = DIALOG_OVERLAY_NAME;
 const DIALOG_CONTENT_NAME = 'DialogContent';
 
 export const DialogContent = ({
-    ref,
-    className,
-    children,
-    onClick,
-    ...props
+  ref,
+  className,
+  children,
+  onClick,
+  ...props
 }: ComponentProps<typeof DialogPrimitive.Content>): ReactElement => {
-    const { t } = useTranslation();
-    return (
-        <DialogPortal>
-            <DialogOverlay onClick={stopPropagation} />
-            <DialogPrimitive.Content
-                ref={ref}
-                data-component={DIALOG_CONTENT_NAME}
-                className={cn(
-                    'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] fixed top-[50%] left-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-6 shadow-lg duration-200 data-[state=closed]:animate-out data-[state=open]:animate-in sm:rounded-lg',
-                    className,
-                )}
-                onClick={e => {
-                    stopPropagation(e);
-                    onClick?.(e);
-                }}
-                {...props}
-            >
-                {children}
-                <DialogPrimitive.Close className="absolute top-4 right-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground">
-                    <X className="size-4" />
-                    <span className="sr-only">{t('common.action.close')}</span>
-                </DialogPrimitive.Close>
-            </DialogPrimitive.Content>
-        </DialogPortal>
-    );
+  const { t } = useTranslation();
+  return (
+    <DialogPortal>
+      <DialogOverlay onClick={stopPropagation} />
+      <DialogPrimitive.Content
+        ref={ref}
+        data-component={DIALOG_CONTENT_NAME}
+        className={cn(
+          'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] bg-background data-[state=closed]:animate-out data-[state=open]:animate-in fixed top-[50%] left-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border p-6 shadow-lg duration-200 sm:rounded-lg',
+          className,
+        )}
+        onClick={(e) => {
+          stopPropagation(e);
+          onClick?.(e);
+        }}
+        {...props}
+      >
+        {children}
+        <DialogPrimitive.Close className="ring-offset-background focus:ring-ring data-[state=open]:bg-accent data-[state=open]:text-muted-foreground absolute top-4 right-4 rounded-sm opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-none disabled:pointer-events-none">
+          <X className="size-4" />
+          <span className="sr-only">{t('common.action.close')}</span>
+        </DialogPrimitive.Close>
+      </DialogPrimitive.Content>
+    </DialogPortal>
+  );
 };
 
 DialogContent.displayName = DIALOG_CONTENT_NAME;
@@ -105,19 +107,13 @@ DialogContent.displayName = DIALOG_CONTENT_NAME;
 
 const DIALOG_HEADER_NAME = 'DialogHeader';
 
-export const DialogHeader = ({
-    className,
-    ...props
-}: ComponentProps<'div'>): ReactElement => {
-    return (
-        <div
-            className={cn(
-                'flex flex-col space-y-1.5 text-center sm:text-left',
-                className,
-            )}
-            {...props}
-        />
-    );
+export const DialogHeader = ({ className, ...props }: ComponentProps<'div'>): ReactElement => {
+  return (
+    <div
+      className={cn('flex flex-col space-y-1.5 text-center sm:text-left', className)}
+      {...props}
+    />
+  );
 };
 
 DialogHeader.displayName = DIALOG_HEADER_NAME;
@@ -128,19 +124,13 @@ DialogHeader.displayName = DIALOG_HEADER_NAME;
 
 const DIALOG_FOOTER_NAME = 'DialogFooter';
 
-export const DialogFooter = ({
-    className,
-    ...props
-}: ComponentProps<'div'>): ReactElement => {
-    return (
-        <div
-            className={cn(
-                'flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2',
-                className,
-            )}
-            {...props}
-        />
-    );
+export const DialogFooter = ({ className, ...props }: ComponentProps<'div'>): ReactElement => {
+  return (
+    <div
+      className={cn('flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2', className)}
+      {...props}
+    />
+  );
 };
 
 DialogFooter.displayName = DIALOG_FOOTER_NAME;
@@ -152,20 +142,17 @@ DialogFooter.displayName = DIALOG_FOOTER_NAME;
 const DIALOG_TITLE_NAME = 'DialogTitle';
 
 export const DialogTitle = ({
-    ref,
-    className,
-    ...props
+  ref,
+  className,
+  ...props
 }: ComponentProps<typeof DialogPrimitive.Title>): ReactElement => {
-    return (
-        <DialogPrimitive.Title
-            ref={ref}
-            className={cn(
-                'font-semibold text-lg leading-none tracking-tight',
-                className,
-            )}
-            {...props}
-        />
-    );
+  return (
+    <DialogPrimitive.Title
+      ref={ref}
+      className={cn('text-lg leading-none font-semibold tracking-tight', className)}
+      {...props}
+    />
+  );
 };
 
 DialogTitle.displayName = DIALOG_TITLE_NAME;
@@ -177,17 +164,17 @@ DialogTitle.displayName = DIALOG_TITLE_NAME;
 const DIALOG_DESCRIPTION_NAME = 'DialogDescription';
 
 export const DialogDescription = ({
-    ref,
-    className,
-    ...props
+  ref,
+  className,
+  ...props
 }: ComponentProps<typeof DialogPrimitive.Description>): ReactElement => {
-    return (
-        <DialogPrimitive.Description
-            ref={ref}
-            className={cn('text-muted-foreground text-sm', className)}
-            {...props}
-        />
-    );
+  return (
+    <DialogPrimitive.Description
+      ref={ref}
+      className={cn('text-muted-foreground text-sm', className)}
+      {...props}
+    />
+  );
 };
 
 DialogDescription.displayName = DIALOG_DESCRIPTION_NAME;

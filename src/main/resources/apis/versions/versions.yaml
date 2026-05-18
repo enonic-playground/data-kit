@@ -1,4 +1,4 @@
-kind: "API"
-title: "Node Versions API"
+kind: 'API'
+title: 'Node Versions API'
 allow:
-  - "role:system.admin"
+  - 'role:system.admin'

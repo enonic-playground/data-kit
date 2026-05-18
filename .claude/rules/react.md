@@ -1,7 +1,8 @@
 ---
 paths:
-  - "**/*.tsx"
+  - '**/*.tsx'
 ---
+
 # React Component Standards
 
 ## Component Structure
@@ -233,7 +234,7 @@ useEffect(() => {
 // Data fetching
 useEffect(() => {
   fetch(`/api/user/${userId}`)
-    .then(res => res.json())
+    .then((res) => res.json())
     .then(setUser);
 }, [userId]);
 ```

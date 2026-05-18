@@ -1,17 +1,17 @@
 import {
-    createContext,
-    type ReactElement,
-    type ReactNode,
-    useContext,
-    useEffect,
-    useState,
+  createContext,
+  type ReactElement,
+  type ReactNode,
+  useContext,
+  useEffect,
+  useState,
 } from 'react';
 
 type Theme = 'light' | 'dark' | 'system';
 
 type ThemeContextValue = {
-    theme: Theme;
-    setTheme: (theme: Theme) => void;
+  theme: Theme;
+  setTheme: (theme: Theme) => void;
 };
 
 const STORAGE_KEY = 'datakit-theme';
@@ -19,25 +19,23 @@ const STORAGE_KEY = 'datakit-theme';
 const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
 
 function getSystemTheme(): 'light' | 'dark' {
-    return window.matchMedia('(prefers-color-scheme: dark)').matches
-        ? 'dark'
-        : 'light';
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 }
 
 function getStoredTheme(): Theme {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored === 'light' || stored === 'dark' || stored === 'system') {
-        return stored;
-    }
-    return 'system';
+  const stored = localStorage.getItem(STORAGE_KEY);
+  if (stored === 'light' || stored === 'dark' || stored === 'system') {
+    return stored;
+  }
+  return 'system';
 }
 
 function applyTheme(theme: Theme): void {
-    const resolved = theme === 'system' ? getSystemTheme() : theme;
-    const root = document.documentElement;
+  const resolved = theme === 'system' ? getSystemTheme() : theme;
+  const root = document.documentElement;
 
-    root.classList.remove('light', 'dark');
-    root.classList.add(resolved);
+  root.classList.remove('light', 'dark');
+  root.classList.add(resolved);
 }
 
 //
@@ -45,43 +43,37 @@ function applyTheme(theme: Theme): void {
 //
 
 export type ThemeProviderProps = {
-    defaultTheme?: Theme;
-    children?: ReactNode;
+  defaultTheme?: Theme;
+  children?: ReactNode;
 };
 
 const THEME_PROVIDER_NAME = 'ThemeProvider';
 
 export const ThemeProvider = ({
-    defaultTheme = 'system',
-    children,
+  defaultTheme = 'system',
+  children,
 }: ThemeProviderProps): ReactElement => {
-    const [theme, setThemeState] = useState<Theme>(
-        () => getStoredTheme() ?? defaultTheme,
-    );
+  const [theme, setThemeState] = useState<Theme>(() => getStoredTheme() ?? defaultTheme);
 
-    const setTheme = (next: Theme): void => {
-        localStorage.setItem(STORAGE_KEY, next);
-        setThemeState(next);
-    };
+  const setTheme = (next: Theme): void => {
+    localStorage.setItem(STORAGE_KEY, next);
+    setThemeState(next);
+  };
 
-    useEffect(() => {
-        applyTheme(theme);
-    }, [theme]);
+  useEffect(() => {
+    applyTheme(theme);
+  }, [theme]);
 
-    useEffect(() => {
-        if (theme !== 'system') return;
+  useEffect(() => {
+    if (theme !== 'system') return;
 
-        const media = window.matchMedia('(prefers-color-scheme: dark)');
-        const handler = (): void => applyTheme('system');
-        media.addEventListener('change', handler);
-        return () => media.removeEventListener('change', handler);
-    }, [theme]);
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    const handler = (): void => applyTheme('system');
+    media.addEventListener('change', handler);
+    return () => media.removeEventListener('change', handler);
+  }, [theme]);
 
-    return (
-        <ThemeContext.Provider value={{ theme, setTheme }}>
-            {children}
-        </ThemeContext.Provider>
-    );
+  return <ThemeContext.Provider value={{ theme, setTheme }}>{children}</ThemeContext.Provider>;
 };
 
 ThemeProvider.displayName = THEME_PROVIDER_NAME;
@@ -91,9 +83,9 @@ ThemeProvider.displayName = THEME_PROVIDER_NAME;
 //
 
 export function useTheme(): ThemeContextValue {
-    const context = useContext(ThemeContext);
-    if (context == null) {
-        throw new Error('useTheme must be used within a ThemeProvider');
-    }
-    return context;
+  const context = useContext(ThemeContext);
+  if (context == null) {
+    throw new Error('useTheme must be used within a ThemeProvider');
+  }
+  return context;
 }

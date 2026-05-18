@@ -35,6 +35,7 @@ pnpm test           # vitest only (via vp test)
 - Uses `@enonic-types/*@8.0.0-A2` for type-checking (XP 8 alpha types)
 
 **Admin tool entry:**
+
 - `admin/tools/main/main.ts` renders `main.html` (Mustache) with asset URLs. The JS bundle (`assets/js/bundle.js`) is a React app.
 - Descriptor uses `admin:extension` API (XP 8 admin framework), not the old `admin:widget`.
 
@@ -76,6 +77,7 @@ Each issue gets one **main** label + 0–2 **supportive** labels.
 
 - **Title**: `<type>: <description>` — e.g. `feat: add export dialog`
 - **Body**: concisely explain what and why, skip trivial details
+
   ```
   <4–8 sentence description: what, what's affected, how to reproduce, impact>
 
@@ -99,6 +101,7 @@ Each issue gets one **main** label + 0–2 **supportive** labels.
 
 - **Title**: `<type>: <description> #<number>` — use the primary change type (commit format)
 - **Body**: concisely explain what and why, skip trivial details. No emojis. Separate all sections with one blank line.
+
   ```
   <summary of changes>
 

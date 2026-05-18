@@ -1,6 +1,6 @@
-kind: "Application"
-title: "Data Kit"
-description: "XP data management application for admins"
-vendorName: "Enonic"
-vendorUrl: "https://enonic.com"
-url: "https://github.com/enonic-playground/data-kit"
+kind: 'Application'
+title: 'Data Kit'
+description: 'XP data management application for admins'
+vendorName: 'Enonic'
+vendorUrl: 'https://enonic.com'
+url: 'https://github.com/enonic-playground/data-kit'

@@ -1,4 +1,4 @@
-kind: "API"
-title: "Repositories API"
+kind: 'API'
+title: 'Repositories API'
 allow:
-  - "role:system.admin"
+  - 'role:system.admin'

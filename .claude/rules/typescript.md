@@ -1,7 +1,8 @@
 ---
 paths:
-  - "**/*.{ts,tsx}"
+  - '**/*.{ts,tsx}'
 ---
+
 # TypeScript Coding Standards
 
 ## Code Style
@@ -123,7 +124,7 @@ const MAX_RETRIES = 3;
 type User = {
   id: string;
   name: string;
-}
+};
 
 // ✅ Use type aliases for unions/primitives
 type UserStatus = 'active' | 'inactive' | 'pending';
@@ -151,7 +152,9 @@ const user = {} as User; // Bad
 const element = event.target as HTMLInputElement; // Bad
 // ✅ Good alternatives
 const user: Partial<User> = {};
-if (event.target instanceof HTMLInputElement) { /* use target */ }
+if (event.target instanceof HTMLInputElement) {
+  /* use target */
+}
 
 // ❌ Avoid non-null assertion '!' - use optional chaining or guards
 const value = getUserInput()!; // Bad
@@ -160,9 +163,9 @@ const value = getUserInput() ?? defaultValue;
 if (!input) return; // Guard clause
 
 // ✅ Prefer defining type separately instead of setting its shape in generics
-type Identifiable = { id: string; }
+type Identifiable = { id: string };
 function getById<T extends Identifiable>(items: T[], id: string): T {
-  return items.find(item => item.id === id);
+  return items.find((item) => item.id === id);
 }
 
 // ✅ Explicit type annotation when assigning objects
@@ -227,12 +230,13 @@ export type RadioItemProps = Omit<
 >; // Bad
 
 // ✅ Instead, define what you need directly (single-level Omit is fine)
-type RadioItemOwnProps = { value: string; disabled?: boolean; /* ... */ };
+type RadioItemOwnProps = { value: string; disabled?: boolean /* ... */ };
 type PrimitiveRadioItemProps = RadioItemOwnProps & Omit<MenuContextOperations, 'setOpen'>;
 export type RadioItemProps = RadioItemOwnProps; // Clean
 ```
 
 **Rationale:**
+
 - Composition (`Base & Extensions`) is clearer than subtraction (`Full - Removed`)
 - IDE hover shows actual properties instead of computed `Omit<...>` types
 - Nested `Omit<X, keyof Omit<Y, 'z'>>` is a code smell — restructure the types

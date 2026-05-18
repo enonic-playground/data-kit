@@ -1,6 +1,6 @@
 ---
 paths:
-  - "**/*.{ts,tsx}"
+  - '**/*.{ts,tsx}'
 ---
 
 # Commenting Rules

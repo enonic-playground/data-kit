@@ -1,7 +1,8 @@
 ---
 paths:
-  - "**/*.tsx"
+  - '**/*.tsx'
 ---
+
 # Tailwind CSS & Styling Standards
 
 ## Class Name Utilities
