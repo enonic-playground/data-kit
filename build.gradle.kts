@@ -1,3 +1,4 @@
+import com.github.gradle.node.pnpm.task.PnpmInstallTask
 import com.github.gradle.node.pnpm.task.PnpmTask
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
@@ -51,7 +52,7 @@ repositories {
 node {
     download = true
     version = "24.13.1"
-    pnpmVersion = "10.30.0"
+    pnpmVersion = "11.1.3"
 }
 
 fun isProd(): Boolean =
@@ -60,6 +61,12 @@ fun isProd(): Boolean =
 fun environmentShort(): String = if (isProd()) "prod" else "dev"
 
 fun nodeEnvironment(): String = if (isProd()) "production" else "development"
+
+tasks.named<PnpmInstallTask>("pnpmInstall") {
+    if (System.getenv("CI") != null) {
+        args.addAll("--frozen-lockfile")
+    }
+}
 
 tasks.register<PnpmTask>("pnpmBuild") {
     dependsOn(tasks.named("pnpmInstall"))
