@@ -37,15 +37,14 @@ dependencies {
     include("com.enonic.xp:lib-task:${xpVersion}")
     include("com.enonic.xp:lib-event:${xpVersion}")
     include("com.enonic.xp:lib-i18n:${xpVersion}")
-    include("com.enonic.lib:lib-http-client:3.2.1")
-    include("com.enonic.lib:lib-mustache:2.1.1")
-    include("com.auth0:java-jwt:4.5.0")
+    include("com.enonic.lib:lib-http-client:4.0.0-B1")
+    include("com.enonic.lib:lib-mustache:3.0.0-B1")
+    include("com.auth0:java-jwt:4.5.2")
 }
 
 repositories {
     mavenLocal()
     mavenCentral()
-    xp.enonicRepo("snapshot")
     xp.enonicRepo()
 }
 

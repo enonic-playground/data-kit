@@ -1,5 +1,5 @@
 [versions]
-enonicDefaults = "2.1.6"
+enonicDefaults = "2.1.7"
 enonicXpGradle = "4.0.0-B1"
 nodeGradle = "7.1.0"
 kotlin = "2.3.21"
