@@ -12,7 +12,7 @@ import {
   uploadExport,
 } from '../../lib/exports';
 
-const VALID_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{1,98}[A-Za-z0-9]$/;
+const VALID_NAME_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,98}[A-Za-z0-9])?$/;
 
 function safeFilename(name: string): string {
   return name.replace(/[^A-Za-z0-9._-]/g, '_');
@@ -28,6 +28,9 @@ export function get(req: Request): Response {
     const name = getParam(req, 'name');
     if (name == null) {
       return errorResponse(400, 'name is required', 'VALIDATION_ERROR');
+    }
+    if (!VALID_NAME_PATTERN.test(name)) {
+      return errorResponse(400, 'name contains invalid characters', 'VALIDATION_ERROR');
     }
     try {
       const stream = downloadExport(name);
@@ -146,6 +149,9 @@ function delete_(req: Request): Response {
   const name = getParam(req, 'name');
   if (name == null) {
     return errorResponse(400, 'name is required', 'VALIDATION_ERROR');
+  }
+  if (!VALID_NAME_PATTERN.test(name)) {
+    return errorResponse(400, 'name contains invalid characters', 'VALIDATION_ERROR');
   }
 
   try {

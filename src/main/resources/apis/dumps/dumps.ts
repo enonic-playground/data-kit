@@ -13,7 +13,7 @@ import {
   uploadDump,
 } from '../../lib/dumps';
 
-const VALID_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{1,98}[A-Za-z0-9]$/;
+const VALID_NAME_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,98}[A-Za-z0-9])?$/;
 
 function safeFilename(name: string): string {
   return name.replace(/[^A-Za-z0-9._-]/g, '_');
@@ -29,6 +29,9 @@ export function get(req: Request): Response {
     const name = getParam(req, 'name');
     if (name == null) {
       return errorResponse(400, 'name is required', 'VALIDATION_ERROR');
+    }
+    if (!VALID_NAME_PATTERN.test(name)) {
+      return errorResponse(400, 'name contains invalid characters', 'VALIDATION_ERROR');
     }
     try {
       const stream = downloadDump(name);
@@ -89,6 +92,9 @@ export function post(req: Request): Response {
       if (name == null) {
         return errorResponse(400, 'name is required', 'VALIDATION_ERROR');
       }
+      if (!VALID_NAME_PATTERN.test(name)) {
+        return errorResponse(400, 'name contains invalid characters', 'VALIDATION_ERROR');
+      }
       const result = loadDump(
         {
           name,
@@ -105,6 +111,9 @@ export function post(req: Request): Response {
       if (name == null) {
         return errorResponse(400, 'name is required', 'VALIDATION_ERROR');
       }
+      if (!VALID_NAME_PATTERN.test(name)) {
+        return errorResponse(400, 'name contains invalid characters', 'VALIDATION_ERROR');
+      }
       const result = upgradeDump(name, authHeader);
       return jsonResponse(result, 202);
     }
@@ -112,6 +121,9 @@ export function post(req: Request): Response {
     const name = body.name as string | undefined;
     if (name == null) {
       return errorResponse(400, 'name is required', 'VALIDATION_ERROR');
+    }
+    if (!VALID_NAME_PATTERN.test(name)) {
+      return errorResponse(400, 'name contains invalid characters', 'VALIDATION_ERROR');
     }
     const result = createDump(
       {
@@ -135,6 +147,9 @@ function delete_(req: Request): Response {
   const name = getParam(req, 'name');
   if (name == null) {
     return errorResponse(400, 'name is required', 'VALIDATION_ERROR');
+  }
+  if (!VALID_NAME_PATTERN.test(name)) {
+    return errorResponse(400, 'name contains invalid characters', 'VALIDATION_ERROR');
   }
 
   try {

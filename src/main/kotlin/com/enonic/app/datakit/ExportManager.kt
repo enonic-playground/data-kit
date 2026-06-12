@@ -41,8 +41,7 @@ class ExportManager {
         if (name.isNullOrEmpty()) return false
 
         val exportDir = exportDirectory()
-        val target = exportDir.resolve(name).normalize()
-        if (!target.startsWith(exportDir)) return false
+        val target = exportDir.resolveChildEntry(name) ?: return false
 
         try {
             if (Files.isDirectory(target)) {
@@ -51,7 +50,7 @@ class ExportManager {
                 return true
             }
 
-            val archive = exportDir.resolve("$name.zip").normalize()
+            val archive = exportDir.resolve("$name.zip")
             if (Files.isRegularFile(archive)) {
                 Files.delete(archive)
                 deleteSidecarMetadata(exportDir, name)
@@ -66,8 +65,7 @@ class ExportManager {
 
     fun writeMetadata(name: String, nodeCount: Int) {
         val exportDir = exportDirectory()
-        val target = exportDir.resolve(name).normalize()
-        if (!target.startsWith(exportDir)) return
+        val target = exportDir.resolveChildEntry(name) ?: return
 
         val json = """{"nodeCount":$nodeCount}"""
 
@@ -86,12 +84,9 @@ class ExportManager {
         if (name.isNullOrEmpty()) return null
 
         val exportDir = exportDirectory()
-        val target = exportDir.resolve(name).normalize()
-        if (!target.startsWith(exportDir)) return null
+        val target = exportDir.resolveChildEntry(name) ?: return null
 
-        val archive = exportDir.resolve("$name.zip").normalize()
-        if (!archive.startsWith(exportDir)) return null
-
+        val archive = exportDir.resolve("$name.zip")
         if (Files.isRegularFile(archive)) {
             return GuavaFiles.asByteSource(archive.toFile())
         }
@@ -107,13 +102,12 @@ class ExportManager {
         if (name.isNullOrEmpty() || data == null) return false
 
         val exportDir = exportDirectory()
-        val target = exportDir.resolve("$name.zip").normalize()
-        if (!target.startsWith(exportDir)) return false
+        val entry = exportDir.resolveChildEntry(name) ?: return false
+        val target = exportDir.resolve("$name.zip")
 
-        if (Files.exists(target) || Files.isDirectory(exportDir.resolve(name).normalize())) return false
+        if (Files.exists(target) || Files.isDirectory(entry)) return false
 
-        val tempFile = exportDir.resolve(".$name.zip.tmp").normalize()
-        if (!tempFile.startsWith(exportDir)) return false
+        val tempFile = exportDir.resolve(".$name.zip.tmp")
 
         try {
             if (!Files.isDirectory(exportDir)) {

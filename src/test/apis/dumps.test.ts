@@ -125,6 +125,17 @@ describe('POST /dumps (create)', () => {
     expect(parseBody(response).code).toBe('VALIDATION_ERROR');
   });
 
+  test('rejects invalid name', () => {
+    const response = post({
+      headers: {},
+      params: {},
+      body: JSON.stringify({ name: 'a/b' }),
+    } as unknown as Request);
+    expect(response.status).toBe(400);
+    expect(parseBody(response).code).toBe('VALIDATION_ERROR');
+    expect(mockedCreateDump).not.toHaveBeenCalled();
+  });
+
   test('returns 403 for non-admin', () => {
     mockedHasRole.mockReturnValue(false);
     const response = post({
@@ -178,6 +189,17 @@ describe('POST /dumps?action=load', () => {
     } as unknown as Request);
     expect(response.status).toBe(400);
   });
+
+  test('rejects invalid name for load', () => {
+    const response = post({
+      headers: {},
+      params: { action: 'load' },
+      body: JSON.stringify({ name: 'foo/../bar' }),
+    } as unknown as Request);
+    expect(response.status).toBe(400);
+    expect(parseBody(response).code).toBe('VALIDATION_ERROR');
+    expect(mockedLoadDump).not.toHaveBeenCalled();
+  });
 });
 
 describe('POST /dumps?action=upgrade', () => {
@@ -204,6 +226,17 @@ describe('POST /dumps?action=upgrade', () => {
       body: JSON.stringify({}),
     } as unknown as Request);
     expect(response.status).toBe(400);
+  });
+
+  test('rejects invalid name for upgrade', () => {
+    const response = post({
+      headers: {},
+      params: { action: 'upgrade' },
+      body: JSON.stringify({ name: '../escape' }),
+    } as unknown as Request);
+    expect(response.status).toBe(400);
+    expect(parseBody(response).code).toBe('VALIDATION_ERROR');
+    expect(mockedUpgradeDump).not.toHaveBeenCalled();
   });
 });
 
@@ -237,6 +270,29 @@ describe('DELETE /dumps', () => {
     } as unknown as Request);
     expect(response.status).toBe(404);
     expect(parseBody(response).code).toBe('NOT_FOUND');
+  });
+
+  test('rejects names that resolve outside a single dump entry', () => {
+    for (const name of ['.', '..', 'foo/../bar', 'a/b', '../escape', 'foo\\bar']) {
+      const response = deleteHandler({
+        params: { name },
+      } as unknown as Request);
+      expect(response.status).toBe(400);
+      expect(parseBody(response).code).toBe('VALIDATION_ERROR');
+    }
+    expect(mockedDeleteDump).not.toHaveBeenCalled();
+  });
+
+  test('accepts short single-segment names', () => {
+    mockedDeleteDump.mockReturnValue(true);
+
+    for (const name of ['a', 'ab']) {
+      const response = deleteHandler({
+        params: { name },
+      } as unknown as Request);
+      expect(response.status).toBe(200);
+      expect(mockedDeleteDump).toHaveBeenCalledWith(name);
+    }
   });
 
   test('returns 500 on bean error', () => {
@@ -282,6 +338,17 @@ describe('GET /dumps?action=download', () => {
     } as unknown as Request);
     expect(response.status).toBe(404);
     expect(parseBody(response).code).toBe('NOT_FOUND');
+  });
+
+  test('rejects names that resolve outside a single dump entry', () => {
+    for (const name of ['.', '..', 'foo/../bar', 'a/b']) {
+      const response = get({
+        params: { action: 'download', name },
+      } as unknown as Request);
+      expect(response.status).toBe(400);
+      expect(parseBody(response).code).toBe('VALIDATION_ERROR');
+    }
+    expect(mockedDownloadDump).not.toHaveBeenCalled();
   });
 
   test('returns 403 for non-admin', () => {

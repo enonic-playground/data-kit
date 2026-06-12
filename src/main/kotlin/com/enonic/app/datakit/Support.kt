@@ -5,9 +5,19 @@ import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.io.InputStream
 import java.nio.file.Files
+import java.nio.file.InvalidPathException
 import java.nio.file.Path
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
+
+internal fun Path.resolveChildEntry(name: String): Path? =
+    try {
+        val base = normalize()
+        val target = base.resolve(name).normalize()
+        if (target.parent == base && target.fileName.toString() == name) target else null
+    } catch (_: InvalidPathException) {
+        null
+    }
 
 internal fun Path.directorySize(): Long {
     var size = 0L

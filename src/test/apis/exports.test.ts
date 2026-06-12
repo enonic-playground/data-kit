@@ -333,6 +333,29 @@ describe('DELETE /exports', () => {
     expect(parseBody(response).code).toBe('NOT_FOUND');
   });
 
+  test('rejects names that resolve outside a single export entry', () => {
+    for (const name of ['.', '..', 'foo/../bar', 'a/b', '../escape', 'foo\\bar']) {
+      const response = deleteHandler({
+        params: { name },
+      } as unknown as Request);
+      expect(response.status).toBe(400);
+      expect(parseBody(response).code).toBe('VALIDATION_ERROR');
+    }
+    expect(mockedDeleteExport).not.toHaveBeenCalled();
+  });
+
+  test('accepts short single-segment names', () => {
+    mockedDeleteExport.mockReturnValue(true);
+
+    for (const name of ['a', 'ab']) {
+      const response = deleteHandler({
+        params: { name },
+      } as unknown as Request);
+      expect(response.status).toBe(200);
+      expect(mockedDeleteExport).toHaveBeenCalledWith(name);
+    }
+  });
+
   test('returns 500 on bean error', () => {
     mockedDeleteExport.mockImplementation(() => {
       throw new Error('Permission denied');
@@ -376,6 +399,17 @@ describe('GET /exports?action=download', () => {
     } as unknown as Request);
     expect(response.status).toBe(404);
     expect(parseBody(response).code).toBe('NOT_FOUND');
+  });
+
+  test('rejects names that resolve outside a single export entry', () => {
+    for (const name of ['.', '..', 'foo/../bar', 'a/b']) {
+      const response = get({
+        params: { action: 'download', name },
+      } as unknown as Request);
+      expect(response.status).toBe(400);
+      expect(parseBody(response).code).toBe('VALIDATION_ERROR');
+    }
+    expect(mockedDownloadExport).not.toHaveBeenCalled();
   });
 
   test('returns 403 for non-admin', () => {

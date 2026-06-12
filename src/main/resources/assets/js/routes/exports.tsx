@@ -72,9 +72,9 @@ const EXPORTS_PAGE_NAME = 'ExportsPage';
 
 const exportNameSchema = z
   .string()
-  .min(3, 'export.error.tooShort')
+  .min(1, 'export.error.tooShort')
   .max(100, 'export.error.tooLong')
-  .regex(/^[A-Za-z0-9][A-Za-z0-9._-]{1,98}[A-Za-z0-9]$/, 'export.error.invalidChars');
+  .regex(/^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,98}[A-Za-z0-9])?$/, 'export.error.invalidChars');
 
 //
 // * Helpers

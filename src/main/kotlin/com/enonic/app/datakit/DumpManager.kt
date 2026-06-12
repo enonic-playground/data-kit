@@ -42,8 +42,7 @@ class DumpManager {
         if (name.isNullOrEmpty()) return false
 
         val dumpDir = dumpDirectory()
-        val target = dumpDir.resolve(name).normalize()
-        if (!target.startsWith(dumpDir)) return false
+        val target = dumpDir.resolveChildEntry(name) ?: return false
 
         try {
             if (Files.isDirectory(target)) {
@@ -51,7 +50,7 @@ class DumpManager {
                 return true
             }
 
-            val archive = dumpDir.resolve("$name.zip").normalize()
+            val archive = dumpDir.resolve("$name.zip")
             if (Files.isRegularFile(archive)) {
                 Files.delete(archive)
                 return true
@@ -67,12 +66,9 @@ class DumpManager {
         if (name.isNullOrEmpty()) return null
 
         val dumpDir = dumpDirectory()
-        val target = dumpDir.resolve(name).normalize()
-        if (!target.startsWith(dumpDir)) return null
+        val target = dumpDir.resolveChildEntry(name) ?: return null
 
-        val archive = dumpDir.resolve("$name.zip").normalize()
-        if (!archive.startsWith(dumpDir)) return null
-
+        val archive = dumpDir.resolve("$name.zip")
         if (Files.isRegularFile(archive)) {
             return GuavaFiles.asByteSource(archive.toFile())
         }
@@ -88,13 +84,12 @@ class DumpManager {
         if (name.isNullOrEmpty() || data == null) return false
 
         val dumpDir = dumpDirectory()
-        val target = dumpDir.resolve("$name.zip").normalize()
-        if (!target.startsWith(dumpDir)) return false
+        val entry = dumpDir.resolveChildEntry(name) ?: return false
+        val target = dumpDir.resolve("$name.zip")
 
-        if (Files.exists(target) || Files.isDirectory(dumpDir.resolve(name).normalize())) return false
+        if (Files.exists(target) || Files.isDirectory(entry)) return false
 
-        val tempFile = dumpDir.resolve(".$name.zip.tmp").normalize()
-        if (!tempFile.startsWith(dumpDir)) return false
+        val tempFile = dumpDir.resolve(".$name.zip.tmp")
 
         try {
             if (!Files.isDirectory(dumpDir)) {
