@@ -155,14 +155,29 @@ catch (_: IOException) {
 
 ### Derive child paths safely before delete/write operations
 
-Never trust names that become file paths. Use `resolve`, `normalize`, and then verify the result stays under the intended base directory.
+Never trust names that become file paths. `resolve(name).normalize()` + `startsWith(base)` is **not sufficient**: a path starts with itself, so names like `"."` or `"foo/.."` normalize to the base directory and pass the check — turning a single-entry delete into a wipe of the whole directory. Multi-segment names (`"a/b"`) also pass.
+
+Require the resolved path to be a direct child whose file name is exactly the input:
 
 ```kotlin
+// ✅ Single shared helper, used by every name-taking file operation
+internal fun Path.resolveChildEntry(name: String): Path? =
+    try {
+        val base = normalize()
+        val target = base.resolve(name).normalize()
+        if (target.parent == base && target.fileName.toString() == name) target else null
+    } catch (_: InvalidPathException) {
+        null
+    }
+
+val target = exportDir.resolveChildEntry(name) ?: return false
+
+// ❌ Accepts ".", "foo/..", and "a/b"
 val target = exportDir.resolve(name).normalize()
 if (!target.startsWith(exportDir)) return false
 ```
 
-Do not concatenate paths as strings.
+Derived sibling paths (`"$name.zip"`, `"$name.tmp"`) are safe to build with plain `resolve` only **after** `name` has passed the direct-child check. Do not concatenate paths as strings.
 
 ### Prefer Kotlin path helpers and `.use {}`
 

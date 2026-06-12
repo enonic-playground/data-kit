@@ -3,56 +3,39 @@ paths:
   - '**/*.{ts,tsx}'
 ---
 
-# Commenting Rules
+# Comments
 
-## Special Single-Line Prefixes
+## When to comment
 
-- `// ! ` — critical issues (bugs, security risks, breaking changes)
+Default: no comment, except separators. Add one only when the WHY is genuinely non-obvious — a hidden constraint, a subtle invariant, a workaround for a specific bug, behavior that would surprise a reader. Keep it to 1–2 lines.
 
-  ```ts
-  // ! Potential race condition if fetch retries here
-  ```
+Don't explain WHAT the code does — names already do that. Don't reference the current task, fix, issue, or PR (`added for the X flow`, `handles the case from #123`, `fixed during refactor`) — that rots as the code evolves and belongs in the commit message, PR body, or issue, not the source.
 
-- `// ? ` — questions, uncertainties, rationale for unusual patterns
+## Prefixes
 
-  ```ts
-  // ? May need to memoize this when the call becomes too heavy
-  ```
+Single-line prefixes. Never combine. Never use `// ----`, `// ====`, or numeric headers (`// ---- 1. Validate ----`).
 
-- `// * ` — logical block dividers in large files (surround with blank comment lines)
+- `// !` — critical (bug, security risk, breaking change)
+- `// ?` — uncertainty, open question, rationale for unusual pattern
+- `// *` — section divider; surround with blank `//` lines, header ≤ 4 words
+- `// TODO: [#123]` — actionable follow-up, imperative verb, issue ref when one exists
 
-  ```ts
-  //
-  // * Event Handlers
-  //
+```ts
+// ! Potential race condition if fetch retries here
+// ? May need to memoize once this call becomes hot
+// TODO: [#123] Replace mock with live API
 
-  /* ... */
+//
+// * Event Handlers
+//
 
-  //
-  // * Validators
-  //
+/* ... */
 
-  /* ... */
-  ```
+//
+// * Validators
+//
 
-- `// TODO: ` — actionable future work; start with an imperative verb, reference issue if possible
+/* ... */
+```
 
-  ```ts
-  // TODO: [#123] Replace mock with live API
-  ```
-
-> **Rule 1.1** Never combine prefixes (e.g. `// ! TODO`) — choose the one that best conveys intent.
-> **Rule 1.2** Section headers (`// *`) should be concise (≤ 4 words).
-
-## Comment Placement & Density
-
-- Comment only non-obvious logic: algorithms, workarounds, edge cases.
-- Avoid commenting trivial code (obvious mappings, simple getters).
-- Prefer JSDoc/TSDoc for public API functions instead of inline prose.
-- Keep comments inside function bodies minimal — context belongs in tests or docs.
-
-## Maintenance
-
-- Update or delete comments when code changes — stale comments are worse than none.
-- Promote resolved `// TODO:` items to commits and remove the tag.
-- Convert answered `// ?` questions into docs or ADRs once clarified.
+Use `// *` between subcomponents in composite component files. Delete a `// TODO:` once resolved — don't leave it as a comment.

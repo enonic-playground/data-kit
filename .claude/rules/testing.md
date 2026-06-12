@@ -1,169 +1,54 @@
 ---
 paths:
-  - 'src/test/**/*.test.ts'
-  - 'src/test/**/*.test.tsx'
+  - '**/*.test.{ts,tsx}'
+  - '**/*.spec.{ts,tsx}'
 ---
 
-# Testing Standards
+# Testing Rules
 
-## Test Structure
+Vitest + Testing Library. Use `vi.*` (`vi.fn`, `vi.spyOn`, `vi.mock`, `vi.clearAllMocks`) — never `jest.*`.
 
-Use the Arrange-Act-Assert pattern for all tests.
+## Test data via builders
 
-```typescript
-import { describe, it, expect, vi } from 'vitest';
-
-// ✅ Arrange-Act-Assert pattern
-describe('userService', () => {
-  describe('createUser', () => {
-    it('should create user with valid data', async () => {
-      // Arrange
-      const userData: UserData = {
-        email: 'test@example.com',
-        password: 'securePass123!',
-        firstName: 'John',
-        lastName: 'Doe',
-      };
-      const mockUser = { id: 'user_123', ...userData };
-      vi.spyOn(userRepository, 'create').mockResolvedValue(mockUser);
-
-      // Act
-      const result = await userService.createUser(userData);
-
-      // Assert
-      expect(result.success).toBe(true);
-      expect(result.data).toMatchObject({
-        id: expect.stringMatching(/^user_/),
-        email: userData.email,
-      });
-    });
-  });
-});
-```
-
-## Builder Pattern for Test Data
-
-Use builder functions (factory functions with overrides) to construct test data. Prefer specific helpers over generic factories.
-
-```typescript
-// ✅ Builder with sensible defaults and optional overrides
-function buildFormValue(overrides?: Partial<FormValue>): FormValue {
-  return {
-    value: '',
-    dirty: false,
-    valid: true,
-    ...overrides,
-  };
+```ts
+function buildUser(overrides?: Partial<User>): User {
+  return {id: 'user_123', email: 'test@example.com', name: 'Test User', ...overrides};
 }
 ```
 
-## Mock Patterns
+## Reset mocks between tests
 
-```typescript
-import { vi } from 'vitest';
+```ts
+import {beforeEach, vi} from 'vitest';
 
-// ✅ Spy on methods for assertion
-vi.spyOn(service, 'method').mockReturnValue(expectedResult);
-
-// ✅ Reset mocks between tests when needed
 beforeEach(() => {
   vi.clearAllMocks();
 });
-
-// ✅ Use vi.fn() for callback assertions
-const onChangeMock = vi.fn();
-callFunctionUnderTest(onChangeMock);
-expect(onChangeMock).toHaveBeenCalledWith(expectedArg);
 ```
 
-## Test File Conventions
+## R3F components — mock the canvas
 
-```typescript
-// ✅ Test files live in src/test/**/*.test.{ts,tsx}
-// ✅ One describe block per module/class
-// ✅ Nested describe for method/function grouping
-// ✅ Test names start with 'should'
+```ts
+import {vi} from 'vitest';
 
-describe('ClassName', () => {
-  describe('methodName', () => {
-    it('should return expected value for valid input', () => {
-      /* ... */
-    });
-    it('should throw when input is null', () => {
-      /* ... */
-    });
-    it('should handle edge case correctly', () => {
-      /* ... */
-    });
-  });
-});
-```
-
-## Component Testing
-
-Component tests use `@testing-library/react` with jsdom. Each test file must opt in with a per-file annotation.
-
-### Environment annotation
-
-```typescript
-// @vitest-environment jsdom
-```
-
-Place this comment on the first line of every `.test.tsx` file. Existing `.test.ts` files run in `node` by default.
-
-### Render through the router
-
-Use `renderRoute()` from `test-utils.tsx` to render the full app at a given URL. This tests the real integration: loaders, suspense, data flow.
-
-```typescript
-import { renderRoute, screen, waitFor } from '../test-utils';
-
-it('should render page content', async () => {
-  renderRoute({ initialLocation: '/system' });
-
-  await waitFor(() => {
-    expect(screen.getByText('expected text')).toBeInTheDocument();
-  });
-});
-```
-
-### Mock strategy
-
-Mock two functions to control all data without touching component internals:
-
-- **`apiFetch`** — all API calls funnel through this. Mock at the module level with `vi.mock()`.
-- **`getConfig`** — reads config from DOM. Mock to return a `DataKitConfig` object.
-
-```typescript
-vi.mock('../../../../main/resources/assets/js/lib/api/client', () => ({
-  apiFetch: vi.fn(),
-}));
-
-vi.mock('../../../../main/resources/assets/js/lib/config', () => ({
-  getConfig: vi.fn(() => buildConfig()),
+vi.mock('@react-three/fiber', () => ({
+  Canvas: ({children}: {children: React.ReactNode}) => <div>{children}</div>,
+  useFrame: vi.fn(),
+  useThree: () => ({camera: {}, gl: {}, scene: {}}),
 }));
 ```
 
-### Query priority
+Test 3D logic separately from rendering — extract pure functions or test stores directly:
 
-Follow Testing Library's query priority:
+```ts
+import {renderHook, act} from '@testing-library/react';
+import {$playerPosition} from '@/stores/game';
 
-1. `getByRole` — accessible queries first
-2. `getByText` — visible text
-3. `getByLabelText` — form elements
-
-### User interaction
-
-```typescript
-const { user } = renderRoute({ initialLocation: '/repositories' });
-await user.click(screen.getByRole('button', { name: /create/i }));
+it('updates position from store', () => {
+  const {result} = renderHook(() => useStore($playerPosition));
+  act(() => {
+    $playerPosition.set([1, 0, 0]);
+  });
+  expect(result.current).toEqual([1, 0, 0]);
+});
 ```
-
-`renderRoute()` returns `{ user }` from `userEvent.setup()`.
-
-## Environment Notes
-
-- **Default runtime**: Node (no browser globals, no DOM) — for server-side and utility tests
-- **jsdom runtime**: Opt-in per file with `// @vitest-environment jsdom` — for component tests
-- **Framework**: Vitest — use `vi` instead of `jest` for mocks and spies
-- **DOM setup**: `src/test/setup-dom.ts` provides `@testing-library/jest-dom` matchers, `matchMedia` mock, and `ResizeObserver` mock
