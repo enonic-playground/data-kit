@@ -1,8 +1,8 @@
 [versions]
 enonicDefaults = "2.1.7"
-enonicXpGradle = "4.0.0-B1"
+enonicXpGradle = "4.1.0"
 nodeGradle = "7.1.0"
-kotlin = "2.3.21"
+kotlin = "2.4.10"
 
 [plugins]
 enonic-defaults = { id = "com.enonic.defaults", version.ref = "enonicDefaults" }

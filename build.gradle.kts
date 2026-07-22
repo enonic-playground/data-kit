@@ -37,9 +37,9 @@ dependencies {
     include("com.enonic.xp:lib-task:${xpVersion}")
     include("com.enonic.xp:lib-event:${xpVersion}")
     include("com.enonic.xp:lib-i18n:${xpVersion}")
-    include("com.enonic.lib:lib-http-client:4.0.0-B1")
-    include("com.enonic.lib:lib-mustache:3.0.0-B1")
-    include("com.auth0:java-jwt:4.5.2")
+    include("com.enonic.lib:lib-http-client:4.0.0")
+    include("com.enonic.lib:lib-mustache:3.0.0")
+    include("com.auth0:java-jwt:4.6.0")
 }
 
 repositories {
@@ -50,8 +50,8 @@ repositories {
 
 node {
     download = true
-    version = "24.13.1"
-    pnpmVersion = "11.1.3"
+    version = "24.18.0"
+    pnpmVersion = "11.15.1"
 }
 
 fun isProd(): Boolean =
