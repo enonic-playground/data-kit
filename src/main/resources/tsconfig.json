@@ -1,14 +1,12 @@
 {
   "compilerOptions": {
-    "target": "ES2023",
-    "module": "ES2022",
-    "moduleResolution": "bundler",
-    "lib": ["ES2023"],
-    "noEmit": true,
+    "target": "ES2025",
+    "module": "CommonJS",
+    "lib": ["ES2025"],
+    "outDir": "../../../build/resources/main",
+    "rootDir": ".",
     "strict": true,
     "skipLibCheck": true,
-    "allowSyntheticDefaultImports": true,
-    "forceConsistentCasingInFileNames": true,
     "isolatedModules": true,
     "paths": {
       "/lib/xp/*": ["../../../node_modules/@enonic-types/lib-*"],

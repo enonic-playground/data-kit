@@ -128,6 +128,7 @@ export default defineConfig({
           ignoreRestSiblings: true,
         },
       ],
+      'no-debugger': 'error',
       'no-var': 'error',
       'prefer-const': 'error',
       'prefer-template': 'error',

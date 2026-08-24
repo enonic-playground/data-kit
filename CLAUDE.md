@@ -24,14 +24,17 @@ pnpm check          # lint + type-check + tests
 pnpm test           # vitest only (via vp test)
 ```
 
-**Tooling:** `vite-plus` is the single CLI driving lint (Oxlint), build (Rolldown), and test (Vitest). Lint, test, and pre-commit (`staged`) are all configured in `vite.config.ts`. Type-check uses `tsgo` from `@typescript/native-preview`.
+**Tooling:** `vite-plus` is the single CLI driving lint (Oxlint), build (Rolldown), and test (Vitest) for client assets. Lint, test, and pre-commit (`staged`) are all configured in `vite.config.ts`. Server compilation and type-checking both use `tsc` from `typescript` 7 (the native Go compiler). Note TS 7 removed `baseUrl` and `moduleResolution: node10`, made `bundler` the default resolution (for `CommonJS` too) and interop permanently on, so neither config sets `moduleResolution`, `esModuleInterop` or `allowSyntheticDefaultImports`.
 
 ## Architecture
 
 **Build pipeline:** Two parallel pipelines compile TypeScript into `build/resources/main/`:
 
 - **Client-side (Vite):** `src/main/resources/assets/` — React app (`js` target) and Tailwind 4 CSS (`css` target), controlled by `BUILD_TARGET` env var
-- **Server-side (esbuild):** `src/main/resources/**/*.ts` (excluding `assets/`, `lib/`, `types/`) — CJS ES2023 for XP's GraalJS engine. Auto-discovers `.ts` entry points. XP imports (`/lib/xp/*`, `/lib/mustache`) are externalized.
+- **Server-side (`tsc`):** `src/main/resources/**/*.ts` (excluding `assets/`) — per-file CommonJS at ES2025, configured by `src/main/resources/tsconfig.json`. Not bundled: `lib/*.ts` emit as their own modules and relative imports become `require('../../lib/api')`, which XP's `RequireResolver` resolves against the app's resources (it appends `.js` itself). XP imports (`/lib/xp/*`, `/lib/mustache`, `/lib/http-client`) are emitted verbatim and resolved at runtime by the bundles `include()`d in `build.gradle.kts`.
+  - **ES2025 is safe:** XP 8 leaves GraalJS at its default ECMAScript version (25.x reports 2025) and only pins it to 2020 under the `xp.script-engine.nashorn-compat` system property. ES2026 (`using`, `Array.fromAsync`) is not available.
+  - **`lib/` is a shared namespace.** `include()`d XP libs land in the jar at `lib/xp/*`, `lib/mustache.js`, `lib/http-client.js`, and the app's own `lib/*.ts` now emit alongside them. Never name a server lib after an embedded one (e.g. `lib/mustache.ts`) — the outputs would collide in the jar.
+  - **Server code must not import npm packages.** There is no bundler in this pipeline, so a bare specifier emits a `require()` XP cannot resolve. `@enonic-types/*` is fine only via `import type`, which is elided.
 - Uses `@enonic-types/*@8.0.0-A2` for type-checking (XP 8 alpha types)
 
 **Admin tool entry:**
@@ -54,7 +57,7 @@ There is little official documentation on this yet, so don't rely on older XP do
 
 1. Add to `build.gradle.kts` dependencies: `include("com.enonic.xp:lib-auth:${xpVersion}")`
 2. Add types: `pnpm add -D @enonic-types/lib-auth`
-3. Add `/lib/mustache`-style libs to `external` in `esbuild.server.js` if not covered by `/lib/xp/*` wildcard
+3. Add `/lib/mustache`-style libs to `paths` in `src/main/resources/tsconfig.json`, with a matching `types/*.d.ts` declaration, if not covered by the `/lib/xp/*` wildcard
 
 ## Git & GitHub
 
