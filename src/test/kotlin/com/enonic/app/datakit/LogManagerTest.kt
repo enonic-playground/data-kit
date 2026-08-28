@@ -786,6 +786,9 @@ class LogManagerTest {
         // ! before it ever calls the matcher and the watchdog is never exercised.
         manager.searchBudgetMillis = 50
         manager.searchGraceMillis = 200
+        // ? `repetitionCost` refuses this pattern outright now, which is the point of that guard.
+        // ? The watchdog behind it still has to work for anything the scan lets through.
+        manager.maxRepetitionProduct = Long.MAX_VALUE
         writeLog("server.log", "alpha\n")
 
         // ? Consumes no input, so `DeadlineInput.get` never runs and neither bound can fire. The
@@ -799,6 +802,7 @@ class LogManagerTest {
     fun `abandoned searches do not use up the capacity of later ones`() {
         manager.searchBudgetMillis = 50
         manager.searchGraceMillis = 200
+        manager.maxRepetitionProduct = Long.MAX_VALUE
         writeLog("server.log", "alpha\nbeta\n")
 
         // ? Each of these strands its worker: the pattern consumes no input, so nothing can stop
@@ -848,6 +852,127 @@ class LogManagerTest {
         // ! Not -1: the scan never covered the rest of the range, so it cannot report the string
         // ! absent from a file nobody finished reading.
         assertEquals(-4, result)
+    }
+
+    @Test
+    fun `search refuses a regex whose repetition counts multiply out of hand`() {
+        writeLog("server.log", "alpha\n")
+
+        // ? Every one of these matches the empty string over and over, so it reads no character
+        // ? and no deadline can reach it. Measured at 0.5-23 s before this guard existed.
+        val runaway = listOf(
+            "(?:(?:){20000}){20000}",
+            "(?:(?:){20000}){20000,}",
+            "(?:(?:){20000}?){20000}?",
+            "(?:(?:){20000}+){20000}+",
+            "(?:(?:(?:){1000}){1000}){1000}",
+            // ! A zero count must not zero the product and let the rest through.
+            "a{0}(?:(?:){20000}){20000}",
+            // ! Disguises that hide the counts from a scan while Java still runs them. All but
+            // ! the last work by making extended mode read the text differently than it looks.
+            "(?x) # comment [ unbalanced\n(?:(?:){20000}){20000}",
+            "(?x)(?:(?:){20 000}){20 000}",
+            "(?x:(?:(?:) {20000}) {20000})",
+            "(?x)(?:(?:){20# inner\n000}){20# outer\n000}",
+            "(?x)# \\Q ignored\n(?:(?:){20000}){20000} # \\E",
+            "(?x)(?:(?:){20000}) {20000,}",
+            "(?x:(?:(?:){100000}) {100000,})",
+            "(?:\\Q[\\E){0}(?:(?:){20000}){20000}",
+        )
+
+        for (query in runaway) {
+            val error = assertFailsWith<IllegalArgumentException>(query) {
+                manager.search("server.log", query, 0, true, true, false)
+            }
+            assertTrue(
+                error.message?.startsWith("Invalid regular expression") == true,
+                "must reach the client as a validation error, not a 500: $query",
+            )
+        }
+    }
+
+    @Test
+    fun `the repetition guard leaves ordinary patterns alone`() {
+        writeLog("server.log", "10:00:00.000 ERROR c.e.x.Test - code 4021 at ff03a9b1\n")
+
+        assertEquals(0, manager.search("server.log", "\\d{4}", 0, true, true, false))
+        assertEquals(0, manager.search("server.log", "[a-f0-9]{8}", 0, true, true, false))
+        assertEquals(0, manager.search("server.log", ".{1,200}", 0, true, true, false))
+        assertEquals(0, manager.search("server.log", "(?:\\w{2}){4}", 0, true, true, false))
+
+        // ? Several bounded spans in a row is what hunting through a stack trace looks like. Their
+        // ? counts are sequential, so they must not compound into a refusal.
+        assertEquals(0, manager.search("server.log", "c\\..{0,1000}code.{0,1000}at.{0,1000}", 0, true, true, false))
+
+        // ? Braces that are not quantifiers: a literal inside a class and an escaped pair.
+        assertEquals(-1, manager.search("server.log", "[{20000}]{4}", 0, true, true, false))
+        assertEquals(-1, manager.search("server.log", "\\{20000\\}", 0, true, true, false))
+    }
+
+    @Test
+    fun `repetition cost compounds nesting but not sequence`() {
+        // ? Siblings add. Three spans of a thousand is three thousand steps, not a billion, and
+        // ? refusing this shape would break an ordinary hunt through a stack trace.
+        assertTrue(repetitionCost(".{0,1000}ERROR.{0,1000}Exception.{0,1000}at\\s.+") < 10_000)
+        assertEquals(4, repetitionCost("\\d{4}"))
+        assertEquals(8, repetitionCost("[a-f0-9]{8}"))
+        assertEquals(200, repetitionCost(".{1,200}"))
+
+        // ? Nesting multiplies, which is the shape that actually runs away.
+        assertTrue(repetitionCost("(?:(?:){20000}){20000}") > 100_000_000)
+        assertTrue(repetitionCost("(?:(?:(?:){1000}){1000}){1000}") > 100_000_000)
+
+        // ? An open-ended quantifier still owes its lower bound before it may stop.
+        assertTrue(repetitionCost("(?:(?:){20000}){20000,}") > 100_000_000)
+
+        // ? A zero count cannot zero the product and wave the rest of the pattern through.
+        assertTrue(repetitionCost("a{0}(?:(?:){20000}){20000}") > 100_000_000)
+
+        // ? Whitespace inside a count is real under `(?x)`, where Java ignores it.
+        assertTrue(repetitionCost("(?x)(?:(?:){20 000}){20 000}") > 100_000_000)
+
+        assertEquals(Long.MAX_VALUE, repetitionCost("(?:(?:x{2000000000}){2000000000}){2000000000}"))
+    }
+
+    @Test
+    fun `repetition cost reads braces that are not quantifiers as literals`() {
+        // ? `\Q...\E` quotes its contents, a class holds text rather than syntax, and `\x{...}`
+        // ? carries an argument. Counting any of them refuses a pattern that repeats nothing.
+        assertEquals(1, repetitionCost("\\Qsome{99999}{99999}\\E"))
+        assertEquals(1, repetitionCost("[{20000}]"))
+        assertEquals(1, repetitionCost("[]{1000001}]"))
+        assertEquals(2, repetitionCost("\\x{100000}\\x{100000}"))
+        assertEquals(7, repetitionCost("\\{20000\\}"))
+        assertEquals(3, repetitionCost("\\p{Alpha}{3}"))
+    }
+
+    @Test
+    fun `extended mode is refused because its text does not mean what it looks like`() {
+        writeLog("server.log", "alpha\n")
+
+        for (query in listOf("(?x)alpha", "(?x:alpha)", "(?ix)alpha", "(?x-i)alpha")) {
+            val error = assertFailsWith<IllegalArgumentException>(query) {
+                manager.search("server.log", query, 0, true, true, false)
+            }
+            assertTrue(error.message?.contains("extended mode") == true, query)
+        }
+
+        // ? Turning it back off is not turning it on, and a plain group is not a flag group.
+        assertEquals(0, manager.search("server.log", "(?i-x)alpha", 0, true, true, false))
+        assertEquals(0, manager.search("server.log", "(?:alpha)", 0, true, true, false))
+        assertEquals(0, manager.search("server.log", "(?i)ALPHA", 0, true, true, false))
+    }
+
+    @Test
+    fun `repetition cost refuses a pattern it cannot follow rather than guessing`() {
+        // ! A `[` Java never treats as a class — inside a `(?x)` comment — would otherwise leave
+        // ! the scan stuck inside a class and blind to every quantifier after it.
+        assertEquals(
+            Long.MAX_VALUE,
+            repetitionCost("(?x) # comment [ unbalanced\n(?:(?:){20000}){20000}"),
+        )
+        assertEquals(Long.MAX_VALUE, repetitionCost("a{2})"))
+        assertEquals(Long.MAX_VALUE, repetitionCost("(?:a{2}"))
     }
 
     @Test
