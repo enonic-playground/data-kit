@@ -326,8 +326,13 @@ function searchIndex(
   matcher: Matcher,
   from: number,
   forward: boolean,
+  mask: number,
 ): number | null {
   if (index.count === 0) return null;
+
+  const filtering = isFiltering(mask);
+  const admits = (line: number): boolean =>
+    !filtering || (mask & (1 << index.levels[line])) !== 0;
 
   if (forward) {
     let cursor = Math.max(0, from);
@@ -335,7 +340,7 @@ function searchIndex(
       const lines = readLines(file, index, cursor, blockLines(index, cursor));
       if (lines.length === 0) break;
       for (let i = 0; i < lines.length; i += 1) {
-        if (matcher(lines[i])) return cursor + i;
+        if (admits(cursor + i) && matcher(lines[i])) return cursor + i;
       }
       cursor += lines.length;
     }
@@ -348,7 +353,7 @@ function searchIndex(
     const lines = readLines(file, index, start, end - start + 1);
     if (lines.length === 0) break;
     for (let i = lines.length - 1; i >= 0; i -= 1) {
-      if (matcher(lines[i])) return start + i;
+      if (admits(start + i) && matcher(lines[i])) return start + i;
     }
     end = start - 1;
   }
@@ -631,7 +636,12 @@ function parseLevels(value: string | null): number {
   return mask;
 }
 
-function handleSearch(res: ServerResponse, resolved: Resolved, params: URLSearchParams): void {
+function handleSearch(
+  res: ServerResponse,
+  resolved: Resolved,
+  params: URLSearchParams,
+  mask: number,
+): void {
   const query = params.get('query');
   if (query == null || query === '') {
     sendError(res, 400, 'query is required', 'VALIDATION_ERROR');
@@ -664,7 +674,7 @@ function handleSearch(res: ServerResponse, resolved: Resolved, params: URLSearch
     return;
   }
 
-  sendData(res, { line: searchIndex(resolved.file, index, matcher, from, forward) });
+  sendData(res, { line: searchIndex(resolved.file, index, matcher, from, forward, mask) });
 }
 
 function handleDownload(res: ServerResponse, resolved: Resolved): void {
@@ -708,7 +718,7 @@ function handleLogs(res: ServerResponse, params: URLSearchParams): void {
     return;
   }
   if (action === 'search') {
-    handleSearch(res, resolved, params);
+    handleSearch(res, resolved, params, mask);
     return;
   }
   if (action === 'locate') {

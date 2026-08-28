@@ -371,6 +371,7 @@ const LogsPage = (): ReactElement => {
         query,
         from,
         direction,
+        levels: levelsRef.current,
         regex: useRegex,
         caseSensitive,
         signal: controller.signal,
@@ -498,15 +499,17 @@ const LogsPage = (): ReactElement => {
     };
   }, [selected]);
 
-  // ? A level change invalidates both verdicts for the same reason a criteria change invalidates
-  // ? a match cursor: they were decided against a filter no longer in effect. Dropping only the
-  // ? hidden half would turn "hidden by the filter" into an unchecked claim that the line is on
-  // ? screen, and a locate still in flight would reinstate the stale verdict it replaced.
+  // ? Every verdict here was decided against a filter no longer in effect.
+  // ! The search is aborted too, not just the locate: it is scoped to the levels it was sent
+  // ! with, so a hit still in flight would land on a line this filter hides.
   useEffect(() => {
     locateAbortRef.current?.abort();
     locateAbortRef.current = null;
+    searchAbortRef.current?.abort();
     setHiddenLine(null);
     setMatchLine(null);
+    setNoMatch(false);
+    setSearchError(null);
   }, [levelsKey]);
 
   // ? Runs once the re-indexed count has landed, which is the first moment a position in the
@@ -571,10 +574,9 @@ const LogsPage = (): ReactElement => {
       </Badge>
     );
   } else if (matchLine != null) {
-    const key = hiddenLine === matchLine ? 'logs.search.matchHidden' : 'logs.search.matchAt';
     searchVerdict = (
       <Badge variant="outline" className="shrink-0 whitespace-nowrap">
-        {t(key, { line: (matchLine + 1).toLocaleString() })}
+        {t('logs.search.matchAt', { line: (matchLine + 1).toLocaleString() })}
       </Badge>
     );
   } else if (hiddenLine != null) {

@@ -218,6 +218,8 @@ class LogManager {
      * the file name is invalid or the file is missing, [LOG_SEARCH_ABORTED] when a regex ran past
      * its time budget, or [LOG_SEARCH_STALE] when the file was rewritten mid-scan. Throws
      * [IllegalArgumentException] for an empty query or an invalid regular expression.
+     *
+     * A match is only ever a line [mask] admits, so the caller can always put the hit on screen.
      */
     fun search(
         name: String?,
@@ -226,13 +228,14 @@ class LogManager {
         forward: Boolean,
         regex: Boolean,
         caseSensitive: Boolean,
+        mask: Int,
     ): Long {
         val matcher = lineMatcher(query, regex, caseSensitive, matchBudgetMillis, maxRepetitionProduct)
         val file = resolveLogFile(name) ?: return LOG_NOT_FOUND
         val index = LogIndexCache.get(file)
 
         val task = try {
-            searchExecutor.submit(Callable { index.search(matcher, from, forward, searchBudgetMillis) })
+            searchExecutor.submit(Callable { index.search(matcher, mask, from, forward, searchBudgetMillis) })
         } catch (_: RejectedExecutionException) {
             // ? Every thread is busy or stranded, or the component has been deactivated. Either way
             // ? the search cannot run, and saying so beats exhausting the JVM to avoid saying it.
@@ -283,8 +286,17 @@ private class LogFileEntry(val name: String, val size: Long, val modified: FileT
 /** What one search was started against: how far it may scan, and which build of the index. */
 private class SearchScope(val total: Int, val generation: Int)
 
-/** Lines [start] until [end], copied out of the index so matching can run outside its monitor. */
-private class LineBlock(val start: Int, val end: Int, val lines: List<String>)
+/**
+ * Lines [start] until [end], copied out of the index so matching can run outside its monitor.
+ * [levels] carries their level codes, copied with them because the array they come from is
+ * reallocated under that monitor as the file grows.
+ */
+private class LineBlock(
+    val start: Int,
+    val end: Int,
+    val lines: List<String>,
+    val levels: ByteArray,
+)
 
 private fun lineMatcher(
     query: String?,
@@ -815,7 +827,8 @@ internal class LogLineIndex(private val path: Path) {
     }
 
     /**
-     * Line number of the first match at or after [fromRequested], in the direction [forward] gives.
+     * Line number of the first match at or after [fromRequested], in the direction [forward] gives,
+     * among the lines [mask] admits. A line the filter hides is never offered to [matches].
      *
      * [LOG_NO_MATCH] means the whole requested range was scanned and held nothing. A range the scan
      * could not cover reports [LOG_SEARCH_STALE] instead — claiming absence from lines never read
@@ -827,6 +840,7 @@ internal class LogLineIndex(private val path: Path) {
      */
     fun search(
         matches: (String) -> Boolean,
+        mask: Int,
         fromRequested: Long,
         forward: Boolean,
         budgetMillis: Long,
@@ -839,12 +853,14 @@ internal class LogLineIndex(private val path: Path) {
 
         val deadlineNanos = System.nanoTime() + budgetMillis * 1_000_000L
         var cursor = if (forward) from.toInt() else minOf(from, (scope.total - 1).toLong()).toInt()
+        val filtering = isFiltering(mask)
 
         while (cursor in 0 until scope.total) {
             val block = searchBlock(cursor, forward, scope) ?: return LOG_SEARCH_STALE
             val order = if (forward) block.lines.indices else block.lines.indices.reversed()
             for (index in order) {
                 if (System.nanoTime() - deadlineNanos >= 0) return LOG_SEARCH_ABORTED
+                if (filtering && mask and (1 shl block.levels[index].toInt()) == 0) continue
                 if (matches(block.lines[index])) {
                     // ! Matched outside the monitor against lines read a moment ago. Without this
                     // ! the number can point into a file that has since rotated away.
@@ -888,7 +904,7 @@ internal class LogLineIndex(private val path: Path) {
 
         val start = if (forward) cursor else backwardBlockStart(cursor)
         val end = if (forward) forwardBlockEnd(cursor, limit) else cursor + 1
-        return LineBlock(start, end, readLines(start, end))
+        return LineBlock(start, end, readLines(start, end), levels.copyOfRange(start, end))
     }
 
     private fun refresh(): BasicFileAttributes? {

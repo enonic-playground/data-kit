@@ -129,15 +129,13 @@ function respond(params: Params): unknown {
   if (params.action === 'search') {
     const from = Number.parseInt(params.from ?? '0', 10);
     const query = params.query ?? '';
-    const numbered = LOG_LINES.map((line, index) => ({ line, index }));
+    // ? Scoped to the filter, like the server: a hit it hides is not a place the reader can go.
+    const hits = visibleLines(params).filter((index) => LOG_LINES[index].includes(query));
     const found =
       params.direction === 'backward'
-        ? numbered
-            .slice(0, from + 1)
-            .reverse()
-            .find((entry) => entry.line.includes(query))
-        : numbered.slice(from).find((entry) => entry.line.includes(query));
-    return { line: found?.index ?? null };
+        ? hits.findLast((index) => index <= from)
+        : hits.find((index) => index >= from);
+    return { line: found ?? null };
   }
   if (params.file != null) {
     const visible = visibleLines(params);
@@ -199,6 +197,21 @@ function mockApiWithLine(line: string): void {
     return Promise.resolve(respond(params));
   };
   vi.mocked(apiFetch).mockImplementation(handler as unknown as typeof apiFetch);
+}
+
+/** Holds the search response open, so a filter change can land while one is still in flight. */
+function mockApiWithHeldSearch(): () => void {
+  let release = (): void => {};
+  const handler = (_apiUrl: string, options?: { params?: Params }): Promise<unknown> => {
+    const params = options?.params ?? {};
+    const value = respond(params);
+    if (params.action !== 'search') return Promise.resolve(value);
+    return new Promise((resolve) => {
+      release = () => resolve(value);
+    });
+  };
+  vi.mocked(apiFetch).mockImplementation(handler as unknown as typeof apiFetch);
+  return () => release();
 }
 
 /** Locate responses hang, so a second click lands while the first one is still unresolved. */
@@ -1065,7 +1078,7 @@ describe('LogsPage', () => {
     });
   });
 
-  it('should report a match the filter is hiding', async () => {
+  it('should report no match when the filter hides every hit', async () => {
     const { user } = renderRoute({ initialLocation: '/logs' });
 
     await waitFor(() => {
@@ -1082,8 +1095,30 @@ describe('LogsPage', () => {
     await user.click(page.getByLabelText('Next match'));
 
     await waitFor(() => {
-      expect(page.getByText('Match at line 1, hidden by the filter')).toBeInTheDocument();
+      expect(page.getByText('No match')).toBeInTheDocument();
     });
+  });
+
+  it('should send the active levels with the search', async () => {
+    const { user } = renderRoute({ initialLocation: '/logs' });
+
+    await waitFor(() => {
+      expect(screen.getByText('3 lines')).toBeInTheDocument();
+    });
+
+    await hideLevels(user, 'INFO');
+    await waitFor(() => {
+      expect(screen.getByText('2 of 3 lines')).toBeInTheDocument();
+    });
+
+    const page = within(getLogsPage());
+    await user.type(page.getByLabelText('Search in log file'), 'ScriptRunner');
+    await user.click(page.getByLabelText('Next match'));
+
+    await waitFor(() => {
+      expect(searchCalls()).toHaveLength(1);
+    });
+    expect(searchCalls()[0].levels).toBe('TRACE,DEBUG,WARN,ERROR');
   });
 
   it('should report a go-to-line the filter is hiding', async () => {
@@ -1107,7 +1142,7 @@ describe('LogsPage', () => {
     });
   });
 
-  it('should step past a match the filter is hiding instead of finding it again', async () => {
+  it('should land a filtered match on a line the filter still shows', async () => {
     const { user } = renderRoute({ initialLocation: '/logs' });
 
     await waitFor(() => {
@@ -1124,14 +1159,7 @@ describe('LogsPage', () => {
     await user.type(page.getByLabelText('Search in log file'), 'ScriptRunner');
     await user.click(page.getByLabelText('Next match'));
 
-    await waitFor(() => {
-      expect(page.getByText('Match at line 3, hidden by the filter')).toBeInTheDocument();
-    });
-
-    // ? The hit sits below every visible row, so comparing it against the viewport would
-    // ? discard the cursor and hand back the same hit for ever.
-    await user.click(page.getByLabelText('Next match'));
-
+    // ? The only hit is the frame of the ERROR entry the filter removed.
     await waitFor(() => {
       expect(page.getByText('No match')).toBeInTheDocument();
     });
@@ -1246,9 +1274,9 @@ describe('LogsPage', () => {
       expect(screen.getByText('3 lines')).toBeInTheDocument();
     });
 
-    await hideLevels(user, 'ERROR');
+    await hideLevels(user, 'INFO');
     await waitFor(() => {
-      expect(screen.getByText('1 of 3 lines')).toBeInTheDocument();
+      expect(screen.getByText('2 of 3 lines')).toBeInTheDocument();
     });
     await scrollViewerTo(0);
 
@@ -1315,25 +1343,53 @@ describe('LogsPage', () => {
       expect(screen.getByText('3 lines')).toBeInTheDocument();
     });
 
-    await hideLevels(user, 'ERROR');
+    await hideLevels(user, 'INFO');
     await waitFor(() => {
-      expect(screen.getByText('1 of 3 lines')).toBeInTheDocument();
+      expect(screen.getByText('2 of 3 lines')).toBeInTheDocument();
     });
 
     const page = within(getLogsPage());
     await user.type(page.getByLabelText('Search in log file'), 'ScriptRunner');
     await user.click(page.getByLabelText('Next match'));
     await waitFor(() => {
-      expect(page.getByText('Match at line 3, hidden by the filter')).toBeInTheDocument();
+      expect(page.getByText('Match at line 3')).toBeInTheDocument();
     });
 
     await hideLevels(user, 'WARN');
 
-    // ! Line 3 is still hidden, so dropping only the "hidden" half would assert it is on screen.
+    // ! The verdict was decided against the old view; the new one has to be searched again.
     await waitFor(() => {
-      expect(page.queryByText('Match at line 3, hidden by the filter')).not.toBeInTheDocument();
+      expect(page.queryByText('Match at line 3')).not.toBeInTheDocument();
     });
+  });
+
+  it('should discard a search that was sent under a filter the reader has left', async () => {
+    const release = mockApiWithHeldSearch();
+    const { user } = renderRoute({ initialLocation: '/logs' });
+
+    await waitFor(() => {
+      expect(screen.getByText('3 lines')).toBeInTheDocument();
+    });
+
+    const page = within(getLogsPage());
+    await user.type(page.getByLabelText('Search in log file'), 'ScriptRunner');
+    await user.click(page.getByLabelText('Next match'));
+    await waitFor(() => {
+      expect(searchCalls()).toHaveLength(1);
+    });
+
+    await hideLevels(user, 'ERROR');
+    await waitFor(() => {
+      expect(screen.getByText('1 of 3 lines')).toBeInTheDocument();
+    });
+
+    // ! The held hit was found with every level selected, and line 3 is an ERROR frame — the
+    // ! filter now in effect has no row for it.
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
     expect(page.queryByText('Match at line 3')).not.toBeInTheDocument();
+    expect(page.queryByText('No match')).not.toBeInTheDocument();
   });
 
   it('should truncate an oversized line in both wrap modes', async () => {

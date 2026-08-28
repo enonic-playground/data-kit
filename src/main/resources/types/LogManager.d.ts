@@ -17,8 +17,9 @@ declare interface LogManager {
    */
   locate: (name: string, mask: number, line: number) => string | null;
   /**
-   * Matching line number, `-1` when there is no match, `-2` when the file is invalid or missing,
-   * `-3` when a regex ran past its time budget, `-4` when the file was rewritten mid-scan.
+   * Matching line number among the lines `mask` admits, `-1` when there is no match, `-2` when the
+   * file is invalid or missing, `-3` when a regex ran past its time budget, `-4` when the file was
+   * rewritten mid-scan.
    */
   search: (
     name: string,
@@ -27,6 +28,7 @@ declare interface LogManager {
     forward: boolean,
     regex: boolean,
     caseSensitive: boolean,
+    mask: number,
   ) => number;
   download: (name: string) => import('@enonic-types/core').ByteSource | null;
 }
