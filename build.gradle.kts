@@ -40,6 +40,10 @@ dependencies {
     include("com.enonic.lib:lib-http-client:4.0.0")
     include("com.enonic.lib:lib-mustache:3.0.0")
     include("com.auth0:java-jwt:4.6.0")
+
+    testImplementation(kotlin("test"))
+    testImplementation(libs.junit.jupiter)
+    testRuntimeOnly(libs.junit.platform.launcher)
 }
 
 repositories {
@@ -92,6 +96,10 @@ tasks.named("jar") {
 
 tasks.named("check") {
     dependsOn(tasks.named("pnpmCheck"))
+}
+
+tasks.test {
+    useJUnitPlatform()
 }
 
 tasks.named<ProcessResources>("processResources") {

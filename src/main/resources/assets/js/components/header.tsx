@@ -16,6 +16,7 @@ const ROUTE_TITLE_KEYS: Record<string, string> = {
   '/audit': 'nav.audit',
   '/events': 'nav.events',
   '/system': 'nav.system',
+  '/logs': 'nav.logs',
 };
 
 function getPageTitleKey(pathname: string): string {

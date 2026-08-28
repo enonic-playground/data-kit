@@ -15,6 +15,7 @@ const ROUTE_STATUS_KEYS: Record<string, string> = {
   '/audit': 'statusBar.audit',
   '/events': 'statusBar.events',
   '/system': 'statusBar.system',
+  '/logs': 'statusBar.logs',
 };
 
 function getStatusKey(pathname: string): string {

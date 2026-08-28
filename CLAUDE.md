@@ -22,6 +22,12 @@ pnpm build:prod     # production build
 pnpm fix            # auto-fix lint issues (Vite+ / Oxlint)
 pnpm check          # lint + type-check + tests
 pnpm test           # vitest only (via vp test)
+
+# Dev harness: the React app on :5274 against mocked APIs, no XP (see `dev/`)
+pnpm dev
+pnpm dev:fixtures   # generate dev/fixtures/logs (300k-line server.log + rotated files)
+pnpm dev:append     # append a log line every 500 ms, for follow mode
+DATAKIT_LOGS_DIR=$XP_HOME/logs pnpm dev   # harness against real XP logs
 ```
 
 **Tooling:** `vite-plus` is the single CLI driving lint (Oxlint), build (Rolldown), and test (Vitest) for client assets. Lint, test, and pre-commit (`staged`) are all configured in `vite.config.ts`. Server compilation and type-checking both use `tsc` from `typescript` 7 (the native Go compiler). Note TS 7 removed `baseUrl` and `moduleResolution: node10`, made `bundler` the default resolution (for `CommonJS` too) and interop permanently on, so neither config sets `moduleResolution`, `esModuleInterop` or `allowSyntheticDefaultImports`.
