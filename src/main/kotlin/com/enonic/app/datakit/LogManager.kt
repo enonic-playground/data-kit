@@ -41,6 +41,11 @@ private const val SEARCH_THREADS = 4
 private const val SEARCH_THREADS_MAX = 20
 private const val SEARCH_THREAD_IDLE_SECONDS = 30L
 private const val DEADLINE_CHECK_INTERVAL = 4096
+private const val MAX_REPETITION_PRODUCT = 1_000_000L
+private const val BRACED_ESCAPES = "pPxN"
+
+// ? Group 1 is the flags being switched on; anything after a `-` is being switched off.
+private val INLINE_FLAGS_REGEX = """\(\?([a-zA-Z]*)(?:-[a-zA-Z]*)?[):]""".toRegex()
 private const val MAX_CACHED_INDEXES = 4
 private const val INITIAL_OFFSET_CAPACITY = 1024
 
@@ -106,6 +111,9 @@ class LogManager {
 
     /** Test seam: milliseconds the caller waits past the search budget before abandoning. */
     internal var searchGraceMillis: Long = SEARCH_GRACE_MILLIS
+
+    /** Test seam: how far a pattern's repetition counts may multiply before it is refused. */
+    internal var maxRepetitionProduct: Long = MAX_REPETITION_PRODUCT
 
     /** Test seam: bytes of line content a single read response may carry. */
     internal var maxReadBytes: Long = MAX_READ_BYTES
@@ -219,7 +227,7 @@ class LogManager {
         regex: Boolean,
         caseSensitive: Boolean,
     ): Long {
-        val matcher = lineMatcher(query, regex, caseSensitive, matchBudgetMillis)
+        val matcher = lineMatcher(query, regex, caseSensitive, matchBudgetMillis, maxRepetitionProduct)
         val file = resolveLogFile(name) ?: return LOG_NOT_FOUND
         val index = LogIndexCache.get(file)
 
@@ -283,6 +291,7 @@ private fun lineMatcher(
     regex: Boolean,
     caseSensitive: Boolean,
     budgetMillis: Long,
+    maxRepetition: Long,
 ): (String) -> Boolean {
     if (query.isNullOrEmpty()) throw IllegalArgumentException("query is required")
 
@@ -297,13 +306,179 @@ private fun lineMatcher(
         throw IllegalArgumentException("Invalid regular expression: ${e.description}", e)
     }
 
+    // ! Extended mode strips whitespace and honours `#` comments, so the same characters mean
+    // ! different things to Java and to a scan of the raw text — which is a way to hide a runaway
+    // ! rather than a formatting nicety worth having in a search box.
+    if (enablesExtendedMode(query)) {
+        throw IllegalArgumentException(
+            "Invalid regular expression: extended mode (?x) is not supported in log search",
+        )
+    }
+
+    // ! Refused rather than bounded: a pattern whose repetitions compound this far can spend that
+    // ! many steps matching nothing, and a match consuming no input reaches no deadline.
+    val cost = repetitionCost(query)
+    if (cost > maxRepetition) {
+        throw IllegalArgumentException(
+            "Invalid regular expression: repetition can run to $cost steps, " +
+                "above the limit of $maxRepetition",
+        )
+    }
+
     // ? Per line, not per search: a multi-gigabyte scan legitimately takes seconds, while no
     // ? single line needs a second unless the pattern is backtracking wildly.
-    // ! Reached only through `get`, so a match that consumes no character is bounded by neither
-    // ! this nor the whole-search deadline. Only the caller's watchdog contains that case.
+    // ! Reached only through `get`, so a match consuming no character is bounded by neither this
+    // ! nor the whole-search deadline. `repetitionCost` refuses the patterns that can do that; the
+    // ! caller's watchdog is what catches whatever the scan does not.
     val budgetNanos = budgetMillis * 1_000_000L
     return { line -> pattern.matcher(DeadlineInput(line, System.nanoTime() + budgetNanos)).find() }
 }
+
+/**
+ * Whether [query] switches on extended mode, under which Java ignores whitespace and treats `#` as
+ * a comment — so a count can be split across a comment, or live text hidden inside one.
+ *
+ * Reading that faithfully would mean tracking flag scopes through the whole grammar. Refusing it
+ * costs nothing real: `(?x)` exists to format regexes written in source files, not ones typed into
+ * a search box.
+ */
+private fun enablesExtendedMode(query: String): Boolean =
+    INLINE_FLAGS_REGEX.findAll(query).any { it.groupValues[1].contains('x') }
+
+/**
+ * A bound on the retries [query]'s counted repetitions can force, or [Long.MAX_VALUE] when the
+ * pattern cannot be followed and has to be refused unread.
+ *
+ * Nesting multiplies and siblings add, which is what separates `(?:(?:){20000}){20000}` — four
+ * hundred million retries of a group matching nothing — from an everyday
+ * `.{0,1000}ERROR.{0,1000}at`, which is about three thousand. Bare `*` and `+` count as one: Java
+ * halts those itself once an iteration matches empty, so only counted repetition compounds.
+ *
+ * ! Deliberately biased towards refusing, because it reads a grammar it does not own. Anything
+ * ! leaving it out of step with Java — a class that never closes, a stray `)`, a `{` it cannot
+ * ! place — returns the maximum rather than a guess. The watchdog in [LogManager.search] is what
+ * ! stands behind it for whatever still slips past.
+ */
+internal fun repetitionCost(query: String): Long {
+    val enclosing = ArrayDeque<Long>()
+    var sum = 0L
+    var index = 0
+
+    while (index < query.length) {
+        if (query[index] == '(') {
+            enclosing.addLast(sum)
+            sum = 0L
+            index++
+            continue
+        }
+
+        val atom: Long
+        var next: Int
+
+        if (query[index] == ')') {
+            if (enclosing.isEmpty()) return Long.MAX_VALUE
+            atom = maxOf(sum, 1L)
+            sum = enclosing.removeLast()
+            next = index + 1
+        } else {
+            atom = 1L
+            next = when (query[index]) {
+                '\\' -> escapeEnd(query, index)
+                '[' -> characterClassEnd(query, index)
+                else -> index + 1
+            }
+            if (next < 0) return Long.MAX_VALUE
+        }
+
+        var count = 1L
+        if (next < query.length && query[next] == '{') {
+            val close = query.indexOf('}', next + 1)
+            val parsed = if (close < 0) null else repetitionCount(query.substring(next + 1, close))
+            if (parsed != null) {
+                count = parsed
+                next = close + 1
+            }
+        }
+
+        sum = saturatingPlus(sum, saturatingTimes(atom, count))
+        index = next
+    }
+
+    return if (enclosing.isEmpty()) maxOf(sum, 1L) else Long.MAX_VALUE
+}
+
+/**
+ * Index just past the escape starting at [index], or `-1` when it runs off the end.
+ *
+ * `\Q` quotes everything up to `\E`, and `\p{...}`, `\x{...}` and `\N{...}` carry braces that are
+ * an argument rather than a quantifier. Reading either as a count is how a literal gets refused.
+ */
+private fun escapeEnd(query: String, index: Int): Int {
+    val next = query.getOrNull(index + 1) ?: return -1
+
+    if (next == 'Q') {
+        val end = query.indexOf("\\E", index + 2)
+        return if (end < 0) query.length else end + 2
+    }
+
+    if (next in BRACED_ESCAPES && query.getOrNull(index + 2) == '{') {
+        val close = query.indexOf('}', index + 3)
+        return if (close < 0) -1 else close + 1
+    }
+
+    return index + 2
+}
+
+/**
+ * Index just past the `]` closing the class opened at [open], or `-1` when it never closes.
+ *
+ * A `]` sitting first in the body is a literal, and classes nest through `&&[...]`. Both are the
+ * difference between reading the rest of the pattern and losing track of where a class ends.
+ */
+private fun characterClassEnd(query: String, open: Int): Int {
+    var index = open + 1
+    if (query.getOrNull(index) == '^') index++
+    if (query.getOrNull(index) == ']') index++
+
+    var depth = 1
+    while (index < query.length) {
+        when (query[index]) {
+            '\\' -> index++
+            '[' -> depth++
+            ']' -> if (--depth == 0) return index + 1
+        }
+        index++
+    }
+
+    return -1
+}
+
+/**
+ * Retries the quantifier between one pair of braces forces, or `null` when what sits between them
+ * is not a count.
+ *
+ * `{n,}` costs `n` rather than nothing: an open-ended quantifier still owes its lower bound before
+ * it may stop. A zero count floors at one, so a leading `a{0}` cannot zero the product and wave the
+ * rest of the pattern through. Whitespace is dropped as a second line of defence: extended mode is
+ * refused before this runs, and only extended mode lets a count contain any.
+ */
+private fun repetitionCount(body: String): Long? {
+    val digits = body.filterNot { it.isWhitespace() }
+    val comma = digits.indexOf(',')
+    val head = if (comma < 0) digits else digits.substring(0, comma)
+    val least = head.toLongOrNull() ?: return null
+    if (comma < 0) return least.coerceAtLeast(1)
+
+    val tail = digits.substring(comma + 1)
+    if (tail.isEmpty()) return least.coerceAtLeast(1)
+    return (tail.toLongOrNull() ?: return null).coerceAtLeast(1)
+}
+
+private fun saturatingTimes(a: Long, b: Long): Long =
+    if (b != 0L && a > Long.MAX_VALUE / b) Long.MAX_VALUE else a * b
+
+private fun saturatingPlus(a: Long, b: Long): Long =
+    if (a > Long.MAX_VALUE - b) Long.MAX_VALUE else a + b
 
 /** Control flow, not a fault: no message, no stack trace. */
 private class MatchTimeoutException : RuntimeException(null, null, false, false)
