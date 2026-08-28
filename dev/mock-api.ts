@@ -21,7 +21,7 @@ const NEWLINE = 0x0a;
 const SCAN_BUFFER_BYTES = 1024 * 1024;
 const SEARCH_BLOCK_LINES = 2048;
 const SEARCH_BLOCK_BYTES = 4 * 1024 * 1024;
-const MAX_READ_BYTES = 20 * 1024 * 1024;
+const MAX_READ_BYTES = 100 * 1024 * 1024;
 const MAX_CACHED_INDEXES = 4;
 const HEAD_CAPACITY = 512;
 
@@ -487,7 +487,7 @@ function handleInfo(res: ServerResponse, resolved: Resolved, mask: number): void
   sendData(res, info);
 }
 
-// Mirrors the server's read cap: 256 lines of 200 KB would otherwise materialize 50 MB.
+// Mirrors the server's read cap: 1000 lines of 200 KB would otherwise materialize 200 MB.
 function budgetedCount(index: LineIndex, from: number, count: number, maxBytes: number): number {
   if (from >= index.count) return 0;
 
