@@ -24,6 +24,10 @@ private const val MIN_READ_COUNT = 1
 private const val MAX_READ_COUNT = 1000
 private const val SEARCH_BLOCK_LINES = 2048
 private const val SEARCH_BLOCK_BYTES = 4L shl 20
+private const val MAX_READ_BYTES = 20L shl 20
+private const val MATCH_BUDGET_MILLIS = 1000L
+private const val SEARCH_BUDGET_MILLIS = 30_000L
+private const val DEADLINE_CHECK_INTERVAL = 4096
 private const val MAX_CACHED_INDEXES = 4
 private const val INITIAL_OFFSET_CAPACITY = 1024
 
@@ -32,11 +36,21 @@ private const val CARRIAGE_RETURN = '\r'.code.toByte()
 
 internal const val LOG_NOT_FOUND = -2L
 internal const val LOG_NO_MATCH = -1L
+internal const val LOG_SEARCH_ABORTED = -3L
 
 @Component(immediate = true)
 class LogManager {
     /** Test seam: when set, replaces `$XP_HOME/logs` as the directory the bean reads. */
     internal var logsDirOverride: Path? = null
+
+    /** Test seam: milliseconds a regex may spend on one line before the search aborts. */
+    internal var matchBudgetMillis: Long = MATCH_BUDGET_MILLIS
+
+    /** Test seam: milliseconds a whole search may run before it aborts. */
+    internal var searchBudgetMillis: Long = SEARCH_BUDGET_MILLIS
+
+    /** Test seam: bytes of line content a single read response may carry. */
+    internal var maxReadBytes: Long = MAX_READ_BYTES
 
     fun list(): String {
         val dir = logsDirectory()
@@ -97,13 +111,14 @@ class LogManager {
 
     fun read(name: String?, from: Long, count: Int): String? {
         val file = resolveLogFile(name) ?: return null
-        return LogIndexCache.get(file).readJson(from, count)
+        return LogIndexCache.get(file).readJson(from, count, maxReadBytes)
     }
 
     /**
-     * Returns the matching line number, [LOG_NO_MATCH] when nothing matches, or [LOG_NOT_FOUND]
-     * when the file name is invalid or the file is missing. Throws [IllegalArgumentException]
-     * for an empty query or an invalid regular expression.
+     * Returns the matching line number, [LOG_NO_MATCH] when nothing matches, [LOG_NOT_FOUND] when
+     * the file name is invalid or the file is missing, or [LOG_SEARCH_ABORTED] when a regex ran
+     * past its time budget. Throws [IllegalArgumentException] for an empty query or an invalid
+     * regular expression.
      */
     fun search(
         name: String?,
@@ -113,9 +128,17 @@ class LogManager {
         regex: Boolean,
         caseSensitive: Boolean,
     ): Long {
-        val matcher = lineMatcher(query, regex, caseSensitive)
+        val matcher = lineMatcher(query, regex, caseSensitive, matchBudgetMillis)
         val file = resolveLogFile(name) ?: return LOG_NOT_FOUND
-        return LogIndexCache.get(file).search(matcher, from, forward)
+        return try {
+            LogIndexCache.get(file).search(matcher, from, forward, searchBudgetMillis)
+        } catch (_: MatchTimeoutException) {
+            LOG_SEARCH_ABORTED
+        } catch (_: StackOverflowError) {
+            // ! Some patterns exhaust the stack before the deadline check runs. Matching mutates no
+            // ! index state and the monitor unwinds with it, so the search is simply over.
+            LOG_SEARCH_ABORTED
+        }
     }
 
     fun download(name: String?): ByteSource? {
@@ -137,7 +160,12 @@ class LogManager {
 
 private class LogFileEntry(val name: String, val size: Long, val modified: FileTime)
 
-private fun lineMatcher(query: String?, regex: Boolean, caseSensitive: Boolean): (String) -> Boolean {
+private fun lineMatcher(
+    query: String?,
+    regex: Boolean,
+    caseSensitive: Boolean,
+    budgetMillis: Long,
+): (String) -> Boolean {
     if (query.isNullOrEmpty()) throw IllegalArgumentException("query is required")
 
     if (!regex) {
@@ -151,7 +179,43 @@ private fun lineMatcher(query: String?, regex: Boolean, caseSensitive: Boolean):
         throw IllegalArgumentException("Invalid regular expression: ${e.description}", e)
     }
 
-    return { line -> pattern.matcher(line).find() }
+    // ? Per line, not per search: a multi-gigabyte scan legitimately takes seconds, while no
+    // ? single line needs a second unless the pattern is backtracking wildly.
+    // ! Reached only through `get`, so a match that consumes no character is bounded by neither
+    // ! this nor the whole-search deadline, which is checked between lines.
+    val budgetNanos = budgetMillis * 1_000_000L
+    return { line -> pattern.matcher(DeadlineInput(line, System.nanoTime() + budgetNanos)).find() }
+}
+
+/** Control flow, not a fault: no message, no stack trace. */
+private class MatchTimeoutException : RuntimeException(null, null, false, false)
+
+/**
+ * Regex input that abandons the match once [deadlineNanos] passes. `Matcher` reads the subject
+ * through [get], so a pattern that backtracks catastrophically hits the check even though it
+ * never returns control to the caller.
+ */
+private class DeadlineInput(
+    private val line: CharSequence,
+    private val deadlineNanos: Long,
+) : CharSequence {
+    private var countdown = DEADLINE_CHECK_INTERVAL
+
+    override val length: Int
+        get() = line.length
+
+    override fun get(index: Int): Char {
+        countdown--
+        if (countdown <= 0) {
+            countdown = DEADLINE_CHECK_INTERVAL
+            // ? nanoTime has no fixed origin, so compare the difference, never the absolutes.
+            if (System.nanoTime() - deadlineNanos >= 0) throw MatchTimeoutException()
+        }
+        return line[index]
+    }
+
+    override fun subSequence(startIndex: Int, endIndex: Int): CharSequence =
+        DeadlineInput(line.subSequence(startIndex, endIndex), deadlineNanos)
 }
 
 private fun readAttributes(path: Path): BasicFileAttributes? =
@@ -186,37 +250,52 @@ internal class LogLineIndex(private val path: Path) {
     }
 
     @Synchronized
-    fun readJson(fromRequested: Long, countRequested: Int): String? {
+    fun readJson(fromRequested: Long, countRequested: Int, maxBytes: Long): String? {
         val attrs = refresh() ?: return null
 
         val from = fromRequested.coerceAtLeast(0)
         val count = countRequested.coerceIn(MIN_READ_COUNT, MAX_READ_COUNT)
         val fromLine = if (from >= lineCount) lineCount else from.toInt()
-        val toLine = minOf(lineCount.toLong(), fromLine.toLong() + count).toInt()
-        val lines = readLines(fromLine, toLine)
+        val countedEnd = minOf(lineCount.toLong(), fromLine.toLong() + count).toInt()
+        val lines = readLines(fromLine, budgetedEnd(fromLine, countedEnd, maxBytes))
+
+        // ? Both ends are pure ASCII, so their character count is their byte count.
+        val head = "{\"from\":$from,\"lines\":["
+        val tail = "],\"total\":$lineCount,\"size\":${attrs.size()}}"
 
         return buildString {
-            append("{\"from\":")
-            append(from)
-            append(",\"lines\":[")
-            for ((index, line) in lines.withIndex()) {
-                if (index > 0) append(',')
+            append(head)
+            // ! The raw budget bounds what was read, not what is sent: escaping and multi-byte
+            // ! characters both expand on the wire. Trailing lines that miss out are dropped, and
+            // ! the client resumes from `from` plus the array length as for any short page.
+            var remaining = maxBytes - head.length - tail.length
+            var emitted = 0
+            for (line in lines) {
+                val cost = jsonStringBytes(line) + if (emitted > 0) 1L else 0L
+                if (cost > remaining) break
+                remaining -= cost
+                if (emitted > 0) append(',')
                 append(jsonString(line))
+                emitted++
             }
-            append("],\"total\":")
-            append(lineCount)
-            append(",\"size\":")
-            append(attrs.size())
-            append('}')
+            append(tail)
         }
     }
 
     @Synchronized
-    fun search(matches: (String) -> Boolean, fromRequested: Long, forward: Boolean): Long {
+    fun search(
+        matches: (String) -> Boolean,
+        fromRequested: Long,
+        forward: Boolean,
+        budgetMillis: Long,
+    ): Long {
         refresh() ?: return LOG_NOT_FOUND
         if (lineCount == 0) return LOG_NO_MATCH
 
         val from = fromRequested.coerceAtLeast(0)
+        // ! A per-line bound leaves the total at per-line cost times line count, and this method
+        // ! holds the file's index monitor throughout — so reads and info polls wait on it.
+        val deadlineNanos = System.nanoTime() + budgetMillis * 1_000_000L
 
         if (forward) {
             if (from >= lineCount) return LOG_NO_MATCH
@@ -225,6 +304,7 @@ internal class LogLineIndex(private val path: Path) {
                 val end = forwardBlockEnd(start)
                 val lines = readLines(start, end)
                 for ((index, line) in lines.withIndex()) {
+                    if (System.nanoTime() - deadlineNanos >= 0) return LOG_SEARCH_ABORTED
                     if (matches(line)) return (start + index).toLong()
                 }
                 start = end
@@ -237,6 +317,7 @@ internal class LogLineIndex(private val path: Path) {
             val start = backwardBlockStart(end)
             val lines = readLines(start, end + 1)
             for (index in lines.indices.reversed()) {
+                if (System.nanoTime() - deadlineNanos >= 0) return LOG_SEARCH_ABORTED
                 if (matches(lines[index])) return (start + index).toLong()
             }
             end = start - 1
@@ -325,6 +406,17 @@ internal class LogLineIndex(private val path: Path) {
 
     private fun lineEnd(line: Int): Long =
         if (line + 1 < lineCount) offsets[line + 1] else scannedBytes
+
+    /**
+     * End of the longest line span from [start] that stays inside [maxBytes], never past [limit].
+     * Returns [start] when the first line alone is over budget: that line is reachable only
+     * through a download, and a bounded response matters more than serving it here.
+     */
+    private fun budgetedEnd(start: Int, limit: Int, maxBytes: Long): Int {
+        var end = start
+        while (end < limit && lineEnd(end) - offsets[start] <= maxBytes) end++
+        return end
+    }
 
     private fun forwardBlockEnd(start: Int): Int {
         val maxEnd = minOf(lineCount, start + SEARCH_BLOCK_LINES)

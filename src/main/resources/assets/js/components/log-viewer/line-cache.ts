@@ -34,7 +34,7 @@ export type LineCacheOptions = {
 };
 
 export type LineCache = {
-  /** Line text, or `undefined` while the containing chunk is missing. */
+  /** Line text, or `undefined` while the containing chunk is missing or still partial. */
   getLine: (index: number) => string | undefined;
   /** Request every chunk covering the inclusive line range. */
   ensureRange: (from: number, to: number) => void;
@@ -137,12 +137,31 @@ export function createLineCache({
     return total > 0 ? Math.floor((total - 1) / chunkSize) : undefined;
   }
 
+  /** Lines a chunk holds once whole. The chunk covering the last line is shorter. */
+  function chunkLength(chunk: number): number {
+    return Math.min(chunkSize, total - chunk * chunkSize);
+  }
+
+  function isWhole(chunk: number): boolean {
+    const lines = chunks.get(chunk);
+    return lines !== undefined && lines.length >= chunkLength(chunk);
+  }
+
+  // ! Only the trailing line of a pre-growth copy can be wrong, so keep serving it; the chunk
+  // ! stays stale so the retry wake-up re-requests it instead of `request` skipping it as whole.
+  function fail(chunk: number, stale: boolean): void {
+    if (stale) staleChunks.add(chunk);
+    failedAt.set(chunk, Date.now());
+    scheduleRetry();
+    notify();
+  }
+
   function request(chunk: number): void {
     if (pending.has(chunk)) return;
     // ? A stale chunk is re-requested even though it is cached: its lines keep
     // ? rendering until the refetch replaces them.
     const stale = staleChunks.has(chunk);
-    if (!stale && chunks.has(chunk)) return;
+    if (!stale && isWhole(chunk)) return;
 
     const failed = failedAt.get(chunk);
     if (failed !== undefined && Date.now() - failed < retryDelayMs) {
@@ -151,37 +170,45 @@ export function createLineCache({
     }
     failedAt.delete(chunk);
 
-    const from = chunk * chunkSize;
-    if (from >= total) return;
+    const start = chunk * chunkSize;
+    if (start >= total) return;
 
     staleChunks.delete(chunk);
+
+    // ! The server caps a response by bytes, so a chunk of long lines arrives over
+    // ! several requests. A stale chunk restarts instead: its trailing line may
+    // ! have grown, and resuming would keep the outdated copy of it.
+    const prefix = stale ? [] : (chunks.get(chunk) ?? []);
+    const from = start + prefix.length;
 
     const controller = new AbortController();
     const requestGeneration = generation;
     pending.set(chunk, controller);
 
-    fetchChunk({ from, count: chunkSize, signal: controller.signal }).then(
+    fetchChunk({ from, count: chunkSize - prefix.length, signal: controller.signal }).then(
       (result) => {
         if (requestGeneration !== generation) return;
         if (pending.get(chunk) !== controller) return;
         pending.delete(chunk);
-        chunks.set(chunk, result.lines);
+
+        // ! One line over the whole byte cap yields an empty page, and an identical
+        // ! retry yields it again — back off rather than resume in a tight loop.
+        if (result.lines.length === 0) {
+          fail(chunk, stale);
+          return;
+        }
+
+        chunks.set(chunk, [...prefix, ...result.lines]);
         evict();
         notify();
-        // ? Grew again while this was in flight — pick the appended lines up.
-        if (staleChunks.has(chunk)) request(chunk);
+        // ? Grew again while this was in flight, or came back short of the chunk.
+        if (staleChunks.has(chunk) || !isWhole(chunk)) request(chunk);
       },
       () => {
         if (requestGeneration !== generation) return;
         if (pending.get(chunk) !== controller) return;
         pending.delete(chunk);
-        // ! Only the trailing line of a pre-growth copy can be wrong, so keep
-        // ! serving it; the chunk stays stale so the retry wake-up re-requests
-        // ! it instead of `request` skipping it as cached.
-        if (stale) staleChunks.add(chunk);
-        failedAt.set(chunk, Date.now());
-        scheduleRetry();
-        notify();
+        fail(chunk, stale);
       },
     );
   }
