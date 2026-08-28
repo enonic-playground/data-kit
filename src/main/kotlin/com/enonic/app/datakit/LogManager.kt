@@ -114,6 +114,10 @@ class LogManager {
 
         entries.sortWith(compareByDescending<LogFileEntry> { it.modified }.thenBy { it.name })
 
+        // ? `active` is the one file the tool opens by default; `rotated` per entry is a
+        // ? different question — whether anything can still be appended to it. Only one entry is
+        // ? ever active, so a second unrotated file (an `audit.log` beside `server.log`) must not
+        // ? be reported as rotated just because it lost the tie.
         val active = entries.firstOrNull { !ROTATED_LOG_NAME_REGEX.matches(it.name) }
             ?: entries.firstOrNull()
         val ordered = if (active == null) entries else listOf(active) + entries.filter { it !== active }
@@ -128,6 +132,8 @@ class LogManager {
                 append(jsonString(entry.modified.toInstant().toString()))
                 append(",\"active\":")
                 append(entry === active)
+                append(",\"rotated\":")
+                append(entry !== active && ROTATED_LOG_NAME_REGEX.matches(entry.name))
                 append('}')
             }
         }

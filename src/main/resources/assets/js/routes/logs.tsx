@@ -31,7 +31,7 @@ import type { LineAlign, LogViewerHandle } from '../components/log-viewer/log-vi
 import type { LogLevel, LogLevelCounts, LogSearchDirection } from '../lib/api/logs';
 import type { ApiError } from '../types/api';
 
-import { LEVEL_CLASS, LEVEL_EMPHASIS } from '../components/log-viewer/log-line';
+import { LEVEL_EMPHASIS, LEVEL_TOKEN_CLASS } from '../components/log-viewer/log-line';
 import { LogViewer } from '../components/log-viewer/log-viewer';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
@@ -67,7 +67,8 @@ import { cn } from '../lib/utils';
 
 const LOGS_PAGE_NAME = 'LogsPage';
 
-// ? Following a live file needs a tight poll; an idle rotated file does not.
+// ? Following a live file needs a tight poll; a live file being read somewhere other than its
+// ? tail does not. A rotated file is polled at neither rate — see `infoPoll` below.
 const FOLLOW_POLL_MS = 1000;
 const IDLE_POLL_MS = 5000;
 
@@ -209,13 +210,26 @@ const LogsPage = (): ReactElement => {
     return (files.find((entry) => entry.active) ?? files[0])?.name;
   }, [fileParam, files]);
 
-  const { data: info, error: infoError } = useQuery(
-    logInfoQueryOptions(selected, levels, follow ? FOLLOW_POLL_MS : IDLE_POLL_MS),
-  );
-
   const selectedFile = useMemo(
     () => files.find((entry) => entry.name === selected),
     [files, selected],
+  );
+
+  // ? Nothing can be appended to a rotated file, so following it is a promise no poll can keep.
+  // ? Every *read* of the follow state goes through `following`, which masks the `true` the
+  // ? setters still leave underneath — that is what keeps a scroll to the end from re-arming a
+  // ? follow that cannot fire, while switching back to a live file resumes following as before.
+  const rotated = selectedFile?.rotated ?? false;
+  const following = follow && !rotated;
+
+  // ? A frozen file has no size, count or timestamp left to discover; Refresh and
+  // ? refetch-on-focus still re-read it, and the file-list poll still catches its deletion.
+  let infoPoll: number | false = IDLE_POLL_MS;
+  if (rotated) infoPoll = false;
+  else if (following) infoPoll = FOLLOW_POLL_MS;
+
+  const { data: info, error: infoError } = useQuery(
+    logInfoQueryOptions(selected, levels, infoPoll),
   );
 
   const highlight = useMemo(() => {
@@ -420,7 +434,7 @@ const LogsPage = (): ReactElement => {
   // ? Captured before a filter change: once the view re-indexes, the row the reader was on is
   // ? gone and only its physical line number can find the way back.
   const captureAnchor = useCallback(() => {
-    if (follow) {
+    if (following) {
       anchorRef.current = null;
       return;
     }
@@ -430,7 +444,7 @@ const LogsPage = (): ReactElement => {
     // ! the anchor as soon as the count lands, well before the lines do.
     if (anchorRef.current != null) return;
     anchorRef.current = visiblePhysicalRange()?.first ?? originRef.current;
-  }, [follow, visiblePhysicalRange]);
+  }, [following, visiblePhysicalRange]);
 
   const handleToggleLevel = useCallback(
     (level: LogLevel) => {
@@ -621,7 +635,7 @@ const LogsPage = (): ReactElement => {
         size={info?.size ?? 0}
         wrap={wrap}
         highlight={highlight}
-        follow={follow}
+        follow={following}
         onAtBottomChange={setFollow}
       />
     );
@@ -645,10 +659,26 @@ const LogsPage = (): ReactElement => {
                 <SelectItem key={entry.name} value={entry.name} className="font-mono text-xs">
                   {entry.name} · {formatSize(entry.size)}
                   {entry.active ? ` · ${t('logs.badge.active')}` : ''}
+                  {entry.rotated ? ` · ${t('logs.badge.rotated')}` : ''}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" asChild>
+                <a
+                  href={selected == null ? undefined : logDownloadUrl(selected)}
+                  aria-label={t('logs.action.download')}
+                  download={selected}
+                >
+                  <Download className="size-4" />
+                </a>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{t('logs.action.download')}</TooltipContent>
+          </Tooltip>
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -672,7 +702,7 @@ const LogsPage = (): ReactElement => {
                   onSelect={(event) => event.preventDefault()}
                   onCheckedChange={() => handleToggleLevel(level)}
                 >
-                  <span className={cn('font-mono text-xs', LEVEL_CLASS[level], LEVEL_EMPHASIS)}>
+                  <span className={cn('font-mono text-xs', LEVEL_TOKEN_CLASS[level], LEVEL_EMPHASIS)}>
                     {level}
                   </span>
                   <span className="text-muted-foreground ml-auto text-xs tabular-nums">
@@ -690,8 +720,9 @@ const LogsPage = (): ReactElement => {
           <div className="ml-auto flex items-center gap-2">
             <Button
               size="sm"
-              variant={follow ? 'primary' : 'ghost'}
-              aria-pressed={follow}
+              variant={following ? 'primary' : 'ghost'}
+              aria-pressed={following}
+              disabled={rotated}
               onClick={() => setFollow((prev) => !prev)}
             >
               <Play className="size-4" />
@@ -707,21 +738,6 @@ const LogsPage = (): ReactElement => {
               <TextWrap className="size-4" />
               {t('logs.action.wrap')}
             </Button>
-
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="ghost" size="icon" asChild>
-                  <a
-                    href={selected == null ? undefined : logDownloadUrl(selected)}
-                    aria-label={t('logs.action.download')}
-                    download={selected}
-                  >
-                    <Download className="size-4" />
-                  </a>
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>{t('logs.action.download')}</TooltipContent>
-            </Tooltip>
 
             <IconAction label={t('common.action.refresh')} onClick={handleRefresh}>
               <RefreshCw className="size-4" />
@@ -810,7 +826,8 @@ const LogsPage = (): ReactElement => {
         <span>{lineStatus}</span>
         <span>{t('logs.status.size', { size: formatSize(size) })}</span>
         <span>{t('logs.status.modified', { modified: formatTimestamp(modified) })}</span>
-        {follow && <Badge variant="outline">{t('logs.status.following')}</Badge>}
+        {rotated && <Badge variant="outline">{t('logs.badge.rotated')}</Badge>}
+        {following && <Badge variant="outline">{t('logs.status.following')}</Badge>}
       </div>
     </div>
   );

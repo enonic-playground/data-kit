@@ -46,6 +46,7 @@ type LogFile = {
   size: number;
   modified: string;
   active: boolean;
+  rotated: boolean;
 };
 
 type LogLevelCounts = {
@@ -407,12 +408,16 @@ function listFiles(dir: string): LogFile[] {
       size: stat.size,
       modified: new Date(stat.mtimeMs).toISOString(),
       active: false,
+      rotated: ROTATED_FILE_NAME_PATTERN.test(name),
     };
   });
 
   const active =
     newest(files.filter((file) => !ROTATED_FILE_NAME_PATTERN.test(file.name))) ?? newest(files);
-  if (active != null) active.active = true;
+  if (active != null) {
+    active.active = true;
+    active.rotated = false;
+  }
 
   return files.sort((a, b) => {
     if (a.active !== b.active) return a.active ? -1 : 1;

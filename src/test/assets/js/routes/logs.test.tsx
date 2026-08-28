@@ -62,9 +62,23 @@ const LOG_LINES = [
   '\tat com.enonic.xp.script.impl.ScriptRunner.run(ScriptRunner.java:42)',
 ];
 
+const ROTATED_FILE = 'server.2026-08-26.0.log';
+
 const LOG_FILES = [
-  { name: 'server.log', size: 2048, modified: '2026-08-27T10:23:46Z', active: true },
-  { name: 'server.2026-08-26.0.log', size: 512, modified: '2026-08-26T23:59:00Z', active: false },
+  {
+    name: 'server.log',
+    size: 2048,
+    modified: '2026-08-27T10:23:46Z',
+    active: true,
+    rotated: false,
+  },
+  {
+    name: ROTATED_FILE,
+    size: 512,
+    modified: '2026-08-26T23:59:00Z',
+    active: false,
+    rotated: true,
+  },
 ];
 
 type Params = Record<string, string>;
@@ -677,6 +691,38 @@ describe('LogsPage', () => {
     await waitFor(() => {
       expect(followButton).toHaveAttribute('aria-pressed', 'true');
     });
+  });
+
+  it('should not offer to follow a rotated file', async () => {
+    renderRoute({ initialLocation: `/logs?file=${ROTATED_FILE}` });
+
+    await waitFor(() => {
+      expect(screen.getByText('3 lines')).toBeInTheDocument();
+    });
+
+    const page = within(getLogsPage());
+    const followButton = page.getByRole('button', { name: 'Follow' });
+
+    expect(followButton).toBeDisabled();
+    expect(followButton).toHaveAttribute('aria-pressed', 'false');
+    expect(page.getByText('rotated')).toBeInTheDocument();
+    expect(page.queryByText('following')).not.toBeInTheDocument();
+  });
+
+  it('should keep following available on the active file', async () => {
+    renderRoute({ initialLocation: '/logs' });
+
+    await waitFor(() => {
+      expect(screen.getByText('3 lines')).toBeInTheDocument();
+    });
+
+    const page = within(getLogsPage());
+    const followButton = page.getByRole('button', { name: 'Follow' });
+
+    expect(followButton).toBeEnabled();
+    expect(followButton).toHaveAttribute('aria-pressed', 'true');
+    expect(page.getByText('following')).toBeInTheDocument();
+    expect(page.queryByText('rotated')).not.toBeInTheDocument();
   });
 
   it('should re-arm follow when scrolling to the end from the toolbar', async () => {

@@ -58,6 +58,17 @@ export const LEVEL_CLASS: Record<LogLevel, string> = {
 
 export const CONTINUATION_CLASS = 'text-log-continuation';
 
+/**
+ * Colour for the level token itself. It carries `LEVEL_EMPHASIS` on top, and that weight is
+ * already enough to find an INFO line by — full contrast as well would make the most common
+ * level the loudest thing on screen. Every other level keeps its message colour, which is the
+ * severity signal the eye is actually scanning for.
+ */
+export const LEVEL_TOKEN_CLASS: Record<LogLevel, string> = {
+  ...LEVEL_CLASS,
+  INFO: 'text-muted-foreground',
+};
+
 // ? Time and logger are needed to place an entry, not to read it, so they sit
 // ? below the message; the level token is what the eye scans a log for.
 export const TIME_CLASS = 'text-text-dimmed';
