@@ -180,6 +180,27 @@ function mockApiWithPendingReads(): void {
   vi.mocked(apiFetch).mockImplementation(handler as unknown as typeof apiFetch);
 }
 
+/** A file of one line, so the row's own character caps decide what reaches the DOM. */
+function mockApiWithLine(line: string): void {
+  const handler = (_apiUrl: string, options?: { params?: Params }): Promise<unknown> => {
+    const params = options?.params ?? {};
+    if (params.action === 'info') {
+      return Promise.resolve({
+        name: params.file,
+        size: line.length,
+        modified: '2026-08-27T10:23:46Z',
+        lines: 1,
+        levels: { unknown: 1, trace: 0, debug: 0, info: 0, warn: 0, error: 0 },
+      });
+    }
+    if (params.file != null && params.action == null) {
+      return Promise.resolve({ from: 0, lines: [line], total: 1, size: line.length });
+    }
+    return Promise.resolve(respond(params));
+  };
+  vi.mocked(apiFetch).mockImplementation(handler as unknown as typeof apiFetch);
+}
+
 /** Locate responses hang, so a second click lands while the first one is still unresolved. */
 function mockApiWithSlowLocate(delayMs: number): void {
   const handler = (_apiUrl: string, options?: { params?: Params }): Promise<unknown> => {
@@ -1313,6 +1334,38 @@ describe('LogsPage', () => {
       expect(page.queryByText('Match at line 3, hidden by the filter')).not.toBeInTheDocument();
     });
     expect(page.queryByText('Match at line 3')).not.toBeInTheDocument();
+  });
+
+  it('should truncate an oversized line in both wrap modes', async () => {
+    // ? A continuation line, so the whole row is message and the caps apply to it undivided.
+    const line = `\t${'x'.repeat(150_000)}`;
+    mockApiWithLine(line);
+
+    const { user } = renderRoute({ initialLocation: '/logs' });
+
+    await waitFor(() => {
+      expect(screen.getByText(`… +${line.length - 10_000} chars`)).toBeInTheDocument();
+    });
+
+    await user.click(within(getLogsPage()).getByRole('button', { name: 'Wrap' }));
+
+    // ! Wrap mode is capped too: unbounded, one line like this is hundreds of laid-out rows.
+    await waitFor(() => {
+      expect(screen.getByText(`… +${line.length - 100_000} chars`)).toBeInTheDocument();
+    });
+  });
+
+  it('should report an oversized astral tail in UTF-16 units rather than walking it', async () => {
+    // ? 100_000 emoji is 200_000 UTF-16 units. Counting them as code points means walking every
+    // ? one on every keystroke, so past the scan bound the cheaper unit count is what shows.
+    const line = `\t${'x'.repeat(10_000)}${'\u{1F600}'.repeat(100_000)}`;
+    mockApiWithLine(line);
+
+    renderRoute({ initialLocation: '/logs' });
+
+    await waitFor(() => {
+      expect(screen.getByText(`… +${line.length - 10_000} chars`)).toBeInTheDocument();
+    });
   });
 
   it('should show an empty state when there are no log files', async () => {

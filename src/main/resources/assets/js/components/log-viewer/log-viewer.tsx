@@ -48,9 +48,12 @@ const MAX_HIGHLIGHT_LENGTH = 20_000;
 const MAX_HIGHLIGHTS_PER_LINE = 200;
 
 // ? No-wrap rows are laid out on one line, so an unbounded row would pin the
-// ? horizontal scroll range at its width for the rest of the session. Wrap mode
-// ? renders the line in full — that is the way to read one this long.
+// ? horizontal scroll range at its width for the rest of the session.
 const MAX_NOWRAP_CHARS = 10_000;
+
+// ? Wrap mode has no such scroll range to protect, but a line of this size still costs hundreds
+// ? of laid-out rows the virtualizer has to measure. `?action=download` serves the whole line.
+const MAX_WRAP_CHARS = 100_000;
 
 export type LineAlign = 'start' | 'center' | 'end' | 'auto';
 
@@ -123,11 +126,20 @@ function renderLineText(text: string, highlight: RegExp | null): ReactNode {
 const isHighSurrogate = (code: number): boolean => code >= 0xd800 && code <= 0xdbff;
 const isLowSurrogate = (code: number): boolean => code >= 0xdc00 && code <= 0xdfff;
 
+// ! Every keystroke in the search box mints a new `highlight`, so every visible row re-counts its
+// ! hidden tail — the whole line, for an oversized one. Past this the walk is the only thing
+// ! anyone would notice, so the count falls back to UTF-16 units.
+const MAX_COUNTED_TAIL = 1 << 16;
+
 // ? `String` indices are UTF-16 units, so a blind cut at `limit` splits an
 // ? astral character into a lone surrogate and the hidden count comes out too
 // ? high. Cut before the pair and count what is left in code points.
 function truncate(text: string, limit: number): { head: string; hidden: number } {
   const end = isHighSurrogate(text.charCodeAt(limit - 1)) ? limit - 1 : limit;
+  const head = text.slice(0, end);
+
+  const tail = text.length - end;
+  if (tail > MAX_COUNTED_TAIL) return { head, hidden: tail };
 
   let hidden = 0;
   for (let i = end; i < text.length; i += 1) {
@@ -135,17 +147,20 @@ function truncate(text: string, limit: number): { head: string; hidden: number }
     hidden += 1;
   }
 
-  return { head: text.slice(0, end), hidden };
+  return { head, hidden };
 }
 
-function renderMessage(
-  message: string,
-  wrap: boolean,
-  highlight: RegExp | null,
-  budget: number,
-): ReactNode {
-  if (wrap || message.length <= budget) return renderLineText(message, highlight);
-  const { head, hidden } = truncate(message, budget);
+/** Characters a whole row may render before the tail is replaced by a count. */
+function lineBudget(wrap: boolean): number {
+  return wrap ? MAX_WRAP_CHARS : MAX_NOWRAP_CHARS;
+}
+
+function renderMessage(message: string, highlight: RegExp | null, budget: number): ReactNode {
+  // ! A prefix wider than the whole budget would leave `truncate` a negative limit, which slices
+  // ! off the tail instead of the head.
+  const limit = Math.max(0, budget);
+  if (message.length <= limit) return renderLineText(message, highlight);
+  const { head, hidden } = truncate(message, limit);
   return (
     <>
       {renderLineText(head, highlight)}
@@ -163,7 +178,7 @@ function renderLineContent(
   highlight: RegExp | null,
 ): ReactNode {
   if (parsed.kind === 'continuation') {
-    return renderMessage(text, wrap, highlight, MAX_NOWRAP_CHARS);
+    return renderMessage(text, highlight, lineBudget(wrap));
   }
 
   const timeEnd = parsed.time.length;
@@ -179,7 +194,7 @@ function renderLineContent(
       <span className={LOGGER_CLASS}>
         {renderLineText(text.slice(levelEnd, messageStart), highlight)}
       </span>
-      {renderMessage(parsed.message, wrap, highlight, MAX_NOWRAP_CHARS - messageStart)}
+      {renderMessage(parsed.message, highlight, lineBudget(wrap) - messageStart)}
     </>
   );
 }
