@@ -3,7 +3,9 @@ import { TanStackRouterVite } from '@tanstack/router-plugin/vite';
 import react from '@vitejs/plugin-react';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { defineConfig, type UserConfig } from 'vite-plus';
+import { defineConfig, type ConfigEnv, type Plugin, type UserConfig } from 'vite-plus';
+
+import { mockApi } from './dev/mock-api';
 
 const allowedTargets = ['js', 'css'] as const;
 type BuildTarget = (typeof allowedTargets)[number];
@@ -20,6 +22,35 @@ const isDevelopment = NODE_ENV === 'development';
 
 const IN_PATH = path.join(__dirname, 'src/main/resources/assets');
 const OUT_PATH = path.join(__dirname, 'build/resources/main/assets');
+// Dev harness: the real React app served without XP, against mocked APIs. Lives outside
+// src/main/resources so Gradle's processResources never ships it.
+const DEV_PATH = path.join(__dirname, 'dev');
+const DEV_PORT = 5274;
+
+// Vitest also runs as `serve`, hence the guard.
+const isHarness = (_config: UserConfig, env: ConfigEnv): boolean =>
+  env.command === 'serve' && process.env.VITEST == null;
+
+// `apply` rather than a conditional plugin list: Vite resolves plugins before config hooks run,
+// so a config hook cannot add any.
+const serveOnly = (plugins: Plugin[]): Plugin[] =>
+  plugins.map((plugin) => ({ ...plugin, apply: isHarness }));
+
+const devHarness: Plugin = {
+  name: 'datakit-dev-harness',
+  apply: isHarness,
+  config: () => ({
+    root: DEV_PATH,
+    base: '/',
+    server: {
+      port: DEV_PORT,
+      open: false,
+      strictPort: true,
+      // Fixture logs are rewritten wholesale and appended to; watching them means reload storms.
+      watch: { ignored: ['**/dev/fixtures/**'] },
+    },
+  }),
+};
 
 const TARGET_CONFIGS: Record<BuildTarget, UserConfig> = {
   js: {
@@ -33,6 +64,8 @@ const TARGET_CONFIGS: Record<BuildTarget, UserConfig> = {
         quoteStyle: 'single',
       }),
       react(),
+      devHarness,
+      ...serveOnly([mockApi(), ...tailwindcss()]),
     ],
     build: {
       outDir: OUT_PATH,

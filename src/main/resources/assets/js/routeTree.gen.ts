@@ -14,6 +14,7 @@ import { Route as AuditRouteImport } from './routes/audit'
 import { Route as DumpsRouteImport } from './routes/dumps'
 import { Route as EventsRouteImport } from './routes/events'
 import { Route as ExportsRouteImport } from './routes/exports'
+import { Route as LogsRouteImport } from './routes/logs'
 import { Route as RepositoriesRouteImport } from './routes/repositories'
 import { Route as SearchRouteImport } from './routes/search'
 import { Route as SnapshotsRouteImport } from './routes/snapshots'
@@ -47,6 +48,11 @@ const EventsRoute = EventsRouteImport.update({
 const ExportsRoute = ExportsRouteImport.update({
   id: '/exports',
   path: '/exports',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LogsRoute = LogsRouteImport.update({
+  id: '/logs',
+  path: '/logs',
   getParentRoute: () => rootRouteImport,
 } as any)
 const RepositoriesRoute = RepositoriesRouteImport.update({
@@ -102,6 +108,7 @@ export interface FileRoutesByFullPath {
   '/dumps': typeof DumpsRoute
   '/events': typeof EventsRoute
   '/exports': typeof ExportsRoute
+  '/logs': typeof LogsRoute
   '/repositories': typeof RepositoriesRouteWithChildren
   '/search': typeof SearchRoute
   '/snapshots': typeof SnapshotsRoute
@@ -118,6 +125,7 @@ export interface FileRoutesByTo {
   '/dumps': typeof DumpsRoute
   '/events': typeof EventsRoute
   '/exports': typeof ExportsRoute
+  '/logs': typeof LogsRoute
   '/search': typeof SearchRoute
   '/snapshots': typeof SnapshotsRoute
   '/system': typeof SystemRoute
@@ -133,6 +141,7 @@ export interface FileRoutesById {
   '/dumps': typeof DumpsRoute
   '/events': typeof EventsRoute
   '/exports': typeof ExportsRoute
+  '/logs': typeof LogsRoute
   '/repositories': typeof RepositoriesRouteWithChildren
   '/search': typeof SearchRoute
   '/snapshots': typeof SnapshotsRoute
@@ -151,6 +160,7 @@ export interface FileRouteTypes {
     | '/dumps'
     | '/events'
     | '/exports'
+    | '/logs'
     | '/repositories'
     | '/search'
     | '/snapshots'
@@ -167,6 +177,7 @@ export interface FileRouteTypes {
     | '/dumps'
     | '/events'
     | '/exports'
+    | '/logs'
     | '/search'
     | '/snapshots'
     | '/system'
@@ -181,6 +192,7 @@ export interface FileRouteTypes {
     | '/dumps'
     | '/events'
     | '/exports'
+    | '/logs'
     | '/repositories'
     | '/search'
     | '/snapshots'
@@ -198,6 +210,7 @@ export interface RootRouteChildren {
   DumpsRoute: typeof DumpsRoute
   EventsRoute: typeof EventsRoute
   ExportsRoute: typeof ExportsRoute
+  LogsRoute: typeof LogsRoute
   RepositoriesRoute: typeof RepositoriesRouteWithChildren
   SearchRoute: typeof SearchRoute
   SnapshotsRoute: typeof SnapshotsRoute
@@ -240,6 +253,13 @@ declare module '@tanstack/react-router' {
       path: '/exports'
       fullPath: '/exports'
       preLoaderRoute: typeof ExportsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/logs': {
+      id: '/logs'
+      path: '/logs'
+      fullPath: '/logs'
+      preLoaderRoute: typeof LogsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/repositories': {
@@ -341,6 +361,7 @@ const rootRouteChildren: RootRouteChildren = {
   DumpsRoute: DumpsRoute,
   EventsRoute: EventsRoute,
   ExportsRoute: ExportsRoute,
+  LogsRoute: LogsRoute,
   RepositoriesRoute: RepositoriesRouteWithChildren,
   SearchRoute: SearchRoute,
   SnapshotsRoute: SnapshotsRoute,

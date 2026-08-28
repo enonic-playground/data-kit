@@ -39,6 +39,7 @@ const NAV_LABELS = [
   'Audit',
   'Events',
   'System',
+  'Logs',
 ];
 
 function getSidebar(): HTMLElement {

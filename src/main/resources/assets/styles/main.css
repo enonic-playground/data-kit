@@ -1,6 +1,9 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 @import 'tailwindcss';
 
+/* Explicit so class detection works from any Vite root — the dev harness serves from `dev/`. */
+@source '../js';
+
 @custom-variant dark (&:where(.dark, .dark *));
 
 /*
@@ -59,6 +62,11 @@
   --success: 142 76% 36%;
   --warning: 32 95% 44%;
   --info: 221 83% 53%;
+
+  /* Log levels (own tokens: --warning/--destructive miss AA as text on --background) */
+  --log-warn: 32 95% 32%;
+  --log-error: 355 78% 44%;
+  --log-continuation: 255 40% 45%;
 }
 
 .dark {
@@ -105,6 +113,11 @@
   --success: 142 71% 45%;
   --warning: 38 92% 50%;
   --info: 217 91% 60%;
+
+  /* Log levels */
+  --log-warn: 38 92% 50%;
+  --log-error: 355 78% 56%;
+  --log-continuation: 255 45% 68%;
 }
 
 @theme inline {
@@ -147,6 +160,10 @@
   --color-success: hsl(var(--success));
   --color-warning: hsl(var(--warning));
   --color-info: hsl(var(--info));
+
+  --color-log-warn: hsl(var(--log-warn));
+  --color-log-error: hsl(var(--log-error));
+  --color-log-continuation: hsl(var(--log-continuation));
 
   /* Radii */
   --radius-sm: calc(var(--radius) - 4px);

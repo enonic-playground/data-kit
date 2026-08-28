@@ -7,3 +7,6 @@ node_modules/
 .vite-hooks/_
 .oxlintcache
 *.tsbuildinfo
+
+dev/fixtures/
+.tmp/

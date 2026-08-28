@@ -8,6 +8,7 @@ import {
   ListTodo,
   PanelRightClose,
   PanelRightOpen,
+  ScrollText,
   Search,
   Settings,
   Shield,
@@ -36,6 +37,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/audit', labelKey: 'nav.audit', icon: Shield },
   { to: '/events', labelKey: 'nav.events', icon: Activity },
   { to: '/system', labelKey: 'nav.system', icon: Settings },
+  { to: '/logs', labelKey: 'nav.logs', icon: ScrollText },
 ];
 
 // ? 45px = 44px content + 1px border-right. Gives exactly size-8 (32px) buttons

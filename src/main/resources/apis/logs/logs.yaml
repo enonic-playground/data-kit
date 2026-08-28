@@ -1,0 +1,4 @@
+kind: 'API'
+title: 'Logs API'
+allow:
+  - 'role:system.admin'

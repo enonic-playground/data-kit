@@ -6,6 +6,7 @@ type ApiFetchOptions = {
   method?: HttpMethod;
   body?: unknown;
   params?: Record<string, string>;
+  signal?: AbortSignal;
 };
 
 export function buildUrl(apiUrl: string, params?: Record<string, string>): string {
@@ -21,7 +22,7 @@ export function buildUrl(apiUrl: string, params?: Record<string, string>): strin
 }
 
 export async function apiFetch<T>(apiUrl: string, options: ApiFetchOptions = {}): Promise<T> {
-  const { method = 'GET', body, params } = options;
+  const { method = 'GET', body, params, signal } = options;
   const url = buildUrl(apiUrl, params);
 
   const headers: Record<string, string> = {
@@ -36,6 +37,7 @@ export async function apiFetch<T>(apiUrl: string, options: ApiFetchOptions = {})
     method,
     headers,
     body: body != null ? JSON.stringify(body) : undefined,
+    signal,
   });
 
   if (!response.ok) {
