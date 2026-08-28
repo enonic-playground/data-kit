@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createMemoryHistory, createRouter, RouterProvider } from '@tanstack/react-router';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import type { DataKitConfig } from '../../../main/resources/assets/js/lib/config';
@@ -78,4 +78,4 @@ export function renderRoute({ initialLocation = '/' }: RenderRouteOptions = {}):
   return { user };
 }
 
-export { screen, waitFor, within };
+export { fireEvent, screen, waitFor, within };

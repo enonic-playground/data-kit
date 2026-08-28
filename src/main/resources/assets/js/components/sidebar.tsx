@@ -36,8 +36,8 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/tasks', labelKey: 'nav.tasks', icon: ListTodo },
   { to: '/audit', labelKey: 'nav.audit', icon: Shield },
   { to: '/events', labelKey: 'nav.events', icon: Activity },
-  { to: '/system', labelKey: 'nav.system', icon: Settings },
   { to: '/logs', labelKey: 'nav.logs', icon: ScrollText },
+  { to: '/system', labelKey: 'nav.system', icon: Settings },
 ];
 
 // ? 45px = 44px content + 1px border-right. Gives exactly size-8 (32px) buttons

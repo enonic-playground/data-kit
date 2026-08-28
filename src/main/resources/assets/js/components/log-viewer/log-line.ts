@@ -43,9 +43,10 @@ export function parseLogLine(text: string): ParsedLogLine {
 }
 
 /**
- * Colour for a whole rendered line. Entry lines are tinted by severity;
- * continuation lines (stack frames) get their own hue so they read as the
- * body of the entry above them rather than as another DEBUG line.
+ * Colour for the message body, which is also the line's base colour. Entry
+ * lines are tinted by severity; continuation lines (stack frames) get their own
+ * hue so they read as the body of the entry above them rather than as another
+ * DEBUG line.
  */
 export const LEVEL_CLASS: Record<LogLevel, string> = {
   TRACE: 'text-text-dimmed',
@@ -56,6 +57,12 @@ export const LEVEL_CLASS: Record<LogLevel, string> = {
 };
 
 export const CONTINUATION_CLASS = 'text-log-continuation';
+
+// ? Time and logger are needed to place an entry, not to read it, so they sit
+// ? below the message; the level token is what the eye scans a log for.
+export const TIME_CLASS = 'text-text-dimmed';
+export const LOGGER_CLASS = 'text-muted-foreground';
+export const LEVEL_EMPHASIS = 'font-semibold';
 
 export function logLineClass(line: ParsedLogLine): string {
   return line.kind === 'entry' ? LEVEL_CLASS[line.level] : CONTINUATION_CLASS;

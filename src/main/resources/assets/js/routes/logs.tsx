@@ -56,6 +56,8 @@ const LOGS_PAGE_NAME = 'LogsPage';
 const FOLLOW_POLL_MS = 1000;
 const IDLE_POLL_MS = 5000;
 
+const GOTO_PATTERN = /^\d+$/;
+
 const searchSchema = z.object({
   file: z.string().optional(),
 });
@@ -146,24 +148,25 @@ const LogsPage = (): ReactElement => {
   const navigate = Route.useNavigate();
   const { file: fileParam } = Route.useSearch();
 
-  const [follow, setFollow] = useState(false);
+  const [follow, setFollow] = useState(true);
   const [wrap, setWrap] = useState(false);
   const [query, setQuery] = useState('');
   const [useRegex, setUseRegex] = useState(false);
   const [caseSensitive, setCaseSensitive] = useState(false);
   const [noMatch, setNoMatch] = useState(false);
+  const [matchLine, setMatchLine] = useState<number | null>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [searching, setSearching] = useState(false);
   const [gotoValue, setGotoValue] = useState('');
 
-  const { data: files = [] } = useQuery(logFilesQueryOptions());
+  const { data: files = [] } = useQuery(logFilesQueryOptions(IDLE_POLL_MS));
 
   const selected = useMemo(() => {
     if (fileParam != null && files.some((entry) => entry.name === fileParam)) return fileParam;
     return (files.find((entry) => entry.active) ?? files[0])?.name;
   }, [fileParam, files]);
 
-  const { data: info } = useQuery(
+  const { data: info, error: infoError } = useQuery(
     logInfoQueryOptions(selected, follow ? FOLLOW_POLL_MS : IDLE_POLL_MS),
   );
 
@@ -239,6 +242,7 @@ const LogsPage = (): ReactElement => {
             return;
           }
           setNoMatch(false);
+          setMatchLine(result.line);
           cursorRef.current = { line: result.line, inclusive: false };
           setFollow(false);
           viewerRef.current?.scrollToLine(result.line, 'center');
@@ -271,42 +275,50 @@ const LogsPage = (): ReactElement => {
     [runSearch],
   );
 
+  const clearSearchVerdict = useCallback(() => {
+    setNoMatch(false);
+    setMatchLine(null);
+    setSearchError(null);
+  }, []);
+
   const handleGoto = useCallback(() => {
-    const parsed = Number.parseInt(gotoValue, 10);
-    if (!Number.isFinite(parsed) || total === 0) return;
-    const line = Math.max(0, Math.min(parsed - 1, total - 1));
+    if (!GOTO_PATTERN.test(gotoValue) || total === 0) return;
+    const line = Math.max(0, Math.min(Number.parseInt(gotoValue, 10) - 1, total - 1));
+    clearSearchVerdict();
     // ? The jump centres the line, so the viewport reaches back above it and
     // ? forward below it; the next search has to resume from the line itself.
     cursorRef.current = { line, inclusive: true };
     setFollow(false);
     viewerRef.current?.scrollToLine(line, 'center');
-  }, [gotoValue, total]);
+  }, [clearSearchVerdict, gotoValue, total]);
 
   const handleTop = useCallback(() => {
+    clearSearchVerdict();
     setFollow(false);
     cursorRef.current = null;
     viewerRef.current?.scrollToLine(0, 'start');
-  }, []);
+  }, [clearSearchVerdict]);
 
   const handleBottom = useCallback(() => {
     if (total === 0) return;
+    clearSearchVerdict();
     cursorRef.current = null;
     setFollow(true);
     viewerRef.current?.scrollToLine(total - 1, 'end');
-  }, [total]);
+  }, [clearSearchVerdict, total]);
 
   const handleRefresh = useCallback(() => {
     viewerRef.current?.reload();
     void queryClient.invalidateQueries({ queryKey: ['logs'] });
   }, [queryClient]);
 
-  const handleScrollAway = useCallback(() => {
-    setFollow(false);
-  }, []);
-
+  // ? A newly opened file lands at its end, so it starts out followed — the
+  // ? viewer's own scroll report is too late to be relied on for that.
   useEffect(() => {
     cursorRef.current = null;
+    setFollow(true);
     setNoMatch(false);
+    setMatchLine(null);
     setSearchError(null);
     return () => {
       searchAbortRef.current?.abort();
@@ -322,6 +334,7 @@ const LogsPage = (): ReactElement => {
     if (cursorRef.current?.inclusive === false) cursorRef.current = null;
     searchAbortRef.current?.abort();
     setNoMatch(false);
+    setMatchLine(null);
     setSearchError(null);
   }, [query, useRegex, caseSensitive]);
 
@@ -337,158 +350,203 @@ const LogsPage = (): ReactElement => {
     );
   }
 
+  let searchVerdict: ReactNode = null;
+  if (searchError != null) {
+    searchVerdict = (
+      <Badge variant="destructive" className="max-w-[16rem] shrink-0 truncate">
+        {searchError}
+      </Badge>
+    );
+  } else if (noMatch) {
+    searchVerdict = (
+      <Badge variant="destructive" className="shrink-0">
+        {t('logs.search.noMatch')}
+      </Badge>
+    );
+  } else if (matchLine != null) {
+    searchVerdict = (
+      <Badge variant="outline" className="shrink-0 whitespace-nowrap">
+        {t('logs.search.matchAt', { line: (matchLine + 1).toLocaleString() })}
+      </Badge>
+    );
+  }
+
+  let viewer: ReactNode;
+  if (selected == null) {
+    viewer = (
+      <div className="text-muted-foreground flex flex-1 items-center justify-center text-sm">
+        {t('logs.viewer.selectFile')}
+      </div>
+    );
+  } else if (infoError != null) {
+    viewer = (
+      <div className="flex flex-1 items-center justify-center">
+        <EmptyState
+          icon={ScrollText}
+          title={t('logs.error.infoFailed')}
+          description={
+            isApiError(infoError) && infoError.message !== ''
+              ? infoError.message
+              : t('common.error.unexpected')
+          }
+        />
+      </div>
+    );
+  } else {
+    viewer = (
+      <LogViewer
+        ref={viewerRef}
+        className="min-h-0 flex-1"
+        file={selected}
+        total={total}
+        size={info?.size ?? 0}
+        wrap={wrap}
+        highlight={highlight}
+        follow={follow}
+        onAtBottomChange={setFollow}
+      />
+    );
+  }
+
   return (
     <div data-component={LOGS_PAGE_NAME} className="flex h-full flex-col">
       {/* Toolbar */}
-      <div className="border-border bg-card flex shrink-0 flex-wrap items-center gap-2 border-b px-4 py-2">
-        <Select value={selected ?? ''} onValueChange={handleSelectFile}>
-          <SelectTrigger
-            className="h-8 w-[20rem] font-mono text-xs"
-            aria-label={t('logs.field.selectFile')}
+      <div className="border-border bg-card flex shrink-0 flex-col gap-2 border-b px-4 py-2">
+        {/* File and view actions */}
+        <div className="flex items-center gap-2">
+          <Select value={selected ?? ''} onValueChange={handleSelectFile}>
+            <SelectTrigger
+              className="h-8 w-[20rem] font-mono text-xs"
+              aria-label={t('logs.field.selectFile')}
+            >
+              <SelectValue placeholder={t('logs.field.selectFile')} />
+            </SelectTrigger>
+            <SelectContent>
+              {files.map((entry) => (
+                <SelectItem key={entry.name} value={entry.name} className="font-mono text-xs">
+                  {entry.name} · {formatSize(entry.size)}
+                  {entry.active ? ` · ${t('logs.badge.active')}` : ''}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <div className="ml-auto flex items-center gap-2">
+            <Button
+              size="sm"
+              variant={follow ? 'primary' : 'ghost'}
+              aria-pressed={follow}
+              onClick={() => setFollow((prev) => !prev)}
+            >
+              <Play className="size-4" />
+              {t('logs.action.follow')}
+            </Button>
+
+            <Button
+              size="sm"
+              variant={wrap ? 'primary' : 'ghost'}
+              aria-pressed={wrap}
+              onClick={() => setWrap((prev) => !prev)}
+            >
+              <TextWrap className="size-4" />
+              {t('logs.action.wrap')}
+            </Button>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" asChild>
+                  <a
+                    href={selected == null ? undefined : logDownloadUrl(selected)}
+                    aria-label={t('logs.action.download')}
+                    download={selected}
+                  >
+                    <Download className="size-4" />
+                  </a>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{t('logs.action.download')}</TooltipContent>
+            </Tooltip>
+
+            <IconAction label={t('common.action.refresh')} onClick={handleRefresh}>
+              <RefreshCw className="size-4" />
+            </IconAction>
+          </div>
+        </div>
+
+        {/* Search and navigation */}
+        <div className="flex items-center gap-2">
+          <Input
+            value={query}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setNoMatch(false);
+              setSearchError(null);
+            }}
+            onKeyDown={handleSearchKeyDown}
+            placeholder={t('logs.field.searchPlaceholder')}
+            aria-label={t('logs.field.search')}
+            className="h-8 min-w-0 flex-1 font-mono text-xs"
+          />
+          <IconAction
+            label={t('logs.search.regex')}
+            active={useRegex}
+            onClick={() => setUseRegex((prev) => !prev)}
           >
-            <SelectValue placeholder={t('logs.field.selectFile')} />
-          </SelectTrigger>
-          <SelectContent>
-            {files.map((entry) => (
-              <SelectItem key={entry.name} value={entry.name} className="font-mono text-xs">
-                {entry.name} · {formatSize(entry.size)}
-                {entry.active ? ` · ${t('logs.badge.active')}` : ''}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+            <Regex className="size-4" />
+          </IconAction>
+          <IconAction
+            label={t('logs.search.caseSensitive')}
+            active={caseSensitive}
+            onClick={() => setCaseSensitive((prev) => !prev)}
+          >
+            <CaseSensitive className="size-4" />
+          </IconAction>
+          <IconAction
+            label={t('logs.action.previousMatch')}
+            disabled={searching || query === ''}
+            onClick={() => runSearch('backward')}
+          >
+            <ChevronUp className="size-4" />
+          </IconAction>
+          <IconAction
+            label={t('logs.action.nextMatch')}
+            disabled={searching || query === ''}
+            onClick={() => runSearch('forward')}
+          >
+            <ChevronDown className="size-4" />
+          </IconAction>
+          {searchVerdict}
 
-        <Button
-          size="sm"
-          variant={follow ? 'primary' : 'ghost'}
-          aria-pressed={follow}
-          onClick={() => setFollow((prev) => !prev)}
-        >
-          <Play className="size-4" />
-          {t('logs.action.follow')}
-        </Button>
+          <div className="bg-border mx-1 h-5 w-px" />
 
-        <Button
-          size="sm"
-          variant={wrap ? 'primary' : 'ghost'}
-          aria-pressed={wrap}
-          onClick={() => setWrap((prev) => !prev)}
-        >
-          <TextWrap className="size-4" />
-          {t('logs.action.wrap')}
-        </Button>
+          <Input
+            value={gotoValue}
+            onChange={(event) => setGotoValue(event.target.value.replace(/\D/g, ''))}
+            onKeyDown={(event) => {
+              if (event.key !== 'Enter') return;
+              event.preventDefault();
+              handleGoto();
+            }}
+            inputMode="numeric"
+            placeholder={t('logs.field.goToLinePlaceholder')}
+            aria-label={t('logs.field.goToLine')}
+            className="h-8 w-[7rem] font-mono text-xs"
+          />
+          <Button size="sm" variant="ghost" onClick={handleGoto} disabled={gotoValue === ''}>
+            {t('logs.action.goToLine')}
+          </Button>
 
-        <div className="bg-border mx-1 h-5 w-px" />
-
-        {/* Search */}
-        <Input
-          value={query}
-          onChange={(event) => {
-            setQuery(event.target.value);
-            setNoMatch(false);
-            setSearchError(null);
-          }}
-          onKeyDown={handleSearchKeyDown}
-          placeholder={t('logs.field.searchPlaceholder')}
-          aria-label={t('logs.field.search')}
-          className="h-8 w-[16rem] font-mono text-xs"
-        />
-        <IconAction
-          label={t('logs.search.regex')}
-          active={useRegex}
-          onClick={() => setUseRegex((prev) => !prev)}
-        >
-          <Regex className="size-4" />
-        </IconAction>
-        <IconAction
-          label={t('logs.search.caseSensitive')}
-          active={caseSensitive}
-          onClick={() => setCaseSensitive((prev) => !prev)}
-        >
-          <CaseSensitive className="size-4" />
-        </IconAction>
-        <IconAction
-          label={t('logs.action.previousMatch')}
-          disabled={searching || query === ''}
-          onClick={() => runSearch('backward')}
-        >
-          <ChevronUp className="size-4" />
-        </IconAction>
-        <IconAction
-          label={t('logs.action.nextMatch')}
-          disabled={searching || query === ''}
-          onClick={() => runSearch('forward')}
-        >
-          <ChevronDown className="size-4" />
-        </IconAction>
-        {noMatch && <Badge variant="destructive">{t('logs.search.noMatch')}</Badge>}
-        {searchError != null && <Badge variant="destructive">{searchError}</Badge>}
-
-        <div className="bg-border mx-1 h-5 w-px" />
-
-        {/* Go to line */}
-        <Input
-          value={gotoValue}
-          onChange={(event) => setGotoValue(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key !== 'Enter') return;
-            event.preventDefault();
-            handleGoto();
-          }}
-          inputMode="numeric"
-          placeholder={t('logs.field.goToLinePlaceholder')}
-          aria-label={t('logs.field.goToLine')}
-          className="h-8 w-[7rem] font-mono text-xs"
-        />
-        <Button size="sm" variant="ghost" onClick={handleGoto} disabled={gotoValue === ''}>
-          {t('logs.action.goToLine')}
-        </Button>
-
-        <div className="ml-auto flex items-center gap-2">
           <IconAction label={t('logs.action.top')} onClick={handleTop}>
             <ArrowUpToLine className="size-4" />
           </IconAction>
           <IconAction label={t('logs.action.bottom')} onClick={handleBottom}>
             <ArrowDownToLine className="size-4" />
           </IconAction>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" asChild>
-                <a
-                  href={selected == null ? undefined : logDownloadUrl(selected)}
-                  aria-label={t('logs.action.download')}
-                  download={selected}
-                >
-                  <Download className="size-4" />
-                </a>
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{t('logs.action.download')}</TooltipContent>
-          </Tooltip>
-          <IconAction label={t('common.action.refresh')} onClick={handleRefresh}>
-            <RefreshCw className="size-4" />
-          </IconAction>
         </div>
       </div>
 
       {/* Viewer */}
-      {selected == null ? (
-        <div className="text-muted-foreground flex flex-1 items-center justify-center text-sm">
-          {t('logs.viewer.selectFile')}
-        </div>
-      ) : (
-        <LogViewer
-          ref={viewerRef}
-          className="min-h-0 flex-1"
-          file={selected}
-          total={total}
-          size={info?.size ?? 0}
-          wrap={wrap}
-          highlight={highlight}
-          follow={follow}
-          onUserScrollAway={handleScrollAway}
-        />
-      )}
+      {viewer}
 
       {/* Status footer */}
       <div className="border-border bg-card text-muted-foreground flex h-7 shrink-0 items-center gap-4 border-t px-4 text-xs">

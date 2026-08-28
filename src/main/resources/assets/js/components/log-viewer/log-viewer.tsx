@@ -11,12 +11,20 @@ import {
 } from 'react';
 
 import type { LineCache } from './line-cache';
+import type { ParsedLogLine } from './log-line';
 import type { ReactElement, ReactNode, Ref } from 'react';
 
 import { fetchLogLines } from '../../lib/api/logs';
 import { cn } from '../../lib/utils';
 import { createLineCache } from './line-cache';
-import { logLineClass, parseLogLine } from './log-line';
+import {
+  LEVEL_CLASS,
+  LEVEL_EMPHASIS,
+  LOGGER_CLASS,
+  TIME_CLASS,
+  logLineClass,
+  parseLogLine,
+} from './log-line';
 
 const LOG_VIEWER_NAME = 'LogViewer';
 const LOG_ROW_NAME = 'LogRow';
@@ -29,7 +37,9 @@ const LOG_ROW_NAME = 'LogRow';
 const LINE_HEIGHT = 18;
 const OVERSCAN = 20;
 
-const BOTTOM_THRESHOLD_PX = 4;
+// ? `scrollTop` is fractional under browser zoom and non-integer DPR, so a
+// ? viewport genuinely pinned to the bottom still reports a sub-pixel gap.
+const BOTTOM_THRESHOLD_PX = 2;
 
 // * Search highlighting
 
@@ -57,7 +67,8 @@ export type LogViewerProps = {
   size: number;
   wrap: boolean;
   follow: boolean;
-  onUserScrollAway: () => void;
+  /** Reports whether a user scroll left the viewport at the end of the file. */
+  onAtBottomChange: (atBottom: boolean) => void;
   highlight?: RegExp | null;
   className?: string;
   ref?: Ref<LogViewerHandle>;
@@ -102,13 +113,11 @@ function renderLineText(text: string, highlight: RegExp | null): ReactNode {
 const isHighSurrogate = (code: number): boolean => code >= 0xd800 && code <= 0xdbff;
 const isLowSurrogate = (code: number): boolean => code >= 0xdc00 && code <= 0xdfff;
 
-// ? `String` indices are UTF-16 units, so a blind cut at `MAX_NOWRAP_CHARS`
-// ? splits an astral character into a lone surrogate and the hidden count comes
-// ? out too high. Cut before the pair and count what is left in code points.
-function truncateForNowrap(text: string): { head: string; hidden: number } {
-  const end = isHighSurrogate(text.charCodeAt(MAX_NOWRAP_CHARS - 1))
-    ? MAX_NOWRAP_CHARS - 1
-    : MAX_NOWRAP_CHARS;
+// ? `String` indices are UTF-16 units, so a blind cut at `limit` splits an
+// ? astral character into a lone surrogate and the hidden count comes out too
+// ? high. Cut before the pair and count what is left in code points.
+function truncate(text: string, limit: number): { head: string; hidden: number } {
+  const end = isHighSurrogate(text.charCodeAt(limit - 1)) ? limit - 1 : limit;
 
   let hidden = 0;
   for (let i = end; i < text.length; i += 1) {
@@ -119,13 +128,48 @@ function truncateForNowrap(text: string): { head: string; hidden: number } {
   return { head: text.slice(0, end), hidden };
 }
 
-function renderLineContent(text: string, wrap: boolean, highlight: RegExp | null): ReactNode {
-  if (wrap || text.length <= MAX_NOWRAP_CHARS) return renderLineText(text, highlight);
-  const { head, hidden } = truncateForNowrap(text);
+function renderMessage(
+  message: string,
+  wrap: boolean,
+  highlight: RegExp | null,
+  budget: number,
+): ReactNode {
+  if (wrap || message.length <= budget) return renderLineText(message, highlight);
+  const { head, hidden } = truncate(message, budget);
   return (
     <>
       {renderLineText(head, highlight)}
       <span className="text-muted-foreground select-none">{` … +${hidden} chars`}</span>
+    </>
+  );
+}
+
+// ? Segments are sliced out of the original text rather than rebuilt from the
+// ? parsed parts, so the pattern's own padding survives and columns stay aligned.
+function renderLineContent(
+  text: string,
+  parsed: ParsedLogLine,
+  wrap: boolean,
+  highlight: RegExp | null,
+): ReactNode {
+  if (parsed.kind === 'continuation') {
+    return renderMessage(text, wrap, highlight, MAX_NOWRAP_CHARS);
+  }
+
+  const timeEnd = parsed.time.length;
+  const levelEnd = timeEnd + 1 + parsed.level.length;
+  const messageStart = text.length - parsed.message.length;
+
+  return (
+    <>
+      <span className={TIME_CLASS}>{renderLineText(text.slice(0, timeEnd), highlight)}</span>
+      <span className={cn(LEVEL_CLASS[parsed.level], LEVEL_EMPHASIS)}>
+        {renderLineText(text.slice(timeEnd, levelEnd), highlight)}
+      </span>
+      <span className={LOGGER_CLASS}>
+        {renderLineText(text.slice(levelEnd, messageStart), highlight)}
+      </span>
+      {renderMessage(parsed.message, wrap, highlight, MAX_NOWRAP_CHARS - messageStart)}
     </>
   );
 }
@@ -143,6 +187,8 @@ type LogRowProps = {
 };
 
 const LogRowBase = ({ index, text, wrap, highlight, measureRef }: LogRowProps): ReactElement => {
+  const parsed = text == null ? null : parseLogLine(text);
+
   const className = cn(
     'relative min-h-[18px] leading-[18px]',
     // ? Gutter is drawn by the pseudo-element so a text selection copies the
@@ -153,14 +199,14 @@ const LogRowBase = ({ index, text, wrap, highlight, measureRef }: LogRowProps): 
     wrap
       ? 'w-full pl-[9ch] break-all whitespace-pre-wrap before:absolute before:left-0'
       : 'before:bg-background w-max min-w-full whitespace-pre before:sticky before:left-0 before:inline-block',
-    text === undefined ? 'text-muted-foreground' : logLineClass(parseLogLine(text)),
+    parsed == null ? 'text-muted-foreground' : logLineClass(parsed),
   );
 
   const content =
-    text === undefined ? (
+    text == null || parsed == null ? (
       <span className="bg-muted-foreground/20 inline-block h-[9px] w-[36ch] animate-pulse rounded-xs align-middle" />
     ) : (
-      renderLineContent(text, wrap, highlight)
+      renderLineContent(text, parsed, wrap, highlight)
     );
 
   return (
@@ -191,7 +237,7 @@ export const LogViewer = ({
   size,
   wrap,
   follow,
-  onUserScrollAway,
+  onAtBottomChange,
   highlight = null,
   className,
 }: LogViewerProps): ReactElement => {
@@ -199,16 +245,15 @@ export const LogViewer = ({
   const fileRef = useRef(file);
   const totalRef = useRef(total);
   const sizeRef = useRef(size);
-  const followRef = useRef(follow);
-  const scrollAwayRef = useRef(onUserScrollAway);
+  const atBottomChangeRef = useRef(onAtBottomChange);
   const rowsRef = useRef<HTMLDivElement>(null);
   const programmaticRef = useRef(0);
+  const pendingEndRef = useRef(true);
 
   fileRef.current = file;
   totalRef.current = total;
   sizeRef.current = size;
-  followRef.current = follow;
-  scrollAwayRef.current = onUserScrollAway;
+  atBottomChangeRef.current = onAtBottomChange;
 
   const cache = useMemo<LineCache>(
     () =>
@@ -276,13 +321,14 @@ export const LogViewer = ({
     return { first, last };
   }, []);
 
+  // ? Reported on every user scroll rather than on transitions: tracking the
+  // ? last value would miss one that flipped during a programmatic scroll.
   const handleScroll = useCallback(() => {
     if (programmaticRef.current > 0) return;
-    if (!followRef.current) return;
     const element = scrollRef.current;
     if (element === null) return;
     const distance = element.scrollHeight - element.scrollTop - element.clientHeight;
-    if (distance > BOTTOM_THRESHOLD_PX) scrollAwayRef.current();
+    atBottomChangeRef.current(distance <= BOTTOM_THRESHOLD_PX);
   }, []);
 
   const activeHighlight = useMemo(() => {
@@ -306,17 +352,15 @@ export const LogViewer = ({
   useEffect(() => cache.destroy, [cache]);
 
   // ? File switch: everything cached, measured and sized belongs to the old file.
+  // ? Vertical position is left to the pending jump, once the new count is known.
   useEffect(() => {
     cache.reset();
     cache.setTotal(totalRef.current, sizeRef.current);
     setMinWidth(0);
     virtualizerRef.current.measure();
-    holdProgrammatic();
-    if (scrollRef.current !== null) {
-      scrollRef.current.scrollTop = 0;
-      scrollRef.current.scrollLeft = 0;
-    }
-  }, [cache, file, holdProgrammatic]);
+    pendingEndRef.current = true;
+    if (scrollRef.current !== null) scrollRef.current.scrollLeft = 0;
+  }, [cache, file]);
 
   useEffect(() => {
     cache.setTotal(total, size);
@@ -346,7 +390,9 @@ export const LogViewer = ({
   }, [virtualItems, version, wrap]);
 
   useEffect(() => {
-    if (!follow || total === 0) return;
+    if (total === 0) return;
+    if (!follow && !pendingEndRef.current) return;
+    pendingEndRef.current = false;
     scrollToLine(total - 1, 'end');
   }, [follow, total, scrollToLine]);
 
