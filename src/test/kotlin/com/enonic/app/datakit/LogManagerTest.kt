@@ -8,6 +8,9 @@ import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
 import java.nio.file.attribute.FileTime
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import kotlin.concurrent.thread
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
@@ -739,6 +742,112 @@ class LogManagerTest {
         writeLog("server.log", "a".repeat(200_000) + "!\n")
 
         assertEquals(-3, manager.search("server.log", "(a|aa)+b", 0, true, true, false))
+    }
+
+    @Test
+    fun `a search in progress does not block reads on the same file`() {
+        val path = writeLog("server.log", (0 until 5000).joinToString("") { "line-$it\n" })
+        val index = LogLineIndex(path)
+        val matching = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val read = CountDownLatch(1)
+
+        val searcher = thread {
+            index.search(
+                { line ->
+                    matching.countDown()
+                    release.await()
+                    line.contains("line-4999")
+                },
+                0,
+                true,
+                30_000,
+            )
+        }
+        // ! Started only once the search is parked inside its matcher. Racing the two from the
+        // ! start lets the read win on merit, and the test passes even while the monitor is held.
+        assertTrue(matching.await(5, TimeUnit.SECONDS), "search never reached the matcher")
+        val reader = thread {
+            if (index.readJson(0, 1, 1L shl 20, 0) != null) read.countDown()
+        }
+
+        try {
+            assertTrue(read.await(5, TimeUnit.SECONDS), "read blocked behind the running search")
+        } finally {
+            release.countDown()
+            searcher.join(5_000)
+            reader.join(5_000)
+        }
+    }
+
+    @Test
+    fun `a search abandons a pattern that reaches neither deadline`() {
+        // ! The whole-search budget must outlive the first deadline check, or the search aborts
+        // ! before it ever calls the matcher and the watchdog is never exercised.
+        manager.searchBudgetMillis = 50
+        manager.searchGraceMillis = 200
+        writeLog("server.log", "alpha\n")
+
+        // ? Consumes no input, so `DeadlineInput.get` never runs and neither bound can fire. The
+        // ? repetition counts keep the abandoned thread finite rather than spinning for the JVM.
+        val started = System.nanoTime()
+        assertEquals(-3, manager.search("server.log", "(?:(?:){60000}){60000}", 0, true, true, false))
+        assertTrue((System.nanoTime() - started) / 1_000_000 < 5_000, "watchdog did not fire")
+    }
+
+    @Test
+    fun `abandoned searches do not use up the capacity of later ones`() {
+        manager.searchBudgetMillis = 50
+        manager.searchGraceMillis = 200
+        writeLog("server.log", "alpha\nbeta\n")
+
+        // ? Each of these strands its worker: the pattern consumes no input, so nothing can stop
+        // ? the match and the thread never comes back. Search has to survive that.
+        val callers = (0 until 5).map {
+            thread { manager.search("server.log", "(?:(?:){30000}){30000}", 0, true, true, false) }
+        }
+        callers.forEach { it.join(5_000) }
+
+        assertEquals(1, manager.search("server.log", "beta", 0, true, false, false))
+    }
+
+    @Test
+    fun `the search pool stops replacing stranded threads at its ceiling`() {
+        assertEquals(4, searchPoolCeiling(0))
+        assertEquals(9, searchPoolCeiling(5))
+        assertEquals(20, searchPoolCeiling(16))
+        assertEquals(20, searchPoolCeiling(100))
+    }
+
+    @Test
+    fun `a file rebuilt under a running search reports a stale scan, not absence`() {
+        val path = writeLog("server.log", (0 until 5000).joinToString("") { "line-$it\n" })
+        val index = LogLineIndex(path)
+        val firstBlock = CountDownLatch(1)
+        val rebuilt = CountDownLatch(1)
+        var result = 0L
+
+        val searcher = thread {
+            result = index.search(
+                { line ->
+                    firstBlock.countDown()
+                    rebuilt.await()
+                    line.contains("line-4999")
+                },
+                0,
+                true,
+                30_000,
+            )
+        }
+
+        assertTrue(firstBlock.await(5, TimeUnit.SECONDS))
+        Files.writeString(path, "replaced\n")
+        rebuilt.countDown()
+        searcher.join(5_000)
+
+        // ! Not -1: the scan never covered the rest of the range, so it cannot report the string
+        // ! absent from a file nobody finished reading.
+        assertEquals(-4, result)
     }
 
     @Test

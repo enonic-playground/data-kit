@@ -4,6 +4,7 @@ import com.enonic.xp.home.HomeDir
 import com.google.common.io.ByteSource
 import com.google.common.io.Files as GuavaFiles
 import org.osgi.service.component.annotations.Component
+import org.osgi.service.component.annotations.Deactivate
 import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
@@ -13,6 +14,14 @@ import java.nio.file.Path
 import java.nio.file.StandardOpenOption
 import java.nio.file.attribute.BasicFileAttributes
 import java.nio.file.attribute.FileTime
+import java.util.concurrent.Callable
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.RejectedExecutionException
+import java.util.concurrent.SynchronousQueue
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.regex.Pattern
 import java.util.regex.PatternSyntaxException
 
@@ -27,6 +36,10 @@ private const val SEARCH_BLOCK_BYTES = 4L shl 20
 private const val MAX_READ_BYTES = 100L shl 20
 private const val MATCH_BUDGET_MILLIS = 1000L
 private const val SEARCH_BUDGET_MILLIS = 30_000L
+private const val SEARCH_GRACE_MILLIS = 5_000L
+private const val SEARCH_THREADS = 4
+private const val SEARCH_THREADS_MAX = 20
+private const val SEARCH_THREAD_IDLE_SECONDS = 30L
 private const val DEADLINE_CHECK_INTERVAL = 4096
 private const val MAX_CACHED_INDEXES = 4
 private const val INITIAL_OFFSET_CAPACITY = 1024
@@ -78,6 +91,7 @@ private const val CARRIAGE_RETURN = '\r'.code.toByte()
 internal const val LOG_NOT_FOUND = -2L
 internal const val LOG_NO_MATCH = -1L
 internal const val LOG_SEARCH_ABORTED = -3L
+internal const val LOG_SEARCH_STALE = -4L
 
 @Component(immediate = true)
 class LogManager {
@@ -90,8 +104,30 @@ class LogManager {
     /** Test seam: milliseconds a whole search may run before it aborts. */
     internal var searchBudgetMillis: Long = SEARCH_BUDGET_MILLIS
 
+    /** Test seam: milliseconds the caller waits past the search budget before abandoning. */
+    internal var searchGraceMillis: Long = SEARCH_GRACE_MILLIS
+
     /** Test seam: bytes of line content a single read response may carry. */
     internal var maxReadBytes: Long = MAX_READ_BYTES
+
+    // ? A search runs on its own thread so the caller can walk away from one that will not stop.
+    // ! An abandoned match is lost for the life of the JVM. The pool grows one per abandonment so
+    // ! those never eat the live capacity, and stops at [SEARCH_THREADS_MAX] so they cannot
+    // ! exhaust the JVM's threads either.
+    private val searchExecutor = ThreadPoolExecutor(
+        0,
+        SEARCH_THREADS,
+        SEARCH_THREAD_IDLE_SECONDS,
+        TimeUnit.SECONDS,
+        SynchronousQueue(),
+    ) { runnable -> Thread(runnable, "datakit-log-search").apply { isDaemon = true } }
+
+    private val abandonedSearches = AtomicInteger()
+
+    @Deactivate
+    fun deactivate() {
+        searchExecutor.shutdownNow()
+    }
 
     fun list(): String {
         val dir = logsDirectory()
@@ -171,9 +207,9 @@ class LogManager {
 
     /**
      * Returns the matching line number, [LOG_NO_MATCH] when nothing matches, [LOG_NOT_FOUND] when
-     * the file name is invalid or the file is missing, or [LOG_SEARCH_ABORTED] when a regex ran
-     * past its time budget. Throws [IllegalArgumentException] for an empty query or an invalid
-     * regular expression.
+     * the file name is invalid or the file is missing, [LOG_SEARCH_ABORTED] when a regex ran past
+     * its time budget, or [LOG_SEARCH_STALE] when the file was rewritten mid-scan. Throws
+     * [IllegalArgumentException] for an empty query or an invalid regular expression.
      */
     fun search(
         name: String?,
@@ -185,14 +221,35 @@ class LogManager {
     ): Long {
         val matcher = lineMatcher(query, regex, caseSensitive, matchBudgetMillis)
         val file = resolveLogFile(name) ?: return LOG_NOT_FOUND
+        val index = LogIndexCache.get(file)
+
+        val task = try {
+            searchExecutor.submit(Callable { index.search(matcher, from, forward, searchBudgetMillis) })
+        } catch (_: RejectedExecutionException) {
+            // ? Every thread is busy or stranded, or the component has been deactivated. Either way
+            // ? the search cannot run, and saying so beats exhausting the JVM to avoid saying it.
+            return LOG_SEARCH_ABORTED
+        }
+
         return try {
-            LogIndexCache.get(file).search(matcher, from, forward, searchBudgetMillis)
-        } catch (_: MatchTimeoutException) {
+            task.get(searchBudgetMillis + searchGraceMillis, TimeUnit.MILLISECONDS)
+        } catch (_: TimeoutException) {
+            // ! Abandoned, not stopped: nothing can interrupt a match in progress. It holds no
+            // ! monitor, so it costs only its thread — replaced here to keep the live capacity.
+            task.cancel(true)
+            searchExecutor.maximumPoolSize = searchPoolCeiling(abandonedSearches.incrementAndGet())
             LOG_SEARCH_ABORTED
-        } catch (_: StackOverflowError) {
-            // ! Some patterns exhaust the stack before the deadline check runs. Matching mutates no
-            // ! index state and the monitor unwinds with it, so the search is simply over.
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
             LOG_SEARCH_ABORTED
+        } catch (e: ExecutionException) {
+            when (val cause = e.cause) {
+                // ! Some patterns exhaust the stack before the deadline check runs. Matching mutates
+                // ! no index state, so the search is simply over.
+                is MatchTimeoutException, is StackOverflowError -> LOG_SEARCH_ABORTED
+                null -> throw RuntimeException("Failed to search log '${'$'}{file.fileName}'", e)
+                else -> throw cause
+            }
         }
     }
 
@@ -214,6 +271,12 @@ class LogManager {
 }
 
 private class LogFileEntry(val name: String, val size: Long, val modified: FileTime)
+
+/** What one search was started against: how far it may scan, and which build of the index. */
+private class SearchScope(val total: Int, val generation: Int)
+
+/** Lines [start] until [end], copied out of the index so matching can run outside its monitor. */
+private class LineBlock(val start: Int, val end: Int, val lines: List<String>)
 
 private fun lineMatcher(
     query: String?,
@@ -237,7 +300,7 @@ private fun lineMatcher(
     // ? Per line, not per search: a multi-gigabyte scan legitimately takes seconds, while no
     // ? single line needs a second unless the pattern is backtracking wildly.
     // ! Reached only through `get`, so a match that consumes no character is bounded by neither
-    // ! this nor the whole-search deadline, which is checked between lines.
+    // ! this nor the whole-search deadline. Only the caller's watchdog contains that case.
     val budgetNanos = budgetMillis * 1_000_000L
     return { line -> pattern.matcher(DeadlineInput(line, System.nanoTime() + budgetNanos)).find() }
 }
@@ -331,6 +394,14 @@ private fun classifyHead(head: ByteArray, length: Int): Byte {
 }
 
 /**
+ * Threads the search pool may hold once [stranded] matches have been abandoned. One replacement
+ * each, so a runaway never costs a later search its capacity, up to a ceiling that keeps a run of
+ * them from exhausting the JVM.
+ */
+internal fun searchPoolCeiling(stranded: Int): Int =
+    minOf(SEARCH_THREADS + stranded, SEARCH_THREADS_MAX)
+
+/**
  * Whether [mask] is a real filter. A mask admitting all five levels is the same view as no
  * filter at all, and taking the unfiltered path keeps [LEVEL_UNKNOWN] lines visible in it.
  */
@@ -353,6 +424,10 @@ internal class LogLineIndex(private val path: Path) {
     private var indexed = false
     private var fileKey: Any? = null
     private var lastModified: FileTime? = null
+
+    // ? Bumped on every rebuild, so a search that left the monitor between blocks can tell that
+    // ? the line numbers it is holding no longer describe this file.
+    private var generation = 0
 
     // ? Head of the line being scanned. It outlives one `scan` call because a line can straddle
     // ? the read buffer, and one growth poll because the trailing line of a live file is still
@@ -564,47 +639,81 @@ internal class LogLineIndex(private val path: Path) {
         }
     }
 
-    @Synchronized
+    /**
+     * Line number of the first match at or after [fromRequested], in the direction [forward] gives.
+     *
+     * [LOG_NO_MATCH] means the whole requested range was scanned and held nothing. A range the scan
+     * could not cover reports [LOG_SEARCH_STALE] instead — claiming absence from lines never read
+     * would tell an admin the string is not in the log when nobody looked.
+     *
+     * Deliberately not `@Synchronized`: matching is the expensive part and needs nothing but a
+     * `String`, so it runs between blocks rather than inside the monitor. Otherwise every read and
+     * every follow poll on this file would queue behind it.
+     */
     fun search(
         matches: (String) -> Boolean,
         fromRequested: Long,
         forward: Boolean,
         budgetMillis: Long,
     ): Long {
-        refresh() ?: return LOG_NOT_FOUND
-        if (lineCount == 0) return LOG_NO_MATCH
+        val scope = searchScope() ?: return LOG_NOT_FOUND
+        if (scope.total == 0) return LOG_NO_MATCH
 
         val from = fromRequested.coerceAtLeast(0)
-        // ! A per-line bound leaves the total at per-line cost times line count, and this method
-        // ! holds the file's index monitor throughout — so reads and info polls wait on it.
+        if (forward && from >= scope.total) return LOG_NO_MATCH
+
         val deadlineNanos = System.nanoTime() + budgetMillis * 1_000_000L
+        var cursor = if (forward) from.toInt() else minOf(from, (scope.total - 1).toLong()).toInt()
 
-        if (forward) {
-            if (from >= lineCount) return LOG_NO_MATCH
-            var start = from.toInt()
-            while (start < lineCount) {
-                val end = forwardBlockEnd(start)
-                val lines = readLines(start, end)
-                for ((index, line) in lines.withIndex()) {
-                    if (System.nanoTime() - deadlineNanos >= 0) return LOG_SEARCH_ABORTED
-                    if (matches(line)) return (start + index).toLong()
-                }
-                start = end
-            }
-            return LOG_NO_MATCH
-        }
-
-        var end = minOf(from, (lineCount - 1).toLong()).toInt()
-        while (end >= 0) {
-            val start = backwardBlockStart(end)
-            val lines = readLines(start, end + 1)
-            for (index in lines.indices.reversed()) {
+        while (cursor in 0 until scope.total) {
+            val block = searchBlock(cursor, forward, scope) ?: return LOG_SEARCH_STALE
+            val order = if (forward) block.lines.indices else block.lines.indices.reversed()
+            for (index in order) {
                 if (System.nanoTime() - deadlineNanos >= 0) return LOG_SEARCH_ABORTED
-                if (matches(lines[index])) return (start + index).toLong()
+                if (matches(block.lines[index])) {
+                    // ! Matched outside the monitor against lines read a moment ago. Without this
+                    // ! the number can point into a file that has since rotated away.
+                    return if (stillCurrent(scope)) {
+                        (block.start + index).toLong()
+                    } else {
+                        LOG_SEARCH_STALE
+                    }
+                }
             }
-            end = start - 1
+            cursor = if (forward) block.end else block.start - 1
         }
         return LOG_NO_MATCH
+    }
+
+    /** Whether the index still describes the file [scope] was taken against. */
+    @Synchronized
+    private fun stillCurrent(scope: SearchScope): Boolean {
+        refresh() ?: return false
+        return generation == scope.generation
+    }
+
+    @Synchronized
+    private fun searchScope(): SearchScope? {
+        refresh() ?: return null
+        return SearchScope(lineCount, generation)
+    }
+
+    /**
+     * The block of lines at [cursor], decoded under the monitor so the caller can match without
+     * holding it. `null` ends the search: the file is gone, it no longer reaches [cursor], or it
+     * was rebuilt under us and [scope]'s line numbers describe content that is no longer there.
+     */
+    @Synchronized
+    private fun searchBlock(cursor: Int, forward: Boolean, scope: SearchScope): LineBlock? {
+        refresh() ?: return null
+        if (generation != scope.generation) return null
+
+        val limit = minOf(scope.total, lineCount)
+        if (cursor >= limit) return null
+
+        val start = if (forward) cursor else backwardBlockStart(cursor)
+        val end = if (forward) forwardBlockEnd(cursor, limit) else cursor + 1
+        return LineBlock(start, end, readLines(start, end))
     }
 
     private fun refresh(): BasicFileAttributes? {
@@ -629,6 +738,7 @@ internal class LogLineIndex(private val path: Path) {
     }
 
     private fun reset() {
+        generation++
         offsets = LongArray(INITIAL_OFFSET_CAPACITY)
         levels = ByteArray(INITIAL_OFFSET_CAPACITY)
         lineCount = 0
@@ -734,8 +844,8 @@ internal class LogLineIndex(private val path: Path) {
         return end
     }
 
-    private fun forwardBlockEnd(start: Int): Int {
-        val maxEnd = minOf(lineCount, start + SEARCH_BLOCK_LINES)
+    private fun forwardBlockEnd(start: Int, limit: Int): Int {
+        val maxEnd = minOf(limit, start + SEARCH_BLOCK_LINES)
         var end = start + 1
         while (end < maxEnd && lineEnd(end - 1) - offsets[start] < SEARCH_BLOCK_BYTES) end++
         return end
