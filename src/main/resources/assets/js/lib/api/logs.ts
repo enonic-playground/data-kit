@@ -99,10 +99,11 @@ export function logDownloadUrl(file: string): string {
   return buildUrl(apiUris.logs, { file, action: 'download' });
 }
 
-export function logFilesQueryOptions() {
+export function logFilesQueryOptions(refetchInterval?: number) {
   return queryOptions({
     queryKey: ['logs', 'files'],
     queryFn: ({ signal }) => fetchLogFiles(signal),
+    refetchInterval,
   });
 }
 

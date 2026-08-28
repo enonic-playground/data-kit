@@ -2,7 +2,7 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { renderRoute, screen, waitFor, within } from '../test-utils';
+import { fireEvent, renderRoute, screen, waitFor, within } from '../test-utils';
 
 vi.mock('../../../../main/resources/assets/js/lib/api/client', () => ({
   apiFetch: vi.fn(),
@@ -117,6 +117,32 @@ function getLogsPage(): HTMLElement {
   return element as HTMLElement;
 }
 
+// ? jsdom reports every scroll metric as 0, which reads as "pinned to the
+// ? bottom" whatever the viewport does; stubs make the directions distinguishable.
+const VIEWPORT = { scrollHeight: 1000, clientHeight: 100 };
+
+async function scrollViewerTo(scrollTop: number): Promise<void> {
+  const viewer = document.querySelector('[data-component="LogViewer"]');
+  if (!viewer) throw new Error('LogViewer not found');
+
+  Object.defineProperty(viewer, 'scrollHeight', {
+    value: VIEWPORT.scrollHeight,
+    configurable: true,
+  });
+  Object.defineProperty(viewer, 'clientHeight', {
+    value: VIEWPORT.clientHeight,
+    configurable: true,
+  });
+  (viewer as HTMLElement).scrollTop = scrollTop;
+
+  // ? The jump to the end suppresses scroll reporting for two frames, so a
+  // ? single event can land inside that window and be dropped.
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    fireEvent.scroll(viewer);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
+
 describe('LogsPage', () => {
   beforeEach(() => {
     vi.mocked(apiFetch).mockReset();
@@ -164,6 +190,26 @@ describe('LogsPage', () => {
     expect(rows[2].getAttribute('data-line')).toBe('3');
     // ? Numbers live in a pseudo-element, so they never end up in copied text.
     expect(rows[0].textContent).toBe(LOG_LINES[0]);
+  });
+
+  it('should colour the level token apart from the rest of the line', async () => {
+    renderRoute({ initialLocation: '/logs' });
+
+    await waitFor(() => {
+      expect(screen.getByText(/Failed to run script/)).toBeInTheDocument();
+    });
+
+    const rows = getLogsPage().querySelectorAll('[data-component="LogRow"]');
+    const spans = rows[1].querySelectorAll('span');
+
+    expect(spans[0].textContent).toBe('10:23:46.001');
+    expect(spans[0].className).toContain('text-text-dimmed');
+    expect(spans[1].textContent).toBe(' ERROR');
+    expect(spans[1].className).toContain('text-log-error');
+    expect(spans[2].textContent).toBe(' com.enonic.xp.script.ScriptExecutor - ');
+    expect(spans[2].className).toContain('text-muted-foreground');
+    // ? Segments are slices, so the row still copies as the original line.
+    expect(rows[1].textContent).toBe(LOG_LINES[1]);
   });
 
   it('should show the status footer and a download link', async () => {
@@ -497,7 +543,57 @@ describe('LogsPage', () => {
     expect(searchCalls()[1].from).toBe('0');
   });
 
-  it('should re-enable follow when scrolling to the end', async () => {
+  it('should follow the newest output by default', async () => {
+    renderRoute({ initialLocation: '/logs' });
+
+    await waitFor(() => {
+      expect(screen.getByText('3 lines')).toBeInTheDocument();
+    });
+
+    const page = within(getLogsPage());
+    expect(page.getByRole('button', { name: 'Follow' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('should disarm follow when the user scrolls away from the end', async () => {
+    renderRoute({ initialLocation: '/logs' });
+
+    await waitFor(() => {
+      expect(screen.getByText('3 lines')).toBeInTheDocument();
+    });
+
+    const page = within(getLogsPage());
+    const followButton = page.getByRole('button', { name: 'Follow' });
+
+    await scrollViewerTo(400);
+
+    await waitFor(() => {
+      expect(followButton).toHaveAttribute('aria-pressed', 'false');
+    });
+  });
+
+  it('should re-arm follow when the user scrolls back to the end', async () => {
+    renderRoute({ initialLocation: '/logs' });
+
+    await waitFor(() => {
+      expect(screen.getByText('3 lines')).toBeInTheDocument();
+    });
+
+    const page = within(getLogsPage());
+    const followButton = page.getByRole('button', { name: 'Follow' });
+
+    await scrollViewerTo(400);
+    await waitFor(() => {
+      expect(followButton).toHaveAttribute('aria-pressed', 'false');
+    });
+
+    await scrollViewerTo(VIEWPORT.scrollHeight - VIEWPORT.clientHeight);
+
+    await waitFor(() => {
+      expect(followButton).toHaveAttribute('aria-pressed', 'true');
+    });
+  });
+
+  it('should re-arm follow when scrolling to the end from the toolbar', async () => {
     const { user } = renderRoute({ initialLocation: '/logs' });
 
     await waitFor(() => {
@@ -506,12 +602,65 @@ describe('LogsPage', () => {
 
     const page = within(getLogsPage());
     const followButton = page.getByRole('button', { name: 'Follow' });
+
+    await user.click(followButton);
     expect(followButton).toHaveAttribute('aria-pressed', 'false');
 
     await user.click(page.getByLabelText('Scroll to end'));
 
     await waitFor(() => {
       expect(followButton).toHaveAttribute('aria-pressed', 'true');
+    });
+  });
+
+  it('should ignore a go-to-line value that is not a line number', async () => {
+    const { user } = renderRoute({ initialLocation: '/logs' });
+
+    await waitFor(() => {
+      expect(screen.getByText('3 lines')).toBeInTheDocument();
+    });
+
+    const page = within(getLogsPage());
+    await user.type(page.getByLabelText('Go to line'), '12abc');
+
+    expect(page.getByLabelText('Go to line')).toHaveValue('12');
+  });
+
+  it('should clear the no-match verdict when jumping to the start', async () => {
+    const { user } = renderRoute({ initialLocation: '/logs' });
+
+    await waitFor(() => {
+      expect(screen.getByText('3 lines')).toBeInTheDocument();
+    });
+
+    const page = within(getLogsPage());
+    await user.type(page.getByLabelText('Search in log file'), 'nothing-matches-this');
+    await user.click(page.getByLabelText('Next match'));
+
+    await waitFor(() => {
+      expect(page.getByText('No match')).toBeInTheDocument();
+    });
+
+    await user.click(page.getByLabelText('Scroll to start'));
+
+    await waitFor(() => {
+      expect(page.queryByText('No match')).not.toBeInTheDocument();
+    });
+  });
+
+  it('should report the line a match was found on', async () => {
+    const { user } = renderRoute({ initialLocation: '/logs' });
+
+    await waitFor(() => {
+      expect(screen.getByText('3 lines')).toBeInTheDocument();
+    });
+
+    const page = within(getLogsPage());
+    await user.type(page.getByLabelText('Search in log file'), 'ScriptExecutor');
+    await user.click(page.getByLabelText('Next match'));
+
+    await waitFor(() => {
+      expect(page.getByText('Match at line 2')).toBeInTheDocument();
     });
   });
 
