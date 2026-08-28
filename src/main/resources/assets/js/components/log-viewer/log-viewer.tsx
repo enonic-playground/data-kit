@@ -272,8 +272,12 @@ export const LogViewer = ({
   const sizeRef = useRef(size);
   const atBottomChangeRef = useRef(onAtBottomChange);
   const rowsRef = useRef<HTMLDivElement>(null);
+  const sizerRef = useRef<HTMLDivElement>(null);
   const programmaticRef = useRef(0);
   const pendingEndRef = useRef(true);
+  // ? Held open between the jump to the end and the layout that jump was aiming at. See the
+  // ? resize effect below for why the two are not the same moment.
+  const pinnedRef = useRef(false);
 
   fileRef.current = file;
   levelsRef.current = levels;
@@ -330,11 +334,31 @@ export const LogViewer = ({
       const count = totalRef.current;
       if (count === 0) return;
       const index = Math.max(0, Math.min(line, count - 1));
+      pinnedRef.current = false;
       holdProgrammatic();
       virtualizerRef.current.scrollToIndex(index, { align });
     },
     [holdProgrammatic],
   );
+
+  // ! Not `scrollToIndex(total - 1, 'end')`: that resolves the last row's offset against the
+  // ! sizes the virtualizer holds *now*, and on a file switch those are provisional — `minWidth`
+  // ! is back to 0 so no horizontal scrollbar has shortened `clientHeight`, and in wrap mode no
+  // ! row has been measured. Reading the live `scrollHeight` instead is what makes the target
+  // ! the bottom as it currently stands rather than as the estimates predicted it.
+  const snapToEnd = useCallback(() => {
+    const element = scrollRef.current;
+    if (element === null) return;
+    const target = Math.max(0, element.scrollHeight - element.clientHeight);
+    if (Math.abs(element.scrollTop - target) <= BOTTOM_THRESHOLD_PX) return;
+    holdProgrammatic();
+    element.scrollTop = target;
+  }, [holdProgrammatic]);
+
+  const scrollToEnd = useCallback(() => {
+    pinnedRef.current = true;
+    snapToEnd();
+  }, [snapToEnd]);
 
   const getPhysicalLine = useCallback(
     (index: number): number | undefined => (filtering ? cache.getLineNumber(index) : index),
@@ -367,6 +391,14 @@ export const LogViewer = ({
     atBottomChangeRef.current(distance <= BOTTOM_THRESHOLD_PX);
   }, []);
 
+  // ! A scroll event cannot say who caused it, and while the layout settles most of them are
+  // ! not the reader: the virtualizer re-scrolls on its own to hold the view steady as rows
+  // ! it had only estimated report their real heights. Ending the pin on those would abandon
+  // ! the jump exactly where the defect leaves it. A gesture is the reader, unambiguously.
+  const handleGesture = useCallback(() => {
+    pinnedRef.current = false;
+  }, []);
+
   const activeHighlight = useMemo(() => {
     if (highlight == null) return null;
     return highlight.global ? highlight : new RegExp(highlight.source, `${highlight.flags}g`);
@@ -388,6 +420,29 @@ export const LogViewer = ({
 
   useEffect(() => cache.destroy, [cache]);
 
+  // ! The end is not where it will be when the jump fires. The rows under it are still
+  // ! skeletons, so none has been measured for wrap and none is wide enough yet to have pulled
+  // ! the horizontal scrollbar in to shorten the viewport — both arrive with the text, a fetch
+  // ! later, and both move the bottom out from under a jump that has already landed. Holding
+  // ! the request open and re-aiming it on every geometry change is what makes the difference
+  // ! between the end of the file and a last line cropped behind a scrollbar. The two observed
+  // ! nodes are the two terms of the target: the sizer's height *is* `scrollHeight`, and the
+  // ! scroll element's box is what a scrollbar takes `clientHeight` out of.
+  useEffect(() => {
+    const element = scrollRef.current;
+    const sizer = sizerRef.current;
+    if (element === null || sizer === null) return;
+    if (typeof ResizeObserver !== 'function') return;
+
+    const observer = new ResizeObserver(() => {
+      if (!pinnedRef.current) return;
+      snapToEnd();
+    });
+    observer.observe(element);
+    observer.observe(sizer);
+    return () => observer.disconnect();
+  }, [snapToEnd]);
+
   // ? File switch: everything cached, measured and sized belongs to the old file.
   // ? Vertical position is left to the pending jump, once the new count is known.
   useEffect(() => {
@@ -396,6 +451,7 @@ export const LogViewer = ({
     setMinWidth(0);
     virtualizerRef.current.measure();
     pendingEndRef.current = true;
+    pinnedRef.current = false;
     if (scrollRef.current !== null) scrollRef.current.scrollLeft = 0;
   }, [cache, file]);
 
@@ -438,10 +494,16 @@ export const LogViewer = ({
 
   useEffect(() => {
     if (total === 0) return;
-    if (!follow && !pendingEndRef.current) return;
-    pendingEndRef.current = false;
-    scrollToLine(total - 1, 'end');
-  }, [follow, total, scrollToLine]);
+    if (follow || pendingEndRef.current) {
+      pendingEndRef.current = false;
+      scrollToEnd();
+      return;
+    }
+    // ! Lines appended to the file are not the layout settling under the last jump, and chasing
+    // ! them is what follow is for. Without this the pin outlives its purpose and quietly
+    // ! follows a file the reader turned following off for.
+    pinnedRef.current = false;
+  }, [follow, total, scrollToEnd]);
 
   const measureRef = wrap ? virtualizer.measureElement : undefined;
 
@@ -457,9 +519,13 @@ export const LogViewer = ({
       data-component={LOG_VIEWER_NAME}
       tabIndex={0}
       onScroll={handleScroll}
+      onWheel={handleGesture}
+      onPointerDown={handleGesture}
+      onKeyDown={handleGesture}
       className={containerClass}
     >
       <div
+        ref={sizerRef}
         className="relative w-full"
         style={{
           height: `${virtualizer.getTotalSize()}px`,

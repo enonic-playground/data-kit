@@ -217,25 +217,47 @@ function getLogsPage(): HTMLElement {
   return element as HTMLElement;
 }
 
-// ? jsdom reports every scroll metric as 0, which reads as "pinned to the
-// ? bottom" whatever the viewport does; stubs make the directions distinguishable.
-const VIEWPORT = { scrollHeight: 1000, clientHeight: 100 };
+// ? jsdom reports every scroll metric as 0, which reads as "pinned to the bottom" whatever the
+// ? viewport does; stubs make the directions distinguishable. They go on the prototype rather
+// ? than on the element, because the viewer aims its jump to the end at the geometry it can read
+// ? in the frame it mounts — a stub installed once the page is on screen arrives after that.
+const VIEWPORT_DEFAULTS = { scrollHeight: 1000, clientHeight: 100 };
+const VIEWPORT: { scrollHeight: number; clientHeight: number } = { ...VIEWPORT_DEFAULTS };
 
-async function scrollViewerTo(scrollTop: number): Promise<void> {
+// ? A test that needs a metric to move under the viewer redefines it as a getter, so the reset
+// ? has to put a plain value back rather than assign through one.
+const VIEWPORT_METRIC = { writable: true, configurable: true, enumerable: true };
+
+const isViewer = (element: Element): boolean =>
+  element.getAttribute('data-component') === 'LogViewer';
+
+for (const metric of ['scrollHeight', 'clientHeight'] as const) {
+  Object.defineProperty(Element.prototype, metric, {
+    configurable: true,
+    get(this: Element) {
+      return isViewer(this) ? VIEWPORT[metric] : 0;
+    },
+  });
+}
+
+/** Tell the viewer its layout moved — jsdom lays nothing out, so nothing else ever will. */
+function fireResize(): void {
+  const observer = {} as ResizeObserver;
+  for (const callback of window.__resizeObserverCallbacks ?? []) callback([], observer);
+}
+
+function getViewer(): HTMLElement {
   const viewer = document.querySelector('[data-component="LogViewer"]');
   if (!viewer) throw new Error('LogViewer not found');
+  return viewer as HTMLElement;
+}
 
-  Object.defineProperty(viewer, 'scrollHeight', {
-    value: VIEWPORT.scrollHeight,
-    configurable: true,
-  });
-  Object.defineProperty(viewer, 'clientHeight', {
-    value: VIEWPORT.clientHeight,
-    configurable: true,
-  });
-  (viewer as HTMLElement).scrollTop = scrollTop;
+async function scrollViewerTo(scrollTop: number): Promise<void> {
+  const viewer = getViewer();
 
-  // ? The jump to the end suppresses scroll reporting for two frames, so a
+  viewer.scrollTop = scrollTop;
+
+  // ? The jump to the end suppresses scroll reporting for a frame or two, so a
   // ? single event can land inside that window and be dropped.
   for (let attempt = 0; attempt < 5; attempt += 1) {
     fireEvent.scroll(viewer);
@@ -247,6 +269,10 @@ describe('LogsPage', () => {
   beforeEach(() => {
     vi.mocked(apiFetch).mockReset();
     mockApi();
+    Object.defineProperties(VIEWPORT, {
+      scrollHeight: { ...VIEWPORT_METRIC, value: VIEWPORT_DEFAULTS.scrollHeight },
+      clientHeight: { ...VIEWPORT_METRIC, value: VIEWPORT_DEFAULTS.clientHeight },
+    });
   });
 
   it('should render the toolbar and the file select', async () => {
@@ -652,6 +678,79 @@ describe('LogsPage', () => {
 
     const page = within(getLogsPage());
     expect(page.getByRole('button', { name: 'Follow' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('should land on the last line, not on the offset the estimates predicted', async () => {
+    renderRoute({ initialLocation: '/logs' });
+
+    await waitFor(() => {
+      expect(screen.getByText('3 lines')).toBeInTheDocument();
+    });
+
+    await waitFor(() => {
+      expect(getViewer().scrollTop).toBe(VIEWPORT.scrollHeight - VIEWPORT.clientHeight);
+    });
+  });
+
+  it('should re-aim at the end when a scrollbar shortens the viewport after the jump', async () => {
+    const SCROLLBAR_PX = 15;
+
+    renderRoute({ initialLocation: '/logs' });
+
+    await waitFor(() => {
+      expect(screen.getByText('3 lines')).toBeInTheDocument();
+    });
+    await waitFor(() => {
+      expect(getViewer().scrollTop).toBe(VIEWPORT.scrollHeight - VIEWPORT.clientHeight);
+    });
+
+    // ? What the widest measured row brings with it once the text lands, a fetch after the jump
+    // ? has already been aimed and fired. The bottom moves down by exactly the scrollbar's
+    // ? height, and the last line ends up cropped underneath it.
+    VIEWPORT.clientHeight -= SCROLLBAR_PX;
+    fireResize();
+
+    await waitFor(() => {
+      expect(getViewer().scrollTop).toBe(VIEWPORT.scrollHeight - VIEWPORT.clientHeight);
+    });
+  });
+
+  it('should re-aim at the end when wrapped rows measure taller than their estimate', async () => {
+    renderRoute({ initialLocation: '/logs' });
+
+    await waitFor(() => {
+      expect(screen.getByText('3 lines')).toBeInTheDocument();
+    });
+
+    // ? Wrapping turns each estimated 18px row into several, so the content outgrows the height
+    // ? the jump was computed against and the end of the file drops below the viewport.
+    VIEWPORT.scrollHeight *= 3;
+    fireResize();
+
+    await waitFor(() => {
+      expect(getViewer().scrollTop).toBe(VIEWPORT.scrollHeight - VIEWPORT.clientHeight);
+    });
+  });
+
+  it('should stop re-aiming once the reader takes over', async () => {
+    renderRoute({ initialLocation: '/logs' });
+
+    await waitFor(() => {
+      expect(screen.getByText('3 lines')).toBeInTheDocument();
+    });
+
+    fireEvent.wheel(getViewer());
+    await scrollViewerTo(120);
+
+    // ? The layout settling after the reader has moved must not haul them back to the end.
+    VIEWPORT.scrollHeight *= 3;
+    fireResize();
+
+    expect(getViewer().scrollTop).toBe(120);
+    expect(within(getLogsPage()).getByRole('button', { name: 'Follow' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
   });
 
   it('should disarm follow when the user scrolls away from the end', async () => {
