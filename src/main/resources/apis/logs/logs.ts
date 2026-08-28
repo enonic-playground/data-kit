@@ -79,6 +79,7 @@ const INVALID_REGEX_MARKER = 'Invalid regular expression';
 const NOT_FOUND = -2;
 const NO_MATCH = -1;
 const SEARCH_ABORTED = -3;
+const SEARCH_STALE = -4;
 
 //
 // * Bean
@@ -194,6 +195,13 @@ function searchLines(req: Request, file: string): Response {
   }
 
   if (line === NOT_FOUND) return notFound(file);
+  if (line === SEARCH_STALE) {
+    return errorResponse(
+      409,
+      'Search stopped: the log file changed while it was being scanned',
+      'SEARCH_STALE',
+    );
+  }
   if (line === SEARCH_ABORTED) {
     return errorResponse(
       400,
