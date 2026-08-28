@@ -214,6 +214,17 @@ describe('search', () => {
     expect(response.status).toBe(404);
   });
 
+  test('returns 400 when the bean aborts a regex that ran too long', () => {
+    mockLogManager.search.mockReturnValue(-3);
+
+    const response = get(
+      request({ file: 'server.log', action: 'search', query: '(a+)+b', regex: 'true' }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(parseBody(response).code).toBe('SEARCH_TIMEOUT');
+  });
+
   test('returns 400 for a missing, empty or oversized query', () => {
     expect(get(request({ file: 'server.log', action: 'search' })).status).toBe(400);
     expect(get(request({ file: 'server.log', action: 'search', query: '' })).status).toBe(400);

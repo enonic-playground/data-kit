@@ -20,6 +20,7 @@ const NEWLINE = 0x0a;
 const SCAN_BUFFER_BYTES = 1024 * 1024;
 const SEARCH_BLOCK_LINES = 2048;
 const SEARCH_BLOCK_BYTES = 4 * 1024 * 1024;
+const MAX_READ_BYTES = 20 * 1024 * 1024;
 const MAX_CACHED_INDEXES = 4;
 
 type LogFile = {
@@ -347,13 +348,28 @@ function handleInfo(res: ServerResponse, resolved: Resolved): void {
   sendData(res, info);
 }
 
+// Mirrors the server's read cap: 256 lines of 200 KB would otherwise materialize 50 MB.
+function budgetedCount(index: LineIndex, from: number, count: number): number {
+  if (from >= index.count) return 0;
+
+  const limit = Math.min(from + count, index.count);
+  const start = index.offsets[from];
+  let end = from;
+  while (end < limit) {
+    const stop = end + 1 < index.count ? index.offsets[end + 1] : index.size;
+    if (stop - start > MAX_READ_BYTES) break;
+    end += 1;
+  }
+  return end - from;
+}
+
 function handleRead(res: ServerResponse, resolved: Resolved, params: URLSearchParams): void {
   const from = Math.max(0, toInt(params.get('from'), 0));
   const count = Math.min(MAX_COUNT, Math.max(1, toInt(params.get('count'), DEFAULT_COUNT)));
   const index = getIndex(resolved.file, resolved.size, resolved.mtimeMs);
   const lines: LogLines = {
     from,
-    lines: readLines(resolved.file, index, from, count),
+    lines: readLines(resolved.file, index, from, budgetedCount(index, from, count)),
     total: index.count,
     size: resolved.size,
   };

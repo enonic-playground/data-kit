@@ -208,6 +208,55 @@ class LogManagerTest {
     }
 
     @Test
+    fun `read keeps the whole response inside the byte cap`() {
+        manager.maxReadBytes = 200
+        writeLog("server.log", (0 until 10).joinToString("") { "line-$it".padEnd(29, '.') + "\n" })
+
+        val json = assertNotNull(manager.read("server.log", 0, 10))
+
+        assertTrue(json.toByteArray(Charsets.UTF_8).size <= 200)
+        // ? A short page, not an empty one: the client needs something to resume from.
+        assertTrue(parseLines(json).size in 1..9)
+        assertEquals(10, number(json, "total"))
+    }
+
+    @Test
+    fun `read returns an empty page when the first line alone exceeds the byte cap`() {
+        manager.maxReadBytes = 10
+        writeLog("server.log", "x".repeat(50) + "\nshort\n")
+
+        val json = assertNotNull(manager.read("server.log", 0, 10))
+
+        assertEquals(emptyList(), parseLines(json))
+        assertEquals(2, number(json, "total"))
+        assertEquals(0, number(json, "from"))
+    }
+
+    @Test
+    fun `read counts JSON escaping against the byte cap`() {
+        manager.maxReadBytes = 150
+        writeLog("server.log", "plain\n" + "\u0000".repeat(20) + "\n")
+
+        // ? Line 1 is 21 raw bytes but 122 once escaped, so it does not fit where its raw size would.
+        assertEquals(listOf("plain"), readLines("server.log", 0, 10))
+    }
+
+    @Test
+    fun `read counts multi-byte characters as their encoded width`() {
+        // ? 330 CJK chars: 332 characters as JSON, but 992 bytes. A budget counted in characters
+        // ? admits the line and emits 1034 bytes under a 1000-byte cap.
+        writeLog("server.log", "\u4e00".repeat(330) + "\n")
+
+        manager.maxReadBytes = 1000
+        val capped = assertNotNull(manager.read("server.log", 0, 10))
+        assertEquals(emptyList(), parseLines(capped))
+        assertTrue(capped.toByteArray(Charsets.UTF_8).size <= 1000)
+
+        manager.maxReadBytes = 2000
+        assertEquals(1, parseLines(assertNotNull(manager.read("server.log", 0, 10))).size)
+    }
+
+    @Test
     fun `read reports the current total and size`() {
         writeLog("server.log", "one\ntwo\n")
 
@@ -378,6 +427,42 @@ class LogManagerTest {
 
         writeLog("empty.log", "")
         assertEquals(-1, manager.search("empty.log", "anything", 0, true, false, false))
+    }
+
+    @Test
+    fun `regex search aborts when one line runs past the match budget`() {
+        manager.matchBudgetMillis = 50
+        // ? Java only backtracks exponentially on this pattern once the line is long.
+        writeLog("server.log", "harmless\n" + "a".repeat(20_000) + "!\n")
+
+        assertEquals(-3, manager.search("server.log", "(a+)+b", 0, true, true, false))
+        assertEquals(-3, manager.search("server.log", "(a+)+b", 1, false, true, false))
+    }
+
+    @Test
+    fun `the match budget leaves an ordinary regex alone`() {
+        manager.matchBudgetMillis = 50
+        writeLog("server.log", "alpha\nbeta-42\n")
+
+        assertEquals(1, manager.search("server.log", "beta-\\d+", 0, true, true, false))
+        assertEquals(-1, manager.search("server.log", "gamma", 0, true, true, false))
+    }
+
+    @Test
+    fun `search aborts when the whole scan runs past the search budget`() {
+        manager.searchBudgetMillis = 0
+        writeLog("server.log", "alpha\nbeta\n")
+
+        assertEquals(-3, manager.search("server.log", "beta", 0, true, false, false))
+        assertEquals(-3, manager.search("server.log", "alpha", 1, false, false, false))
+    }
+
+    @Test
+    fun `regex search aborts instead of propagating a stack overflow`() {
+        // ? This pattern exhausts the stack on a long line rather than reaching the deadline.
+        writeLog("server.log", "a".repeat(200_000) + "!\n")
+
+        assertEquals(-3, manager.search("server.log", "(a|aa)+b", 0, true, true, false))
     }
 
     @Test

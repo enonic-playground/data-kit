@@ -55,6 +55,14 @@ function settle(harness: Harness): void {
   next.resolve({ from, lines: buildLines(from, count) });
 }
 
+/** Resolve the oldest outstanding request with fewer lines than it asked for. */
+function settleShort(harness: Harness, count: number): void {
+  const next = harness.pending.shift();
+  if (next == null) throw new Error('no pending request');
+  const { from } = next.params;
+  next.resolve({ from, lines: buildLines(from, count) });
+}
+
 describe('createLineCache', () => {
   let harness: Harness;
 
@@ -79,6 +87,79 @@ describe('createLineCache', () => {
     expect(cache.getLine(0)).toBe('line 0');
     expect(cache.getLine(5)).toBe('line 5');
     expect(cache.getLine(8)).toBeUndefined();
+  });
+
+  it('should complete a chunk across requests when a page comes back short', async () => {
+    const { cache, pending } = harness;
+    cache.setTotal(CHUNK, 400);
+    cache.ensureRange(0, CHUNK - 1);
+
+    // ? The server caps a response by bytes, so long lines arrive piecemeal.
+    settleShort(harness, 2);
+    await flush();
+
+    expect(cache.getLine(0)).toBe('line 0');
+    expect(cache.getLine(2)).toBeUndefined();
+    expect(pending.map((p) => [p.params.from, p.params.count])).toEqual([[2, 2]]);
+
+    settle(harness);
+    await flush();
+
+    expect(cache.getLine(2)).toBe('line 2');
+    expect(cache.getLine(3)).toBe('line 3');
+    expect(pending).toHaveLength(0);
+  });
+
+  it('should back off instead of spinning when a page comes back empty', async () => {
+    const retryDelayMs = 50;
+    harness = createHarness(64, retryDelayMs);
+    const { cache, pending } = harness;
+    cache.setTotal(CHUNK, 400);
+    cache.ensureRange(0, CHUNK - 1);
+
+    // ? One line over the whole cap: an identical retry returns nothing again.
+    settleShort(harness, 0);
+    await flush();
+
+    expect(cache.getCachedChunks()).toEqual([]);
+    expect(cache.getLine(0)).toBeUndefined();
+    expect(pending).toHaveLength(0);
+
+    cache.ensureRange(0, CHUNK - 1);
+    expect(pending).toHaveLength(0);
+
+    await sleep(retryDelayMs * 3);
+    cache.ensureRange(0, CHUNK - 1);
+
+    expect(pending.map((p) => p.params.from)).toEqual([0]);
+
+    cache.destroy();
+  });
+
+  it('should keep a chunk stale when its refetch comes back empty', async () => {
+    const retryDelayMs = 50;
+    harness = createHarness(64, retryDelayMs);
+    const { cache, pending } = harness;
+    cache.setTotal(CHUNK, 400);
+    cache.ensureRange(0, CHUNK - 1);
+    settle(harness);
+    await flush();
+
+    // ? Growth marks the tail stale, and its refetch then comes back empty.
+    cache.setTotal(CHUNK, 500);
+    cache.ensureRange(0, CHUNK - 1);
+    settleShort(harness, 0);
+    await flush();
+
+    expect(cache.getLine(0)).toBe('line 0');
+
+    await sleep(retryDelayMs * 3);
+    cache.ensureRange(0, CHUNK - 1);
+
+    // ? Still refetchable: an empty page must not leave the outdated copy standing as whole.
+    expect(pending.map((p) => p.params.from)).toEqual([0]);
+
+    cache.destroy();
   });
 
   it('should never request past the known total', () => {

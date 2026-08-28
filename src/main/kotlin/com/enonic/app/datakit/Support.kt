@@ -89,6 +89,28 @@ internal fun jsonString(value: String?): String {
     return "\"${value.escapeJson()}\""
 }
 
+/**
+ * UTF-8 bytes this string occupies once written as a JSON string, quotes included, without
+ * building it. Escaping expands content up to sixfold and multi-byte characters expand on the
+ * wire, so a line can pass a budget counted over raw file bytes and still emit far more. Keep
+ * the escape widths in step with [escapeJson]; an unpaired surrogate is deliberately over-charged.
+ */
+internal fun jsonStringBytes(value: String?): Long {
+    if (value.isNullOrEmpty()) return 2L
+
+    var total = 2L
+    for (ch in value) {
+        total += when {
+            ch == '\\' || ch == '"' || ch == '\n' || ch == '\r' || ch == '\t' -> 2L
+            ch.code < 0x20 -> 6L
+            ch.code < 0x80 -> 1L
+            ch.code < 0x800 -> 2L
+            else -> 3L
+        }
+    }
+    return total
+}
+
 private fun String.escapeJson(): String = buildString(length + 8) {
     for (ch in this@escapeJson) {
         when (ch) {

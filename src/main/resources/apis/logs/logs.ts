@@ -46,6 +46,7 @@ const INVALID_REGEX_MARKER = 'Invalid regular expression';
 
 const NOT_FOUND = -2;
 const NO_MATCH = -1;
+const SEARCH_ABORTED = -3;
 
 //
 // * Bean
@@ -136,6 +137,13 @@ function searchLines(req: Request, file: string): Response {
   }
 
   if (line === NOT_FOUND) return notFound(file);
+  if (line === SEARCH_ABORTED) {
+    return errorResponse(
+      400,
+      'Search stopped: the pattern took too long to evaluate',
+      'SEARCH_TIMEOUT',
+    );
+  }
   return jsonResponse<LogSearchResult>({ line: line === NO_MATCH ? null : line });
 }
 
