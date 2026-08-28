@@ -69,6 +69,8 @@ export type LogSearchParams = {
   query: string;
   from: number;
   direction: LogSearchDirection;
+  /** Scopes the search: a match is only ever a line these levels admit. */
+  levels: readonly LogLevel[];
   regex?: boolean;
   caseSensitive?: boolean;
   signal?: AbortSignal;
@@ -142,21 +144,25 @@ export function searchLog({
   query,
   from,
   direction,
+  levels,
   regex = false,
   caseSensitive = false,
   signal,
 }: LogSearchParams): Promise<LogSearchResult> {
   const { apiUris } = getConfig();
   return apiFetch<LogSearchResult>(apiUris.logs, {
-    params: {
-      file,
-      action: 'search',
-      query,
-      from: String(from),
-      direction,
-      regex: String(regex),
-      caseSensitive: String(caseSensitive),
-    },
+    params: withLevels(
+      {
+        file,
+        action: 'search',
+        query,
+        from: String(from),
+        direction,
+        regex: String(regex),
+        caseSensitive: String(caseSensitive),
+      },
+      levels,
+    ),
     signal,
   });
 }

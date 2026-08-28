@@ -276,6 +276,7 @@ describe('search', () => {
       true,
       false,
       false,
+      0,
     );
   });
 
@@ -294,7 +295,43 @@ describe('search', () => {
     );
 
     expect(parseBody(response).data).toEqual({ line: null });
-    expect(mockLogManager.search).toHaveBeenCalledWith('server.log', 'e\\d+', 0, false, true, true);
+    expect(mockLogManager.search).toHaveBeenCalledWith(
+      'server.log',
+      'e\\d+',
+      0,
+      false,
+      true,
+      true,
+      0,
+    );
+  });
+
+  test('scopes the search to the active level filter', () => {
+    mockLogManager.search.mockReturnValue(17);
+
+    const response = get(
+      request({ file: 'server.log', action: 'search', query: 'boom', levels: 'WARN,ERROR' }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockLogManager.search).toHaveBeenCalledWith(
+      'server.log',
+      'boom',
+      0,
+      true,
+      false,
+      false,
+      (1 << 4) | (1 << 5),
+    );
+  });
+
+  test('rejects an unknown level before searching', () => {
+    const response = get(
+      request({ file: 'server.log', action: 'search', query: 'boom', levels: 'FATAL' }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(mockLogManager.search).not.toHaveBeenCalled();
   });
 
   test('returns 404 when the bean reports a missing file', () => {

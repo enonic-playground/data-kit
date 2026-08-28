@@ -631,46 +631,46 @@ class LogManagerTest {
     fun `search finds the first match forward from the given line`() {
         writeLog("server.log", "alpha\nbeta\nalpha\ngamma\n")
 
-        assertEquals(0, manager.search("server.log", "alpha", 0, true, false, false))
-        assertEquals(2, manager.search("server.log", "alpha", 1, true, false, false))
-        assertEquals(-1, manager.search("server.log", "alpha", 3, true, false, false))
-        assertEquals(-1, manager.search("server.log", "alpha", 99, true, false, false))
+        assertEquals(0, manager.search("server.log", "alpha", 0, true, false, false, 0))
+        assertEquals(2, manager.search("server.log", "alpha", 1, true, false, false, 0))
+        assertEquals(-1, manager.search("server.log", "alpha", 3, true, false, false, 0))
+        assertEquals(-1, manager.search("server.log", "alpha", 99, true, false, false, 0))
     }
 
     @Test
     fun `search finds the previous match backward from the given line`() {
         writeLog("server.log", "alpha\nbeta\nalpha\ngamma\n")
 
-        assertEquals(2, manager.search("server.log", "alpha", 3, false, false, false))
-        assertEquals(0, manager.search("server.log", "alpha", 1, false, false, false))
-        assertEquals(-1, manager.search("server.log", "beta", 0, false, false, false))
-        assertEquals(2, manager.search("server.log", "alpha", 99, false, false, false))
+        assertEquals(2, manager.search("server.log", "alpha", 3, false, false, false, 0))
+        assertEquals(0, manager.search("server.log", "alpha", 1, false, false, false, 0))
+        assertEquals(-1, manager.search("server.log", "beta", 0, false, false, false, 0))
+        assertEquals(2, manager.search("server.log", "alpha", 99, false, false, false, 0))
     }
 
     @Test
     fun `plain search is case-insensitive unless case sensitivity is requested`() {
         writeLog("server.log", "Alpha\nbeta\n")
 
-        assertEquals(0, manager.search("server.log", "alpha", 0, true, false, false))
-        assertEquals(-1, manager.search("server.log", "alpha", 0, true, false, true))
-        assertEquals(0, manager.search("server.log", "Alpha", 0, true, false, true))
+        assertEquals(0, manager.search("server.log", "alpha", 0, true, false, false, 0))
+        assertEquals(-1, manager.search("server.log", "alpha", 0, true, false, true, 0))
+        assertEquals(0, manager.search("server.log", "Alpha", 0, true, false, true, 0))
     }
 
     @Test
     fun `regex search matches anywhere in the line and honours case sensitivity`() {
         writeLog("server.log", "10:00:00.000 INFO  c.e.Foo - started\nplain text\nERROR boom\n")
 
-        assertEquals(2, manager.search("server.log", "^ERROR\\s", 0, true, true, false))
-        assertEquals(0, manager.search("server.log", "c\\.e\\.\\w+", 0, true, true, true))
-        assertEquals(2, manager.search("server.log", "error", 0, true, true, false))
-        assertEquals(-1, manager.search("server.log", "error", 0, true, true, true))
+        assertEquals(2, manager.search("server.log", "^ERROR\\s", 0, true, true, false, 0))
+        assertEquals(0, manager.search("server.log", "c\\.e\\.\\w+", 0, true, true, true, 0))
+        assertEquals(2, manager.search("server.log", "error", 0, true, true, false, 0))
+        assertEquals(-1, manager.search("server.log", "error", 0, true, true, true, 0))
     }
 
     @Test
     fun `regex search matches unicode case-insensitively`() {
         writeLog("server.log", "ÉCHEC du démarrage\n")
 
-        assertEquals(0, manager.search("server.log", "échec", 0, true, true, false))
+        assertEquals(0, manager.search("server.log", "échec", 0, true, true, false, 0))
     }
 
     @Test
@@ -678,7 +678,7 @@ class LogManagerTest {
         writeLog("server.log", "alpha\n")
 
         val error = assertFailsWith<IllegalArgumentException> {
-            manager.search("server.log", "[unclosed", 0, true, true, false)
+            manager.search("server.log", "[unclosed", 0, true, true, false, 0)
         }
         assertTrue(error.message?.startsWith("Invalid regular expression") == true)
     }
@@ -688,10 +688,10 @@ class LogManagerTest {
         writeLog("server.log", "alpha\n")
 
         assertFailsWith<IllegalArgumentException> {
-            manager.search("server.log", "", 0, true, false, false)
+            manager.search("server.log", "", 0, true, false, false, 0)
         }
         assertFailsWith<IllegalArgumentException> {
-            manager.search("server.log", null, 0, true, false, false)
+            manager.search("server.log", null, 0, true, false, false, 0)
         }
     }
 
@@ -699,13 +699,13 @@ class LogManagerTest {
     fun `search spans several blocks and an empty file`() {
         writeLog("server.log", (0 until 5000).joinToString("") { "line-$it\n" })
 
-        assertEquals(4999, manager.search("server.log", "line-4999", 0, true, false, false))
-        assertEquals(-1, manager.search("server.log", "line-5000", 0, true, false, false))
-        assertEquals(4321, manager.search("server.log", "line-4321", 5000, false, false, false))
-        assertEquals(2500, manager.search("server.log", "^line-2500$", 0, true, true, false))
+        assertEquals(4999, manager.search("server.log", "line-4999", 0, true, false, false, 0))
+        assertEquals(-1, manager.search("server.log", "line-5000", 0, true, false, false, 0))
+        assertEquals(4321, manager.search("server.log", "line-4321", 5000, false, false, false, 0))
+        assertEquals(2500, manager.search("server.log", "^line-2500$", 0, true, true, false, 0))
 
         writeLog("empty.log", "")
-        assertEquals(-1, manager.search("empty.log", "anything", 0, true, false, false))
+        assertEquals(-1, manager.search("empty.log", "anything", 0, true, false, false, 0))
     }
 
     @Test
@@ -714,8 +714,8 @@ class LogManagerTest {
         // ? Java only backtracks exponentially on this pattern once the line is long.
         writeLog("server.log", "harmless\n" + "a".repeat(20_000) + "!\n")
 
-        assertEquals(-3, manager.search("server.log", "(a+)+b", 0, true, true, false))
-        assertEquals(-3, manager.search("server.log", "(a+)+b", 1, false, true, false))
+        assertEquals(-3, manager.search("server.log", "(a+)+b", 0, true, true, false, 0))
+        assertEquals(-3, manager.search("server.log", "(a+)+b", 1, false, true, false, 0))
     }
 
     @Test
@@ -723,8 +723,8 @@ class LogManagerTest {
         manager.matchBudgetMillis = 50
         writeLog("server.log", "alpha\nbeta-42\n")
 
-        assertEquals(1, manager.search("server.log", "beta-\\d+", 0, true, true, false))
-        assertEquals(-1, manager.search("server.log", "gamma", 0, true, true, false))
+        assertEquals(1, manager.search("server.log", "beta-\\d+", 0, true, true, false, 0))
+        assertEquals(-1, manager.search("server.log", "gamma", 0, true, true, false, 0))
     }
 
     @Test
@@ -732,8 +732,8 @@ class LogManagerTest {
         manager.searchBudgetMillis = 0
         writeLog("server.log", "alpha\nbeta\n")
 
-        assertEquals(-3, manager.search("server.log", "beta", 0, true, false, false))
-        assertEquals(-3, manager.search("server.log", "alpha", 1, false, false, false))
+        assertEquals(-3, manager.search("server.log", "beta", 0, true, false, false, 0))
+        assertEquals(-3, manager.search("server.log", "alpha", 1, false, false, false, 0))
     }
 
     @Test
@@ -741,7 +741,7 @@ class LogManagerTest {
         // ? This pattern exhausts the stack on a long line rather than reaching the deadline.
         writeLog("server.log", "a".repeat(200_000) + "!\n")
 
-        assertEquals(-3, manager.search("server.log", "(a|aa)+b", 0, true, true, false))
+        assertEquals(-3, manager.search("server.log", "(a|aa)+b", 0, true, true, false, 0))
     }
 
     @Test
@@ -759,6 +759,7 @@ class LogManagerTest {
                     release.await()
                     line.contains("line-4999")
                 },
+                0,
                 0,
                 true,
                 30_000,
@@ -794,7 +795,7 @@ class LogManagerTest {
         // ? Consumes no input, so `DeadlineInput.get` never runs and neither bound can fire. The
         // ? repetition counts keep the abandoned thread finite rather than spinning for the JVM.
         val started = System.nanoTime()
-        assertEquals(-3, manager.search("server.log", "(?:(?:){60000}){60000}", 0, true, true, false))
+        assertEquals(-3, manager.search("server.log", "(?:(?:){60000}){60000}", 0, true, true, false, 0))
         assertTrue((System.nanoTime() - started) / 1_000_000 < 5_000, "watchdog did not fire")
     }
 
@@ -808,11 +809,11 @@ class LogManagerTest {
         // ? Each of these strands its worker: the pattern consumes no input, so nothing can stop
         // ? the match and the thread never comes back. Search has to survive that.
         val callers = (0 until 5).map {
-            thread { manager.search("server.log", "(?:(?:){30000}){30000}", 0, true, true, false) }
+            thread { manager.search("server.log", "(?:(?:){30000}){30000}", 0, true, true, false, 0) }
         }
         callers.forEach { it.join(5_000) }
 
-        assertEquals(1, manager.search("server.log", "beta", 0, true, false, false))
+        assertEquals(1, manager.search("server.log", "beta", 0, true, false, false, 0))
     }
 
     @Test
@@ -838,6 +839,7 @@ class LogManagerTest {
                     rebuilt.await()
                     line.contains("line-4999")
                 },
+                0,
                 0,
                 true,
                 30_000,
@@ -882,7 +884,7 @@ class LogManagerTest {
 
         for (query in runaway) {
             val error = assertFailsWith<IllegalArgumentException>(query) {
-                manager.search("server.log", query, 0, true, true, false)
+                manager.search("server.log", query, 0, true, true, false, 0)
             }
             assertTrue(
                 error.message?.startsWith("Invalid regular expression") == true,
@@ -895,18 +897,18 @@ class LogManagerTest {
     fun `the repetition guard leaves ordinary patterns alone`() {
         writeLog("server.log", "10:00:00.000 ERROR c.e.x.Test - code 4021 at ff03a9b1\n")
 
-        assertEquals(0, manager.search("server.log", "\\d{4}", 0, true, true, false))
-        assertEquals(0, manager.search("server.log", "[a-f0-9]{8}", 0, true, true, false))
-        assertEquals(0, manager.search("server.log", ".{1,200}", 0, true, true, false))
-        assertEquals(0, manager.search("server.log", "(?:\\w{2}){4}", 0, true, true, false))
+        assertEquals(0, manager.search("server.log", "\\d{4}", 0, true, true, false, 0))
+        assertEquals(0, manager.search("server.log", "[a-f0-9]{8}", 0, true, true, false, 0))
+        assertEquals(0, manager.search("server.log", ".{1,200}", 0, true, true, false, 0))
+        assertEquals(0, manager.search("server.log", "(?:\\w{2}){4}", 0, true, true, false, 0))
 
         // ? Several bounded spans in a row is what hunting through a stack trace looks like. Their
         // ? counts are sequential, so they must not compound into a refusal.
-        assertEquals(0, manager.search("server.log", "c\\..{0,1000}code.{0,1000}at.{0,1000}", 0, true, true, false))
+        assertEquals(0, manager.search("server.log", "c\\..{0,1000}code.{0,1000}at.{0,1000}", 0, true, true, false, 0))
 
         // ? Braces that are not quantifiers: a literal inside a class and an escaped pair.
-        assertEquals(-1, manager.search("server.log", "[{20000}]{4}", 0, true, true, false))
-        assertEquals(-1, manager.search("server.log", "\\{20000\\}", 0, true, true, false))
+        assertEquals(-1, manager.search("server.log", "[{20000}]{4}", 0, true, true, false, 0))
+        assertEquals(-1, manager.search("server.log", "\\{20000\\}", 0, true, true, false, 0))
     }
 
     @Test
@@ -952,15 +954,15 @@ class LogManagerTest {
 
         for (query in listOf("(?x)alpha", "(?x:alpha)", "(?ix)alpha", "(?x-i)alpha")) {
             val error = assertFailsWith<IllegalArgumentException>(query) {
-                manager.search("server.log", query, 0, true, true, false)
+                manager.search("server.log", query, 0, true, true, false, 0)
             }
             assertTrue(error.message?.contains("extended mode") == true, query)
         }
 
         // ? Turning it back off is not turning it on, and a plain group is not a flag group.
-        assertEquals(0, manager.search("server.log", "(?i-x)alpha", 0, true, true, false))
-        assertEquals(0, manager.search("server.log", "(?:alpha)", 0, true, true, false))
-        assertEquals(0, manager.search("server.log", "(?i)ALPHA", 0, true, true, false))
+        assertEquals(0, manager.search("server.log", "(?i-x)alpha", 0, true, true, false, 0))
+        assertEquals(0, manager.search("server.log", "(?:alpha)", 0, true, true, false, 0))
+        assertEquals(0, manager.search("server.log", "(?i)ALPHA", 0, true, true, false, 0))
     }
 
     @Test
@@ -976,9 +978,67 @@ class LogManagerTest {
     }
 
     @Test
+    fun `a filtered search skips a hit the mask hides`() {
+        writeLog(
+            "server.log",
+            entry("INFO", "boom in progress") +
+                entry("ERROR", "boom") +
+                entry("DEBUG", "boom again"),
+        )
+        val errors = mask(LEVEL_ERROR)
+
+        assertEquals(1, manager.search("server.log", "boom", 0, true, false, false, errors))
+        assertEquals(-1, manager.search("server.log", "boom", 2, true, false, false, errors))
+        assertEquals(1, manager.search("server.log", "boom", 2, false, false, false, errors))
+    }
+
+    @Test
+    fun `a filtered search matches the frames of an admitted entry`() {
+        writeLog(
+            "server.log",
+            entry("ERROR", "boom") +
+                "java.lang.NullPointerException: nope\n" +
+                entry("INFO", "nope"),
+        )
+        val errors = mask(LEVEL_ERROR)
+
+        // ? The frame inherits ERROR from the entry above it, so it is part of the filtered view.
+        assertEquals(1, manager.search("server.log", "nope", 0, true, false, false, errors))
+        assertEquals(-1, manager.search("server.log", "nope", 2, true, false, false, errors))
+        assertEquals(2, manager.search("server.log", "nope", 2, true, false, false, 0))
+    }
+
+    @Test
+    fun `a filtered search reports absence when every hit is hidden`() {
+        writeLog("server.log", entry("INFO", "alpha") + entry("DEBUG", "alpha"))
+
+        assertEquals(-1, manager.search("server.log", "alpha", 0, true, false, false, mask(LEVEL_ERROR)))
+        assertEquals(-1, manager.search("server.log", "alpha", 1, false, false, false, mask(LEVEL_ERROR)))
+    }
+
+    @Test
+    fun `a mask admitting every level searches every line`() {
+        writeLog("server.log", entry("INFO", "alpha") + entry("ERROR", "beta"))
+
+        assertEquals(0, manager.search("server.log", "alpha", 0, true, false, false, LEVEL_MASK_ALL))
+        assertEquals(1, manager.search("server.log", "beta", 0, true, false, false, LEVEL_MASK_ALL))
+    }
+
+    @Test
+    fun `a filtered search spans several blocks`() {
+        val log = (0 until 3000).joinToString("") { entry("INFO", "line-$it") + entry("ERROR", "line-$it") }
+        writeLog("server.log", log)
+        val errors = mask(LEVEL_ERROR)
+
+        assertEquals(5999, manager.search("server.log", "line-2999", 0, true, false, false, errors))
+        assertEquals(5001, manager.search("server.log", "line-2500", 6000, false, false, false, errors))
+        assertEquals(-1, manager.search("server.log", "line-3000", 0, true, false, false, errors))
+    }
+
+    @Test
     fun `search returns the not-found marker for an unknown file`() {
-        assertEquals(-2, manager.search("missing.log", "x", 0, true, false, false))
-        assertEquals(-2, manager.search("../server.log", "x", 0, true, false, false))
+        assertEquals(-2, manager.search("missing.log", "x", 0, true, false, false, 0))
+        assertEquals(-2, manager.search("../server.log", "x", 0, true, false, false, 0))
     }
 
     //

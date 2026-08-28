@@ -157,7 +157,7 @@ function locateLine(req: Request, file: string, mask: number): Response {
   return jsonResponse(JSON.parse(json) as LogLocation);
 }
 
-function searchLines(req: Request, file: string): Response {
+function searchLines(req: Request, file: string, mask: number): Response {
   const query = getParam(req, 'query');
   if (query == null || query.length === 0) {
     return errorResponse(400, 'query is required', 'VALIDATION_ERROR');
@@ -181,7 +181,15 @@ function searchLines(req: Request, file: string): Response {
 
   let line: number;
   try {
-    line = logManager.search(file, query, from, direction === 'forward', regex, caseSensitive);
+    line = logManager.search(
+      file,
+      query,
+      from,
+      direction === 'forward',
+      regex,
+      caseSensitive,
+      mask,
+    );
   } catch (e) {
     const message = String(e);
     if (message.indexOf(INVALID_REGEX_MARKER) >= 0) {
@@ -260,7 +268,7 @@ export function get(req: Request): Response {
   try {
     if (action == null) return readLines(req, file, mask);
     if (action === 'info') return readInfo(file, mask);
-    if (action === 'search') return searchLines(req, file);
+    if (action === 'search') return searchLines(req, file, mask);
     if (action === 'locate') return locateLine(req, file, mask);
     if (action === 'download') return downloadFile(file);
     return errorResponse(400, `Unknown action '${action}'`, 'VALIDATION_ERROR');
