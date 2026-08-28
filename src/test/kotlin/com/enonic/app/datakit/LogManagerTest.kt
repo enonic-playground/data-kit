@@ -89,6 +89,10 @@ class LogManagerTest {
             Regex(""""name":"([^"]+)"""").findAll(json).map { it.groupValues[1] }.toList(),
         )
         assertEquals(listOf("server.log"), activeNames(json))
+        assertEquals(
+            listOf("server.2026-08-27.0.log", "server.2026-08-26.0.log"),
+            rotatedNames(json),
+        )
     }
 
     @Test
@@ -103,6 +107,22 @@ class LogManagerTest {
             Regex(""""name":"([^"]+)"""").findAll(json).map { it.groupValues[1] }.toList(),
         )
         assertEquals(listOf("server.2026-08-27.0.log"), activeNames(json))
+        // ? The stand-in active file keeps `rotated:false` even though its name says otherwise:
+        // ? it is the file the tool opens, and reporting it unfollowable would leave the view
+        // ? with no live file at all.
+        assertEquals(listOf("server.2026-08-26.0.log"), rotatedNames(json))
+    }
+
+    @Test
+    fun `list reports a second unrotated file as still writable`() {
+        writeLog("server.log", "a\n", modifiedMillis = 3_000_000)
+        writeLog("audit.log", "b\n", modifiedMillis = 2_000_000)
+        writeLog("server.2026-08-27.0.log", "c\n", modifiedMillis = 1_000_000)
+
+        val json = manager.list()
+
+        assertEquals(listOf("server.log"), activeNames(json))
+        assertEquals(listOf("server.2026-08-27.0.log"), rotatedNames(json))
     }
 
     //
@@ -816,6 +836,10 @@ class LogManagerTest {
 
     private fun activeNames(json: String): List<String> =
         Regex(""""name":"([^"]+)","size":\d+,"modified":"[^"]+","active":true""")
+            .findAll(json).map { it.groupValues[1] }.toList()
+
+    private fun rotatedNames(json: String): List<String> =
+        Regex(""""name":"([^"]+)","size":\d+,"modified":"[^"]+","active":(?:true|false),"rotated":true""")
             .findAll(json).map { it.groupValues[1] }.toList()
 
     private fun number(json: String, key: String): Long =

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   CONTINUATION_CLASS,
   LEVEL_CLASS,
+  LEVEL_TOKEN_CLASS,
   logLineClass,
   parseLogLine,
 } from '../../../../../main/resources/assets/js/components/log-viewer/log-line';
@@ -83,5 +84,19 @@ describe('logLineClass', () => {
 
   it('should not reuse any level colour for continuation lines', () => {
     expect(Object.values(LEVEL_CLASS)).not.toContain(CONTINUATION_CLASS);
+  });
+});
+
+describe('LEVEL_TOKEN_CLASS', () => {
+  it('should mute the INFO token without muting its message', () => {
+    expect(LEVEL_TOKEN_CLASS.INFO).not.toBe(LEVEL_CLASS.INFO);
+    expect(LEVEL_CLASS.INFO).toBe('text-foreground');
+    expect(LEVEL_TOKEN_CLASS.INFO).toBe('text-muted-foreground');
+  });
+
+  it('should leave every other level on its message colour', () => {
+    for (const level of ['TRACE', 'DEBUG', 'WARN', 'ERROR'] as const) {
+      expect(LEVEL_TOKEN_CLASS[level]).toBe(LEVEL_CLASS[level]);
+    }
   });
 });

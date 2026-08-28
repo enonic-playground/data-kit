@@ -13,7 +13,10 @@ export type LogFile = {
   name: string;
   size: number;
   modified: string;
+  /** The file the tool opens by default. Exactly one entry carries it. */
   active: boolean;
+  /** Nothing can be appended to this file again, so there is nothing to follow or re-poll. */
+  rotated: boolean;
 };
 
 export type LogFilesResult = {
@@ -174,7 +177,9 @@ export function logFilesQueryOptions(refetchInterval?: number) {
 export function logInfoQueryOptions(
   file: string | undefined,
   levels: readonly LogLevel[],
-  refetchInterval?: number,
+  // ? `false` for a rotated file: its size, counts and timestamps are frozen, so there is
+  // ? nothing for a poll to discover. Refresh and refetch-on-focus still re-read it.
+  refetchInterval?: number | false,
 ) {
   const name = file ?? '';
   return queryOptions({

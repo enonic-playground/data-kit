@@ -19,8 +19,8 @@ import { fetchLogLines, levelsParam } from '../../lib/api/logs';
 import { cn } from '../../lib/utils';
 import { createLineCache } from './line-cache';
 import {
-  LEVEL_CLASS,
   LEVEL_EMPHASIS,
+  LEVEL_TOKEN_CLASS,
   LOGGER_CLASS,
   TIME_CLASS,
   logLineClass,
@@ -173,7 +173,7 @@ function renderLineContent(
   return (
     <>
       <span className={TIME_CLASS}>{renderLineText(text.slice(0, timeEnd), highlight)}</span>
-      <span className={cn(LEVEL_CLASS[parsed.level], LEVEL_EMPHASIS)}>
+      <span className={cn(LEVEL_TOKEN_CLASS[parsed.level], LEVEL_EMPHASIS)}>
         {renderLineText(text.slice(timeEnd, levelEnd), highlight)}
       </span>
       <span className={LOGGER_CLASS}>
