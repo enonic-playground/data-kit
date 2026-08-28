@@ -24,6 +24,14 @@ export type FetchChunkParams = {
 export type FetchChunkResult = {
   from: number;
   lines: string[];
+  /** Physical line number of each line; absent when no filter is active. */
+  numbers?: number[];
+};
+
+/** Cached content of one chunk. `numbers` tracks `lines` element for element when present. */
+type Chunk = {
+  lines: string[];
+  numbers?: number[];
 };
 
 export type LineCacheOptions = {
@@ -36,6 +44,11 @@ export type LineCacheOptions = {
 export type LineCache = {
   /** Line text, or `undefined` while the containing chunk is missing or still partial. */
   getLine: (index: number) => string | undefined;
+  /**
+   * Physical line number of a cached line, or `undefined` when the line is not cached or no
+   * filter is active — in which case the index is the physical line number.
+   */
+  getLineNumber: (index: number) => number | undefined;
   /** Request every chunk covering the inclusive line range. */
   ensureRange: (from: number, to: number) => void;
   /**
@@ -61,7 +74,7 @@ export function createLineCache({
   retryDelayMs = RETRY_DELAY_MS,
 }: LineCacheOptions): LineCache {
   // ? Insertion order doubles as LRU order: `touch` re-inserts at the tail.
-  const chunks = new Map<number, string[]>();
+  const chunks = new Map<number, Chunk>();
   const pending = new Map<number, AbortController>();
   const failedAt = new Map<number, number>();
   // ? Chunks whose cached or in-flight content is known to be outdated. They
@@ -111,10 +124,10 @@ export function createLineCache({
   }
 
   function touch(chunk: number): void {
-    const lines = chunks.get(chunk);
-    if (lines === undefined) return;
+    const cached = chunks.get(chunk);
+    if (cached === undefined) return;
     chunks.delete(chunk);
-    chunks.set(chunk, lines);
+    chunks.set(chunk, cached);
   }
 
   function evict(): void {
@@ -143,8 +156,8 @@ export function createLineCache({
   }
 
   function isWhole(chunk: number): boolean {
-    const lines = chunks.get(chunk);
-    return lines !== undefined && lines.length >= chunkLength(chunk);
+    const cached = chunks.get(chunk);
+    return cached !== undefined && cached.lines.length >= chunkLength(chunk);
   }
 
   // ! Only the trailing line of a pre-growth copy can be wrong, so keep serving it; the chunk
@@ -178,14 +191,15 @@ export function createLineCache({
     // ! The server caps a response by bytes, so a chunk of long lines arrives over
     // ! several requests. A stale chunk restarts instead: its trailing line may
     // ! have grown, and resuming would keep the outdated copy of it.
-    const prefix = stale ? [] : (chunks.get(chunk) ?? []);
-    const from = start + prefix.length;
+    const prefix = stale ? undefined : chunks.get(chunk);
+    const prefixLength = prefix?.lines.length ?? 0;
+    const from = start + prefixLength;
 
     const controller = new AbortController();
     const requestGeneration = generation;
     pending.set(chunk, controller);
 
-    fetchChunk({ from, count: chunkSize - prefix.length, signal: controller.signal }).then(
+    fetchChunk({ from, count: chunkSize - prefixLength, signal: controller.signal }).then(
       (result) => {
         if (requestGeneration !== generation) return;
         if (pending.get(chunk) !== controller) return;
@@ -198,7 +212,13 @@ export function createLineCache({
           return;
         }
 
-        chunks.set(chunk, [...prefix, ...result.lines]);
+        chunks.set(chunk, {
+          lines: [...(prefix?.lines ?? []), ...result.lines],
+          numbers:
+            result.numbers === undefined
+              ? undefined
+              : [...(prefix?.numbers ?? []), ...result.numbers],
+        });
         evict();
         notify();
         // ? Grew again while this was in flight, or came back short of the chunk.
@@ -216,8 +236,14 @@ export function createLineCache({
   return {
     getLine(index: number): string | undefined {
       if (index < 0 || index >= total) return undefined;
-      const lines = chunks.get(Math.floor(index / chunkSize));
-      return lines?.[index % chunkSize];
+      const cached = chunks.get(Math.floor(index / chunkSize));
+      return cached?.lines[index % chunkSize];
+    },
+
+    getLineNumber(index: number): number | undefined {
+      if (index < 0 || index >= total) return undefined;
+      const cached = chunks.get(Math.floor(index / chunkSize));
+      return cached?.numbers?.[index % chunkSize];
     },
 
     ensureRange(from: number, to: number): void {

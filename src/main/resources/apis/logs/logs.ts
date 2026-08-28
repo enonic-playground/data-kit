@@ -13,18 +13,37 @@ export type LogFile = {
   active: boolean;
 };
 
+export type LogLevelCounts = {
+  unknown: number;
+  trace: number;
+  debug: number;
+  info: number;
+  warn: number;
+  error: number;
+};
+
 export type LogInfo = {
   name: string;
   size: number;
   modified: string;
   lines: number;
+  levels: LogLevelCounts;
+  /** Lines the requested levels admit; absent when no filter is active. */
+  filtered?: number;
 };
 
 export type LogLines = {
   from: number;
   lines: string[];
+  /** Physical line number of each entry in `lines`; absent when no filter is active. */
+  numbers?: number[];
   total: number;
   size: number;
+};
+
+export type LogLocation = {
+  position: number;
+  visible: boolean;
 };
 
 export type LogSearchResult = {
@@ -40,6 +59,19 @@ const DEFAULT_COUNT = 200;
 const MIN_COUNT = 1;
 const MAX_COUNT = 1000;
 const MAX_QUERY_LENGTH = 500;
+const MAX_LEVELS_LENGTH = 64;
+
+// ! Bit positions must match the level codes in `LogManager.kt`.
+const LEVEL_BITS: Record<string, number | undefined> = {
+  TRACE: 1 << 1,
+  DEBUG: 1 << 2,
+  INFO: 1 << 3,
+  WARN: 1 << 4,
+  ERROR: 1 << 5,
+};
+
+const NO_FILTER = 0;
+const INVALID_LEVELS = -1;
 
 // ? The bean throws IllegalArgumentException carrying this prefix for a rejected pattern.
 const INVALID_REGEX_MARKER = 'Invalid regular expression';
@@ -75,6 +107,20 @@ function notFound(file: string): Response {
   return errorResponse(404, `Log file '${file}' not found`, 'NOT_FOUND');
 }
 
+/** Level bitmask for a `levels` parameter, or [INVALID_LEVELS] when it names an unknown level. */
+function parseLevels(value: string | undefined): number {
+  if (value == null || value.length === 0) return NO_FILTER;
+  if (value.length > MAX_LEVELS_LENGTH) return INVALID_LEVELS;
+
+  let mask = NO_FILTER;
+  for (const name of value.split(',')) {
+    const bit = LEVEL_BITS[name.toUpperCase()];
+    if (bit === undefined) return INVALID_LEVELS;
+    mask |= bit;
+  }
+  return mask;
+}
+
 //
 // * Handlers
 //
@@ -84,19 +130,30 @@ function listFiles(): Response {
   return jsonResponse({ files });
 }
 
-function readInfo(file: string): Response {
-  const json = logManager.info(file);
+function readInfo(file: string, mask: number): Response {
+  const json = logManager.info(file, mask);
   if (json == null) return notFound(file);
   return jsonResponse(JSON.parse(json) as LogInfo);
 }
 
-function readLines(req: Request, file: string): Response {
+function readLines(req: Request, file: string, mask: number): Response {
   const from = Math.max(0, parseNumber(getParam(req, 'from'), 0));
   const count = clamp(parseNumber(getParam(req, 'count'), DEFAULT_COUNT), MIN_COUNT, MAX_COUNT);
 
-  const json = logManager.read(file, from, count);
+  const json = logManager.read(file, from, count, mask);
   if (json == null) return notFound(file);
   return jsonResponse(JSON.parse(json) as LogLines);
+}
+
+function locateLine(req: Request, file: string, mask: number): Response {
+  const line = getParam(req, 'line');
+  if (line == null || line.length === 0) {
+    return errorResponse(400, 'line is required', 'VALIDATION_ERROR');
+  }
+
+  const json = logManager.locate(file, mask, Math.max(0, parseNumber(line, 0)));
+  if (json == null) return notFound(file);
+  return jsonResponse(JSON.parse(json) as LogLocation);
 }
 
 function searchLines(req: Request, file: string): Response {
@@ -183,10 +240,20 @@ export function get(req: Request): Response {
     return errorResponse(400, 'file is not a valid log file name', 'VALIDATION_ERROR');
   }
 
+  const mask = parseLevels(getParam(req, 'levels'));
+  if (mask === INVALID_LEVELS) {
+    return errorResponse(
+      400,
+      'levels must be a comma-separated list of TRACE, DEBUG, INFO, WARN and ERROR',
+      'VALIDATION_ERROR',
+    );
+  }
+
   try {
-    if (action == null) return readLines(req, file);
-    if (action === 'info') return readInfo(file);
+    if (action == null) return readLines(req, file, mask);
+    if (action === 'info') return readInfo(file, mask);
     if (action === 'search') return searchLines(req, file);
+    if (action === 'locate') return locateLine(req, file, mask);
     if (action === 'download') return downloadFile(file);
     return errorResponse(400, `Unknown action '${action}'`, 'VALIDATION_ERROR');
   } catch (e) {

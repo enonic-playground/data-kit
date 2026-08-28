@@ -55,6 +55,18 @@ function settle(harness: Harness): void {
   next.resolve({ from, lines: buildLines(from, count) });
 }
 
+/** Resolve the oldest outstanding request with physical line numbers, as a filtered read does. */
+function settleFiltered(harness: Harness, numbers: number[]): void {
+  const next = harness.pending.shift();
+  if (next == null) throw new Error('no pending request');
+  const { from } = next.params;
+  next.resolve({
+    from,
+    lines: numbers.map((line) => `line ${line}`),
+    numbers,
+  });
+}
+
 /** Resolve the oldest outstanding request with fewer lines than it asked for. */
 function settleShort(harness: Harness, count: number): void {
   const next = harness.pending.shift();
@@ -160,6 +172,61 @@ describe('createLineCache', () => {
     expect(pending.map((p) => p.params.from)).toEqual([0]);
 
     cache.destroy();
+  });
+
+  it('should expose the physical line number of a filtered line', async () => {
+    const { cache } = harness;
+    cache.setTotal(4, 4000);
+    cache.ensureRange(0, 3);
+    settleFiltered(harness, [7, 8, 40, 41]);
+    await flush();
+
+    expect(cache.getLine(2)).toBe('line 40');
+    expect(cache.getLineNumber(0)).toBe(7);
+    expect(cache.getLineNumber(2)).toBe(40);
+    expect(cache.getLineNumber(9)).toBeUndefined();
+  });
+
+  it('should report no line number when the response carries none', async () => {
+    const { cache } = harness;
+    cache.setTotal(4, 4000);
+    cache.ensureRange(0, 3);
+    settle(harness);
+    await flush();
+
+    expect(cache.getLine(1)).toBe('line 1');
+    expect(cache.getLineNumber(1)).toBeUndefined();
+  });
+
+  it('should keep line numbers in step when a filtered page comes back short', async () => {
+    const { cache } = harness;
+    cache.setTotal(4, 4000);
+    cache.ensureRange(0, 3);
+    settleFiltered(harness, [7, 8]);
+    await flush();
+
+    expect(harness.pending[0]?.params).toMatchObject({ from: 2, count: 2 });
+    settleFiltered(harness, [40, 41]);
+    await flush();
+
+    expect(cache.getLineNumber(0)).toBe(7);
+    expect(cache.getLineNumber(3)).toBe(41);
+    expect(cache.getLine(3)).toBe('line 41');
+  });
+
+  it('should drop line numbers along with the lines on reset', async () => {
+    const { cache } = harness;
+    cache.setTotal(4, 4000);
+    cache.ensureRange(0, 3);
+    settleFiltered(harness, [7, 8, 40, 41]);
+    await flush();
+
+    // ? A filter change goes through the same path as a file switch: nothing survives it.
+    cache.reset();
+    cache.setTotal(2, 4000);
+
+    expect(cache.getLine(0)).toBeUndefined();
+    expect(cache.getLineNumber(0)).toBeUndefined();
   });
 
   it('should never request past the known total', () => {

@@ -7,6 +7,7 @@ import {
   ChevronDown,
   ChevronUp,
   Download,
+  Filter,
   Play,
   Regex,
   RefreshCw,
@@ -26,13 +27,23 @@ import {
 import { useTranslation } from 'react-i18next';
 import { z } from 'zod';
 
-import type { LogViewerHandle } from '../components/log-viewer/log-viewer';
-import type { LogSearchDirection } from '../lib/api/logs';
+import type { LineAlign, LogViewerHandle } from '../components/log-viewer/log-viewer';
+import type { LogLevel, LogLevelCounts, LogSearchDirection } from '../lib/api/logs';
 import type { ApiError } from '../types/api';
 
+import { LEVEL_CLASS, LEVEL_EMPHASIS } from '../components/log-viewer/log-line';
 import { LogViewer } from '../components/log-viewer/log-viewer';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '../components/ui/dropdown-menu';
 import { EmptyState } from '../components/ui/empty-state';
 import { Input } from '../components/ui/input';
 import {
@@ -44,11 +55,15 @@ import {
 } from '../components/ui/select';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../components/ui/tooltip';
 import {
+  LOG_LEVELS,
+  levelsParam,
+  locateLogLine,
   logDownloadUrl,
   logFilesQueryOptions,
   logInfoQueryOptions,
   searchLog,
 } from '../lib/api/logs';
+import { cn } from '../lib/utils';
 
 const LOGS_PAGE_NAME = 'LogsPage';
 
@@ -58,12 +73,28 @@ const IDLE_POLL_MS = 5000;
 
 const GOTO_PATTERN = /^\d+$/;
 
+// ? Beyond two names the trigger reads as a list rather than a label; show a count instead.
+const MAX_NAMED_LEVELS = 2;
+
+const LEVEL_COUNT_KEYS: Record<LogLevel, keyof LogLevelCounts> = {
+  TRACE: 'trace',
+  DEBUG: 'debug',
+  INFO: 'info',
+  WARN: 'warn',
+  ERROR: 'error',
+};
+
 const searchSchema = z.object({
   file: z.string().optional(),
 });
 
-/** Where the next search resumes; `inclusive` keeps `line` itself a candidate. */
-type SearchCursor = { line: number; inclusive: boolean };
+/**
+ * Where the next search resumes. `line` is a physical line number; `position` is the row the view
+ * scrolled to for it, which is the only thing comparable against the viewport when the filter
+ * hides `line` itself, and `null` until the locate that resolves it lands. `inclusive` keeps
+ * `line` a candidate.
+ */
+type SearchCursor = { line: number; position: number | null; inclusive: boolean };
 
 function formatSize(bytes: number): string {
   if (bytes < 0) return '—';
@@ -141,7 +172,12 @@ const LogsPage = (): ReactElement => {
   const viewerRef = useRef<LogViewerHandle>(null);
   const cursorRef = useRef<SearchCursor | null>(null);
   const searchAbortRef = useRef<AbortController | null>(null);
+  const locateAbortRef = useRef<AbortController | null>(null);
   const searchingRef = useRef(false);
+  // ? Physical line to return to once a filter change has re-indexed the view.
+  const anchorRef = useRef<number | null>(null);
+  // ? Last physical line the viewport was known to be at, for when it can no longer say.
+  const originRef = useRef<number | null>(null);
 
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -158,6 +194,13 @@ const LogsPage = (): ReactElement => {
   const [searchError, setSearchError] = useState<string | null>(null);
   const [searching, setSearching] = useState(false);
   const [gotoValue, setGotoValue] = useState('');
+  const [levels, setLevels] = useState<LogLevel[]>([...LOG_LEVELS]);
+  const [hiddenLine, setHiddenLine] = useState<number | null>(null);
+
+  const levelsKey = levelsParam(levels) ?? '';
+  const filtering = levelsKey !== '';
+  const levelsRef = useRef(levels);
+  levelsRef.current = levels;
 
   const { data: files = [] } = useQuery(logFilesQueryOptions(IDLE_POLL_MS));
 
@@ -167,7 +210,7 @@ const LogsPage = (): ReactElement => {
   }, [fileParam, files]);
 
   const { data: info, error: infoError } = useQuery(
-    logInfoQueryOptions(selected, follow ? FOLLOW_POLL_MS : IDLE_POLL_MS),
+    logInfoQueryOptions(selected, levels, follow ? FOLLOW_POLL_MS : IDLE_POLL_MS),
   );
 
   const selectedFile = useMemo(
@@ -184,7 +227,10 @@ const LogsPage = (): ReactElement => {
     }
   }, [query, useRegex, caseSensitive]);
 
-  const total = info?.lines ?? 0;
+  // ? Rows the viewer addresses, which a filter decouples from the file's own line count. The
+  // ? search and goto controls speak physical lines, so both numbers are needed.
+  const total = info?.filtered ?? info?.lines ?? 0;
+  const lineTotal = info?.lines ?? 0;
   const size = info?.size ?? selectedFile?.size ?? 0;
   const modified = info?.modified ?? selectedFile?.modified;
 
@@ -195,28 +241,108 @@ const LogsPage = (): ReactElement => {
     [navigate],
   );
 
+  /**
+   * Physical lines the viewport currently covers. Row indices are positions in the filtered
+   * view, while every cursor, search hit and goto target is a physical line number.
+   */
+  const visiblePhysicalRange = useCallback((): { first: number; last: number } | null => {
+    const viewer = viewerRef.current;
+    const range = viewer?.getVisibleRange() ?? null;
+    if (viewer == null || range == null) return null;
+
+    const first = viewer.getPhysicalLine(range.first);
+    const last = viewer.getPhysicalLine(range.last);
+    // ! A filtered row whose chunk has not landed has no physical number, and its index is not
+    // ! one — under a filter the two are thousands of lines apart. Report nothing over a guess.
+    if (first == null || last == null) return null;
+
+    return { first, last };
+  }, []);
+
+  /** Begin a locate request, superseding whichever one is still in flight. */
+  const startLocate = useCallback((): AbortController => {
+    locateAbortRef.current?.abort();
+    const controller = new AbortController();
+    locateAbortRef.current = controller;
+    return controller;
+  }, []);
+
+  /**
+   * Put a physical line on screen, following it through the filter when one is active, and record
+   * it as the cursor the next search steps off.
+   */
+  const revealLine = useCallback(
+    (line: number, align: LineAlign, inclusive: boolean) => {
+      if (selected == null) return;
+
+      originRef.current = line;
+
+      if (!filtering) {
+        locateAbortRef.current?.abort();
+        locateAbortRef.current = null;
+        setHiddenLine(null);
+        cursorRef.current = { line, position: line, inclusive };
+        viewerRef.current?.scrollToLine(line, align);
+        return;
+      }
+
+      const controller = startLocate();
+      // ? Unresolved until the locate lands, which is what keeps a second click before then
+      // ? stepping off `line` rather than restarting from the viewport.
+      cursorRef.current = { line, position: null, inclusive };
+
+      locateLogLine(selected, line, levelsRef.current, controller.signal)
+        .then((location) => {
+          if (controller.signal.aborted) return;
+          setHiddenLine(location.visible ? null : line);
+          // ! The row the view actually reached, not the line — a hidden hit sits at no row of
+          // ! its own, and comparing the line against the viewport would discard the cursor and
+          // ! hand back the same hit for ever.
+          if (cursorRef.current?.line === line) {
+            cursorRef.current = { line, position: location.position, inclusive };
+          }
+          viewerRef.current?.scrollToLine(location.position, align);
+        })
+        .catch(() => {
+          // ? Best effort: a lost position leaves the view usable, just not repositioned.
+        });
+    },
+    [filtering, selected, startLocate],
+  );
+
   const runSearch = useCallback(
     (direction: LogSearchDirection) => {
       if (selected == null || query === '' || searchingRef.current) return;
 
-      // ? Stepping off the last match only makes sense while it is still on
-      // ? screen; once the user has scrolled away, the viewport is the anchor.
-      const range = viewerRef.current?.getVisibleRange() ?? null;
-      const cursor = cursorRef.current;
-      const anchor =
-        cursor != null &&
-        (range == null || (cursor.line >= range.first && cursor.line <= range.last))
-          ? cursor
-          : null;
+      // ? Stepping off the last match only makes sense while it is still on screen; once the
+      // ? user has scrolled away, the viewport is the anchor. The test is in row space because
+      // ? that is where the viewport is measured, and a hidden hit has no row of its own. A
+      // ? cursor whose row is not resolved yet has not been scrolled away from either.
+      const rows = viewerRef.current?.getVisibleRange() ?? null;
+      const range = visiblePhysicalRange();
+      if (range != null) originRef.current = range.first;
 
+      const cursor = cursorRef.current;
+      const onScreen =
+        rows == null ||
+        cursor?.position == null ||
+        (cursor.position >= rows.first && cursor.position <= rows.last);
+      const anchor = cursor != null && onScreen ? cursor : null;
+
+      // ? `visiblePhysicalRange` comes back empty for two different reasons, and only one of
+      // ? them warrants a remembered origin: rows on screen whose numbers have not arrived. No
+      // ? rows at all means there is no reader position to preserve.
       const forward = direction === 'forward';
-      const fromViewport = forward ? (range?.first ?? 0) : (range?.last ?? total - 1);
+      const edge = forward ? 0 : lineTotal - 1;
+      const viewport = forward ? range?.first : range?.last;
+      const unnumbered = rows != null ? originRef.current : null;
+      const fromViewport = viewport ?? unnumbered ?? edge;
       const step = forward ? 1 : -1;
       const from = anchor != null ? anchor.line + (anchor.inclusive ? 0 : step) : fromViewport;
 
       setSearchError(null);
 
-      if (from < 0 || from >= total) {
+      if (from < 0 || from >= lineTotal) {
         setNoMatch(true);
         return;
       }
@@ -243,9 +369,8 @@ const LogsPage = (): ReactElement => {
           }
           setNoMatch(false);
           setMatchLine(result.line);
-          cursorRef.current = { line: result.line, inclusive: false };
           setFollow(false);
-          viewerRef.current?.scrollToLine(result.line, 'center');
+          revealLine(result.line, 'center', false);
         })
         .catch((cause: unknown) => {
           if (controller.signal.aborted) return;
@@ -263,7 +388,7 @@ const LogsPage = (): ReactElement => {
           setSearching(false);
         });
     },
-    [caseSensitive, query, selected, t, total, useRegex],
+    [caseSensitive, lineTotal, query, revealLine, selected, t, useRegex, visiblePhysicalRange],
   );
 
   const handleSearchKeyDown = useCallback(
@@ -279,18 +404,48 @@ const LogsPage = (): ReactElement => {
     setNoMatch(false);
     setMatchLine(null);
     setSearchError(null);
+    setHiddenLine(null);
   }, []);
 
   const handleGoto = useCallback(() => {
-    if (!GOTO_PATTERN.test(gotoValue) || total === 0) return;
-    const line = Math.max(0, Math.min(Number.parseInt(gotoValue, 10) - 1, total - 1));
+    if (!GOTO_PATTERN.test(gotoValue) || lineTotal === 0) return;
+    const line = Math.max(0, Math.min(Number.parseInt(gotoValue, 10) - 1, lineTotal - 1));
     clearSearchVerdict();
-    // ? The jump centres the line, so the viewport reaches back above it and
-    // ? forward below it; the next search has to resume from the line itself.
-    cursorRef.current = { line, inclusive: true };
     setFollow(false);
-    viewerRef.current?.scrollToLine(line, 'center');
-  }, [clearSearchVerdict, gotoValue, total]);
+    // ? The jump centres the line, so the viewport reaches back above it and forward below it;
+    // ? the next search has to resume from the line itself, hence the inclusive cursor.
+    revealLine(line, 'center', true);
+  }, [clearSearchVerdict, gotoValue, lineTotal, revealLine]);
+
+  // ? Captured before a filter change: once the view re-indexes, the row the reader was on is
+  // ? gone and only its physical line number can find the way back.
+  const captureAnchor = useCallback(() => {
+    if (follow) {
+      anchorRef.current = null;
+      return;
+    }
+    // ! The menu stays open across several toggles, and between them the view has neither a
+    // ! count nor line numbers to read a fresh anchor from. Keep the anchor still pending, and
+    // ! failing that the last position the viewport actually resolved to — the restore consumes
+    // ! the anchor as soon as the count lands, well before the lines do.
+    if (anchorRef.current != null) return;
+    anchorRef.current = visiblePhysicalRange()?.first ?? originRef.current;
+  }, [follow, visiblePhysicalRange]);
+
+  const handleToggleLevel = useCallback(
+    (level: LogLevel) => {
+      captureAnchor();
+      setLevels((prev) =>
+        prev.includes(level) ? prev.filter((entry) => entry !== level) : [...prev, level],
+      );
+    },
+    [captureAnchor],
+  );
+
+  const handleClearLevels = useCallback(() => {
+    captureAnchor();
+    setLevels([...LOG_LEVELS]);
+  }, [captureAnchor]);
 
   const handleTop = useCallback(() => {
     clearSearchVerdict();
@@ -316,14 +471,52 @@ const LogsPage = (): ReactElement => {
   // ? viewer's own scroll report is too late to be relied on for that.
   useEffect(() => {
     cursorRef.current = null;
+    anchorRef.current = null;
+    originRef.current = null;
     setFollow(true);
     setNoMatch(false);
     setMatchLine(null);
     setSearchError(null);
+    setHiddenLine(null);
     return () => {
       searchAbortRef.current?.abort();
+      locateAbortRef.current?.abort();
     };
   }, [selected]);
+
+  // ? A level change invalidates both verdicts for the same reason a criteria change invalidates
+  // ? a match cursor: they were decided against a filter no longer in effect. Dropping only the
+  // ? hidden half would turn "hidden by the filter" into an unchecked claim that the line is on
+  // ? screen, and a locate still in flight would reinstate the stale verdict it replaced.
+  useEffect(() => {
+    locateAbortRef.current?.abort();
+    locateAbortRef.current = null;
+    setHiddenLine(null);
+    setMatchLine(null);
+  }, [levelsKey]);
+
+  // ? Runs once the re-indexed count has landed, which is the first moment a position in the
+  // ? new view means anything. `total` is the trigger for exactly that reason.
+  // ! No cleanup abort: this effect re-runs on every growth poll, and tearing down its own
+  // ! request there would lose the restore, since the anchor is already consumed.
+  useEffect(() => {
+    const anchor = anchorRef.current;
+    if (anchor == null || selected == null || total === 0) return;
+    anchorRef.current = null;
+    originRef.current = anchor;
+
+    const controller = startLocate();
+
+    locateLogLine(selected, anchor, levelsRef.current, controller.signal)
+      .then((location) => {
+        if (controller.signal.aborted) return;
+        setFollow(false);
+        viewerRef.current?.scrollToLine(location.position, 'start');
+      })
+      .catch(() => {
+        // ? Best effort: a lost anchor leaves the view usable, just repositioned.
+      });
+  }, [levelsKey, selected, startLocate, total]);
 
   // ? A match cursor holds a hit of the previous criteria, so it cannot be
   // ? stepped off once the criteria change; a goto cursor is criteria-agnostic
@@ -364,12 +557,37 @@ const LogsPage = (): ReactElement => {
       </Badge>
     );
   } else if (matchLine != null) {
+    const key = hiddenLine === matchLine ? 'logs.search.matchHidden' : 'logs.search.matchAt';
     searchVerdict = (
       <Badge variant="outline" className="shrink-0 whitespace-nowrap">
-        {t('logs.search.matchAt', { line: (matchLine + 1).toLocaleString() })}
+        {t(key, { line: (matchLine + 1).toLocaleString() })}
+      </Badge>
+    );
+  } else if (hiddenLine != null) {
+    searchVerdict = (
+      <Badge variant="outline" className="shrink-0 whitespace-nowrap">
+        {t('logs.filter.lineHidden', { line: (hiddenLine + 1).toLocaleString() })}
       </Badge>
     );
   }
+
+  const selectedLevels = LOG_LEVELS.filter((level) => levels.includes(level));
+  let filterLabel = t('logs.filter.all');
+  if (filtering && selectedLevels.length > MAX_NAMED_LEVELS) {
+    filterLabel = t('logs.filter.selected', {
+      count: selectedLevels.length,
+      total: LOG_LEVELS.length,
+    });
+  } else if (filtering) {
+    filterLabel = selectedLevels.join(', ');
+  }
+
+  const lineStatus = filtering
+    ? t('logs.status.linesFiltered', {
+        filtered: total.toLocaleString(),
+        total: lineTotal.toLocaleString(),
+      })
+    : t('logs.status.lines', { total: lineTotal.toLocaleString() });
 
   let viewer: ReactNode;
   if (selected == null) {
@@ -398,6 +616,7 @@ const LogsPage = (): ReactElement => {
         ref={viewerRef}
         className="min-h-0 flex-1"
         file={selected}
+        levels={levels}
         total={total}
         size={info?.size ?? 0}
         wrap={wrap}
@@ -430,6 +649,43 @@ const LogsPage = (): ReactElement => {
               ))}
             </SelectContent>
           </Select>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                size="sm"
+                variant={filtering ? 'primary' : 'ghost'}
+                aria-label={t('logs.filter.label')}
+              >
+                <Filter className="size-4" />
+                {filterLabel}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-56">
+              <DropdownMenuLabel>{t('logs.filter.label')}</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {LOG_LEVELS.map((level) => (
+                <DropdownMenuCheckboxItem
+                  key={level}
+                  checked={levels.includes(level)}
+                  // ? Toggling one level should not close a menu the reader is still using.
+                  onSelect={(event) => event.preventDefault()}
+                  onCheckedChange={() => handleToggleLevel(level)}
+                >
+                  <span className={cn('font-mono text-xs', LEVEL_CLASS[level], LEVEL_EMPHASIS)}>
+                    {level}
+                  </span>
+                  <span className="text-muted-foreground ml-auto text-xs tabular-nums">
+                    {(info?.levels[LEVEL_COUNT_KEYS[level]] ?? 0).toLocaleString()}
+                  </span>
+                </DropdownMenuCheckboxItem>
+              ))}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem disabled={!filtering} onSelect={handleClearLevels}>
+                {t('logs.filter.clear')}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
 
           <div className="ml-auto flex items-center gap-2">
             <Button
@@ -551,7 +807,7 @@ const LogsPage = (): ReactElement => {
       {/* Status footer */}
       <div className="border-border bg-card text-muted-foreground flex h-7 shrink-0 items-center gap-4 border-t px-4 text-xs">
         <span className="font-mono">{selected ?? '—'}</span>
-        <span>{t('logs.status.lines', { total: total.toLocaleString() })}</span>
+        <span>{lineStatus}</span>
         <span>{t('logs.status.size', { size: formatSize(size) })}</span>
         <span>{t('logs.status.modified', { modified: formatTimestamp(modified) })}</span>
         {follow && <Badge variant="outline">{t('logs.status.following')}</Badge>}
