@@ -6,9 +6,7 @@
 // of a stack trace is a continuation.
 //
 
-export const LOG_LEVELS = ['TRACE', 'DEBUG', 'INFO', 'WARN', 'ERROR'] as const;
-
-export type LogLevel = (typeof LOG_LEVELS)[number];
+import type { LogLevel } from '../../lib/api/logs';
 
 export type ParsedLogLine =
   | {
@@ -22,6 +20,8 @@ export type ParsedLogLine =
 
 // ? Anchored, and only ever run against the head of the line: a single log line
 // ? can be hundreds of kilobytes and the prefix always fits in far less.
+// ! Must stay in step with `classifyHead` in `LogManager.kt`, which decides the same thing on
+// ! raw bytes. If the two disagree, the gutter numbers stop matching the colouring.
 const ENTRY_PREFIX = /^(\d{2}:\d{2}:\d{2}\.\d{3}) (TRACE|DEBUG|INFO|WARN|ERROR)\s+(\S{1,256}) - /;
 
 const HEAD_LENGTH = 512;

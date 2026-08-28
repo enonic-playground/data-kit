@@ -31,6 +31,47 @@ private const val DEADLINE_CHECK_INTERVAL = 4096
 private const val MAX_CACHED_INDEXES = 4
 private const val INITIAL_OFFSET_CAPACITY = 1024
 
+// ? Level codes double as bit positions in the filter mask. `LEVEL_UNKNOWN` is a continuation
+// ? with no entry above it to inherit from: the head of a file that starts mid stack trace.
+internal const val LEVEL_UNKNOWN: Byte = 0
+internal const val LEVEL_TRACE: Byte = 1
+internal const val LEVEL_DEBUG: Byte = 2
+internal const val LEVEL_INFO: Byte = 3
+internal const val LEVEL_WARN: Byte = 4
+internal const val LEVEL_ERROR: Byte = 5
+internal const val LEVEL_COUNT = 6
+internal const val LEVEL_MASK_ALL = 0b111110
+
+// ! Must stay in step with `ENTRY_PREFIX` in `assets/js/components/log-viewer/log-line.ts`.
+// ! The two decide what an entry is; if they disagree, the gutter numbers stop matching the
+// ! colouring of the very lines they label.
+private const val HEAD_CAPACITY = 512
+private const val TIME_LENGTH = 12
+private const val MAX_LOGGER_LENGTH = 256
+private const val MIN_ENTRY_HEAD = 22
+
+private val LEVEL_TOKENS = arrayOf(
+    "TRACE".toByteArray(Charsets.US_ASCII),
+    "DEBUG".toByteArray(Charsets.US_ASCII),
+    "INFO".toByteArray(Charsets.US_ASCII),
+    "WARN".toByteArray(Charsets.US_ASCII),
+    "ERROR".toByteArray(Charsets.US_ASCII),
+)
+
+private val LEVEL_NAMES = arrayOf("unknown", "trace", "debug", "info", "warn", "error")
+
+private const val SPACE = ' '.code.toByte()
+private const val TAB = '\t'.code.toByte()
+private const val DASH = '-'.code.toByte()
+private const val COLON = ':'.code.toByte()
+private const val DOT = '.'.code.toByte()
+private const val ZERO = '0'.code.toByte()
+private const val NINE = '9'.code.toByte()
+
+// ? A physical line number and its separator, charged against the read budget so the `numbers`
+// ? array of a filtered response cannot push it past the cap.
+private const val NUMBER_COST = 12L
+
 private const val NEWLINE = '\n'.code.toByte()
 private const val CARRIAGE_RETURN = '\r'.code.toByte()
 
@@ -92,26 +133,34 @@ class LogManager {
         }
     }
 
-    fun info(name: String?): String? {
+    /**
+     * File metadata plus a per-level line count. When [mask] selects a strict subset of the
+     * levels it also carries `filtered`, the number of lines that view holds.
+     */
+    fun info(name: String?, mask: Int): String? {
         val file = resolveLogFile(name) ?: return null
-        val snapshot = LogIndexCache.get(file).snapshot() ?: return null
-
-        return buildString {
-            append("{\"name\":")
-            append(jsonString(file.fileName.toString()))
-            append(",\"size\":")
-            append(snapshot.size)
-            append(",\"modified\":")
-            append(jsonString(snapshot.modified))
-            append(",\"lines\":")
-            append(snapshot.lines)
-            append('}')
-        }
+        return LogIndexCache.get(file).infoJson(file.fileName.toString(), mask)
     }
 
-    fun read(name: String?, from: Long, count: Int): String? {
+    /**
+     * A page of lines. [from] and the reported total count physical lines when [mask] admits
+     * every level, and positions in the filtered view otherwise — in which case the response
+     * also carries the physical line number of each line it returns.
+     */
+    fun read(name: String?, from: Long, count: Int, mask: Int): String? {
         val file = resolveLogFile(name) ?: return null
-        return LogIndexCache.get(file).readJson(from, count, maxReadBytes)
+        return LogIndexCache.get(file).readJson(from, count, maxReadBytes, mask)
+    }
+
+    /**
+     * Where physical line [line] sits in the filtered view, as `{"position":P,"visible":B}`. A
+     * line the filter hides reports the nearest visible position instead, so a search hit
+     * outside the filter still puts the viewport somewhere sensible. `null` when the file name
+     * is invalid or the file is missing.
+     */
+    fun locate(name: String?, mask: Int, line: Long): String? {
+        val file = resolveLogFile(name) ?: return null
+        return LogIndexCache.get(file).locateJson(mask, line)
     }
 
     /**
@@ -225,7 +274,62 @@ private fun readAttributes(path: Path): BasicFileAttributes? =
         null
     }
 
-internal class LogSnapshot(val lines: Int, val size: Long, val modified: String)
+private fun isDigit(byte: Byte): Boolean = byte >= ZERO && byte <= NINE
+
+private fun isBlank(byte: Byte): Boolean = byte == SPACE || byte == TAB
+
+/** `HH:mm:ss.SSS`, the fixed-width head of XP's Logback pattern. */
+private fun hasTimePrefix(head: ByteArray): Boolean {
+    if (!isDigit(head[0]) || !isDigit(head[1]) || head[2] != COLON) return false
+    if (!isDigit(head[3]) || !isDigit(head[4]) || head[5] != COLON) return false
+    if (!isDigit(head[6]) || !isDigit(head[7]) || head[8] != DOT) return false
+    return isDigit(head[9]) && isDigit(head[10]) && isDigit(head[11])
+}
+
+/** Level code of the token at [at], or `0` when none of the five is there. */
+private fun matchLevelToken(head: ByteArray, at: Int, length: Int): Int {
+    for (index in LEVEL_TOKENS.indices) {
+        val token = LEVEL_TOKENS[index]
+        if (at + token.size > length) continue
+        var i = 0
+        while (i < token.size && head[at + i] == token[i]) i++
+        if (i == token.size) return index + 1
+    }
+    return 0
+}
+
+/**
+ * Level this line declares, or [LEVEL_UNKNOWN] when it is a continuation. Every part it reads
+ * is ASCII in XP's pattern, so classification never decodes the line — which is what lets it
+ * ride along with the offset scan instead of costing a pass of its own.
+ */
+private fun classifyHead(head: ByteArray, length: Int): Byte {
+    if (length < MIN_ENTRY_HEAD) return LEVEL_UNKNOWN
+    if (!hasTimePrefix(head) || head[TIME_LENGTH] != SPACE) return LEVEL_UNKNOWN
+
+    val level = matchLevelToken(head, TIME_LENGTH + 1, length)
+    if (level == 0) return LEVEL_UNKNOWN
+
+    var i = TIME_LENGTH + 1 + LEVEL_TOKENS[level - 1].size
+    if (i >= length || !isBlank(head[i])) return LEVEL_UNKNOWN
+    while (i < length && isBlank(head[i])) i++
+
+    val loggerStart = i
+    while (i < length && !isBlank(head[i])) i++
+    val loggerLength = i - loggerStart
+    if (loggerLength == 0 || loggerLength > MAX_LOGGER_LENGTH) return LEVEL_UNKNOWN
+
+    if (i + 2 >= length) return LEVEL_UNKNOWN
+    val separated = head[i] == SPACE && head[i + 1] == DASH && head[i + 2] == SPACE
+    return if (separated) level.toByte() else LEVEL_UNKNOWN
+}
+
+/**
+ * Whether [mask] is a real filter. A mask admitting all five levels is the same view as no
+ * filter at all, and taking the unfiltered path keeps [LEVEL_UNKNOWN] lines visible in it.
+ */
+internal fun isFiltering(mask: Int): Boolean =
+    mask > 0 && (mask and LEVEL_MASK_ALL) != LEVEL_MASK_ALL
 
 /**
  * Byte offset of the first character of every line in a log file.
@@ -236,6 +340,7 @@ internal class LogSnapshot(val lines: Int, val size: Long, val modified: String)
  */
 internal class LogLineIndex(private val path: Path) {
     private var offsets = LongArray(INITIAL_OFFSET_CAPACITY)
+    private var levels = ByteArray(INITIAL_OFFSET_CAPACITY)
     private var lineCount = 0
     private var scannedBytes = 0L
     private var insideLine = false
@@ -243,42 +348,213 @@ internal class LogLineIndex(private val path: Path) {
     private var fileKey: Any? = null
     private var lastModified: FileTime? = null
 
+    // ? Head of the line being scanned. It outlives one `scan` call because a line can straddle
+    // ? the read buffer, and one growth poll because the trailing line of a live file is still
+    // ? being written to.
+    private val head = ByteArray(HEAD_CAPACITY)
+    private var headLength = 0
+    private var levelCarry = LEVEL_UNKNOWN
+
+    // ? Physical line numbers admitted by `maskCached`, extended as the file grows. One mask is
+    // ? cached; switching rebuilds from `levels`, which is a pass over memory, not over the file.
+    private var filtered = IntArray(0)
+    private var filteredCount = 0
+    private var filteredScanned = 0
+    private var maskCached = -1
+
     @Synchronized
-    fun snapshot(): LogSnapshot? {
+    fun infoJson(name: String, mask: Int): String? {
         val attrs = refresh() ?: return null
-        return LogSnapshot(lineCount, attrs.size(), attrs.lastModifiedTime().toInstant().toString())
+
+        // ? Counted per call rather than kept incrementally: the trailing line is reclassified
+        // ? as it grows, and undoing its old contribution costs more state than the pass costs.
+        val counts = IntArray(LEVEL_COUNT)
+        for (line in 0 until lineCount) counts[levels[line].toInt()]++
+
+        return buildString {
+            append("{\"name\":")
+            append(jsonString(name))
+            append(",\"size\":")
+            append(attrs.size())
+            append(",\"modified\":")
+            append(jsonString(attrs.lastModifiedTime().toInstant().toString()))
+            append(",\"lines\":")
+            append(lineCount)
+            append(",\"levels\":{")
+            for (code in 0 until LEVEL_COUNT) {
+                if (code > 0) append(',')
+                append(jsonString(LEVEL_NAMES[code]))
+                append(':')
+                append(counts[code])
+            }
+            append('}')
+            if (isFiltering(mask)) {
+                filteredIndex(mask)
+                append(",\"filtered\":")
+                append(filteredCount)
+            }
+            append('}')
+        }
     }
 
     @Synchronized
-    fun readJson(fromRequested: Long, countRequested: Int, maxBytes: Long): String? {
+    fun locateJson(mask: Int, lineRequested: Long): String? {
+        refresh() ?: return null
+
+        val line = lineRequested.coerceAtLeast(0)
+
+        if (!isFiltering(mask)) {
+            val position = minOf(line, maxOf(0, lineCount - 1).toLong())
+            return "{\"position\":$position,\"visible\":${lineCount > 0}}"
+        }
+
+        filteredIndex(mask)
+        if (filteredCount == 0) return "{\"position\":0,\"visible\":false}"
+
+        var low = 0
+        var high = filteredCount
+        while (low < high) {
+            val mid = (low + high) ushr 1
+            if (filtered[mid] < line) low = mid + 1 else high = mid
+        }
+
+        if (low < filteredCount && filtered[low].toLong() == line) {
+            return "{\"position\":$low,\"visible\":true}"
+        }
+
+        // ? A hidden line is usually a stack frame of the entry above it, so fall back to that
+        // ? entry rather than to the next visible line below.
+        val nearest = if (low > 0) low - 1 else 0
+        return "{\"position\":$nearest,\"visible\":false}"
+    }
+
+    @Synchronized
+    fun readJson(fromRequested: Long, countRequested: Int, maxBytes: Long, mask: Int): String? {
         val attrs = refresh() ?: return null
 
         val from = fromRequested.coerceAtLeast(0)
         val count = countRequested.coerceIn(MIN_READ_COUNT, MAX_READ_COUNT)
-        val fromLine = if (from >= lineCount) lineCount else from.toInt()
-        val countedEnd = minOf(lineCount.toLong(), fromLine.toLong() + count).toInt()
-        val lines = readLines(fromLine, budgetedEnd(fromLine, countedEnd, maxBytes))
 
-        // ? Both ends are pure ASCII, so their character count is their byte count.
+        if (!isFiltering(mask)) {
+            val fromLine = if (from >= lineCount) lineCount else from.toInt()
+            val countedEnd = minOf(lineCount.toLong(), fromLine.toLong() + count).toInt()
+            val lines = readLines(fromLine, budgetedEnd(fromLine, countedEnd, maxBytes))
+            return linesJson(from, lines, null, lineCount, attrs.size(), maxBytes)
+        }
+
+        filteredIndex(mask)
+        val start = if (from >= filteredCount) filteredCount else from.toInt()
+        val end = minOf(filteredCount.toLong(), start.toLong() + count).toInt()
+        val numbers = IntArray(end - start) { filtered[start + it] }
+        val lines = readRuns(numbers, maxBytes)
+
+        return linesJson(from, lines, numbers, filteredCount, attrs.size(), maxBytes)
+    }
+
+    /**
+     * `numbers` is emitted only for a filtered read. An unfiltered response keeps the shape it
+     * always had, where a line's physical number is [from] plus its position in the array.
+     */
+    private fun linesJson(
+        from: Long,
+        lines: List<String>,
+        numbers: IntArray?,
+        total: Int,
+        size: Long,
+        maxBytes: Long,
+    ): String {
+        // ? All three are pure ASCII, so their character count is their byte count.
         val head = "{\"from\":$from,\"lines\":["
-        val tail = "],\"total\":$lineCount,\"size\":${attrs.size()}}"
+        val middle = "],\"numbers\":["
+        val tail = "],\"total\":$total,\"size\":$size}"
+
+        // ! The raw budget bounds what was read, not what is sent: escaping and multi-byte
+        // ! characters both expand on the wire. Trailing lines that miss out are dropped, and
+        // ! the client resumes from `from` plus the array length as for any short page.
+        val numberCost = if (numbers == null) 0L else NUMBER_COST
+        val fixed = head.length + tail.length + if (numbers == null) 0 else middle.length
+
+        var remaining = maxBytes - fixed
+
+        var emitted = 0
+        for (line in lines) {
+            val cost = jsonStringBytes(line) + numberCost + if (emitted > 0) 1L else 0L
+            if (cost > remaining) break
+            remaining -= cost
+            emitted++
+        }
 
         return buildString {
             append(head)
-            // ! The raw budget bounds what was read, not what is sent: escaping and multi-byte
-            // ! characters both expand on the wire. Trailing lines that miss out are dropped, and
-            // ! the client resumes from `from` plus the array length as for any short page.
-            var remaining = maxBytes - head.length - tail.length
-            var emitted = 0
-            for (line in lines) {
-                val cost = jsonStringBytes(line) + if (emitted > 0) 1L else 0L
-                if (cost > remaining) break
-                remaining -= cost
-                if (emitted > 0) append(',')
-                append(jsonString(line))
-                emitted++
+            for (index in 0 until emitted) {
+                if (index > 0) append(',')
+                append(jsonString(lines[index]))
+            }
+            if (numbers != null) {
+                append(middle)
+                for (index in 0 until emitted) {
+                    if (index > 0) append(',')
+                    append(numbers[index])
+                }
             }
             append(tail)
+        }
+    }
+
+    /**
+     * Lines at [numbers], read as contiguous runs. An entry and its stack frames are adjacent, so
+     * a run usually covers a whole entry, and two hits far apart never pull the bytes between
+     * them. Returns a prefix of what was asked for when the byte budget runs out.
+     */
+    private fun readRuns(numbers: IntArray, maxBytes: Long): List<String> {
+        if (numbers.isEmpty()) return emptyList()
+
+        val lines = ArrayList<String>(numbers.size)
+        var budget = maxBytes
+        var runStart = 0
+
+        for (index in 1..numbers.size) {
+            if (index < numbers.size && numbers[index] == numbers[index - 1] + 1) continue
+
+            val first = numbers[runStart]
+            val last = numbers[index - 1]
+            val end = budgetedEnd(first, last + 1, budget)
+            if (end <= first) return lines
+
+            lines += readLines(first, end)
+            budget -= lineEnd(end - 1) - offsets[first]
+            if (end <= last) return lines
+
+            runStart = index
+        }
+
+        return lines
+    }
+
+    /** Rebuilds [filtered] for [mask], or extends it over lines added since the last call. */
+    private fun filteredIndex(mask: Int) {
+        if (mask != maskCached) {
+            maskCached = mask
+            filteredCount = 0
+            filteredScanned = 0
+        } else if (filteredScanned > 0) {
+            // ! The trailing line is reclassified every time the file grows, so the last line
+            // ! folded in is the one that cannot be trusted — drop it and redo it.
+            filteredScanned--
+            while (filteredCount > 0 && filtered[filteredCount - 1] >= filteredScanned) {
+                filteredCount--
+            }
+        }
+
+        while (filteredScanned < lineCount) {
+            if (mask and (1 shl levels[filteredScanned].toInt()) != 0) {
+                if (filteredCount == filtered.size) {
+                    val grown = if (filtered.isEmpty()) INITIAL_OFFSET_CAPACITY else filtered.size * 2
+                    filtered = filtered.copyOf(grown)
+                }
+                filtered[filteredCount++] = filteredScanned
+            }
+            filteredScanned++
         }
     }
 
@@ -348,9 +624,15 @@ internal class LogLineIndex(private val path: Path) {
 
     private fun reset() {
         offsets = LongArray(INITIAL_OFFSET_CAPACITY)
+        levels = ByteArray(INITIAL_OFFSET_CAPACITY)
         lineCount = 0
         scannedBytes = 0L
         insideLine = false
+        headLength = 0
+        levelCarry = LEVEL_UNKNOWN
+        filteredCount = 0
+        filteredScanned = 0
+        maskCached = -1
     }
 
     private fun scan(endPos: Long) {
@@ -373,12 +655,15 @@ internal class LogLineIndex(private val path: Path) {
                     var i = 0
                     while (i < read) {
                         if (!insideLine) {
-                            appendOffset(pos + i)
+                            appendLine(pos + i)
                             insideLine = true
+                            headLength = 0
                         }
                         var j = i
                         while (j < read && bytes[j] != NEWLINE) j++
+                        captureHead(bytes, i, j)
                         if (j < read) {
+                            classifyLine(true)
                             insideLine = false
                             i = j + 1
                         } else {
@@ -389,6 +674,11 @@ internal class LogLineIndex(private val path: Path) {
                     pos += read
                 }
 
+                // ? The trailing line of a live file has no newline yet, so it is classified
+                // ? provisionally and the carry left where it is: the bytes still to come can
+                // ? turn what currently looks like a continuation into an entry.
+                if (insideLine) classifyLine(false)
+
                 scannedBytes = pos
             }
         } catch (e: IOException) {
@@ -397,11 +687,31 @@ internal class LogLineIndex(private val path: Path) {
         }
     }
 
-    private fun appendOffset(value: Long) {
+    private fun appendLine(value: Long) {
         if (lineCount == offsets.size) {
             offsets = offsets.copyOf(offsets.size * 2)
+            levels = levels.copyOf(levels.size * 2)
         }
-        offsets[lineCount++] = value
+        offsets[lineCount] = value
+        levels[lineCount] = LEVEL_UNKNOWN
+        lineCount++
+    }
+
+    private fun captureHead(source: ByteArray, from: Int, to: Int) {
+        val room = HEAD_CAPACITY - headLength
+        if (room <= 0) return
+        val length = minOf(to - from, room)
+        System.arraycopy(source, from, head, headLength, length)
+        headLength += length
+    }
+
+    /** A line declaring no level of its own belongs to the entry above it. */
+    private fun classifyLine(advanceCarry: Boolean) {
+        if (lineCount == 0) return
+        val own = classifyHead(head, headLength)
+        val effective = if (own == LEVEL_UNKNOWN) levelCarry else own
+        levels[lineCount - 1] = effective
+        if (advanceCarry) levelCarry = effective
     }
 
     private fun lineEnd(line: Int): Long =

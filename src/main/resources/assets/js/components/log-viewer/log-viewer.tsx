@@ -10,11 +10,12 @@ import {
   useSyncExternalStore,
 } from 'react';
 
+import type { LogLevel } from '../../lib/api/logs';
 import type { LineCache } from './line-cache';
 import type { ParsedLogLine } from './log-line';
 import type { ReactElement, ReactNode, Ref } from 'react';
 
-import { fetchLogLines } from '../../lib/api/logs';
+import { fetchLogLines, levelsParam } from '../../lib/api/logs';
 import { cn } from '../../lib/utils';
 import { createLineCache } from './line-cache';
 import {
@@ -59,10 +60,19 @@ export type LogViewerHandle = {
   reload: () => void;
   /** 0-based indices of the first and last rows currently at least partly visible; null when nothing is rendered. */
   getVisibleRange: () => { first: number; last: number } | null;
+  /**
+   * 0-based physical line number at a row index, or `undefined` when a filter is active and the
+   * row's chunk has not landed. There is no honest fallback in that state: the row index is a
+   * position in the filtered view, and handing it back as a line number sends searches and
+   * anchors to the wrong part of the file.
+   */
+  getPhysicalLine: (index: number) => number | undefined;
 };
 
 export type LogViewerProps = {
   file: string;
+  /** Levels the view admits. Selecting all of them, or none, is no filter at all. */
+  levels: readonly LogLevel[];
   total: number;
   size: number;
   wrap: boolean;
@@ -180,13 +190,22 @@ function renderLineContent(
 
 type LogRowProps = {
   index: number;
+  /** Physical line number, or `undefined` while a filtered row's chunk is still on its way. */
+  lineNumber: number | undefined;
   text: string | undefined;
   wrap: boolean;
   highlight: RegExp | null;
   measureRef?: (node: HTMLDivElement | null) => void;
 };
 
-const LogRowBase = ({ index, text, wrap, highlight, measureRef }: LogRowProps): ReactElement => {
+const LogRowBase = ({
+  index,
+  lineNumber,
+  text,
+  wrap,
+  highlight,
+  measureRef,
+}: LogRowProps): ReactElement => {
   const parsed = text == null ? null : parseLogLine(text);
 
   const className = cn(
@@ -202,6 +221,10 @@ const LogRowBase = ({ index, text, wrap, highlight, measureRef }: LogRowProps): 
     parsed == null ? 'text-muted-foreground' : logLineClass(parsed),
   );
 
+  // ! Blank rather than the row index: under a filter that index is not the line number, and
+  // ! printing it would renumber the gutter the moment the chunk lands.
+  const gutter = lineNumber == null ? '' : lineNumber + 1;
+
   const content =
     text == null || parsed == null ? (
       <span className="bg-muted-foreground/20 inline-block h-[9px] w-[36ch] animate-pulse rounded-xs align-middle" />
@@ -214,7 +237,7 @@ const LogRowBase = ({ index, text, wrap, highlight, measureRef }: LogRowProps): 
       ref={measureRef}
       data-component={LOG_ROW_NAME}
       data-index={index}
-      data-line={index + 1}
+      data-line={gutter}
       className={className}
     >
       {content}
@@ -233,6 +256,7 @@ const LogRow = memo(LogRowBase);
 export const LogViewer = ({
   ref,
   file,
+  levels,
   total,
   size,
   wrap,
@@ -243,6 +267,7 @@ export const LogViewer = ({
 }: LogViewerProps): ReactElement => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef(file);
+  const levelsRef = useRef(levels);
   const totalRef = useRef(total);
   const sizeRef = useRef(size);
   const atBottomChangeRef = useRef(onAtBottomChange);
@@ -251,6 +276,7 @@ export const LogViewer = ({
   const pendingEndRef = useRef(true);
 
   fileRef.current = file;
+  levelsRef.current = levels;
   totalRef.current = total;
   sizeRef.current = size;
   atBottomChangeRef.current = onAtBottomChange;
@@ -259,10 +285,15 @@ export const LogViewer = ({
     () =>
       createLineCache({
         fetchChunk: ({ from, count, signal }) =>
-          fetchLogLines(fileRef.current, from, count, signal),
+          fetchLogLines(fileRef.current, from, count, levelsRef.current, signal),
       }),
     [],
   );
+
+  // ? Two selections that filter the same way are the same view, so the canonical parameter is
+  // ? what invalidates — not the array identity, which changes on every render.
+  const levelsKey = levelsParam(levels) ?? '';
+  const filtering = levelsKey !== '';
 
   // ? Every effect that reads cached content lists `version`: it is the only
   // ? signal that chunks landed, were dropped by a reload, or became retryable.
@@ -305,6 +336,11 @@ export const LogViewer = ({
     [holdProgrammatic],
   );
 
+  const getPhysicalLine = useCallback(
+    (index: number): number | undefined => (filtering ? cache.getLineNumber(index) : index),
+    [cache, filtering],
+  );
+
   const getVisibleRange = useCallback((): { first: number; last: number } | null => {
     const element = scrollRef.current;
     if (element === null) return null;
@@ -341,12 +377,13 @@ export const LogViewer = ({
     () => ({
       scrollToLine,
       getVisibleRange,
+      getPhysicalLine,
       reload: () => {
         cache.reset();
         cache.setTotal(totalRef.current, sizeRef.current);
       },
     }),
-    [cache, getVisibleRange, scrollToLine],
+    [cache, getPhysicalLine, getVisibleRange, scrollToLine],
   );
 
   useEffect(() => cache.destroy, [cache]);
@@ -361,6 +398,16 @@ export const LogViewer = ({
     pendingEndRef.current = true;
     if (scrollRef.current !== null) scrollRef.current.scrollLeft = 0;
   }, [cache, file]);
+
+  // ? A filter change re-indexes the view, so everything cached, measured and sized belongs to
+  // ? the old one. Vertical position is deliberately left alone: the page restores it from an
+  // ? anchor line, which the viewer has no way to know about.
+  useEffect(() => {
+    cache.reset();
+    cache.setTotal(totalRef.current, sizeRef.current);
+    setMinWidth(0);
+    virtualizerRef.current.measure();
+  }, [cache, levelsKey]);
 
   useEffect(() => {
     cache.setTotal(total, size);
@@ -430,6 +477,7 @@ export const LogViewer = ({
             <LogRow
               key={item.key}
               index={item.index}
+              lineNumber={getPhysicalLine(item.index)}
               text={cache.getLine(item.index)}
               wrap={wrap}
               highlight={activeHighlight}

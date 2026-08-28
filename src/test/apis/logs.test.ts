@@ -6,6 +6,7 @@ const mockLogManager = vi.hoisted(() => ({
   list: vi.fn(),
   info: vi.fn(),
   read: vi.fn(),
+  locate: vi.fn(),
   search: vi.fn(),
   download: vi.fn(),
 }));
@@ -109,20 +110,110 @@ describe('list', () => {
 
 describe('info', () => {
   test('returns the parsed info envelope', () => {
-    const info = { name: 'server.log', size: 120, modified: '2026-08-27T10:00:00Z', lines: 42 };
+    const info = {
+      name: 'server.log',
+      size: 120,
+      modified: '2026-08-27T10:00:00Z',
+      lines: 42,
+      levels: { unknown: 0, trace: 1, debug: 2, info: 30, warn: 5, error: 4 },
+    };
     mockLogManager.info.mockReturnValue(JSON.stringify(info));
 
     const response = get(request({ file: 'server.log', action: 'info' }));
 
     expect(response.status).toBe(200);
     expect(parseBody(response).data).toEqual(info);
-    expect(mockLogManager.info).toHaveBeenCalledWith('server.log');
+    expect(mockLogManager.info).toHaveBeenCalledWith('server.log', 0);
   });
 
   test('returns 404 when the bean returns null', () => {
     mockLogManager.info.mockReturnValue(null);
 
     const response = get(request({ file: 'server.log', action: 'info' }));
+
+    expect(response.status).toBe(404);
+    expect(parseBody(response).code).toBe('NOT_FOUND');
+  });
+});
+
+describe('levels', () => {
+  const lines = { from: 0, lines: ['a'], total: 1, size: 2 };
+
+  beforeEach(() => {
+    mockLogManager.read.mockReturnValue(JSON.stringify(lines));
+    mockLogManager.info.mockReturnValue(JSON.stringify({ name: 'server.log' }));
+  });
+
+  test.each([
+    ['WARN,ERROR', (1 << 4) | (1 << 5)],
+    ['error', 1 << 5],
+    ['TRACE,DEBUG,INFO,WARN,ERROR', 0b111110],
+    ['INFO,INFO', 1 << 3],
+  ])('parses %s into a bitmask', (levels, mask) => {
+    get(request({ file: 'server.log', levels }));
+
+    expect(mockLogManager.read).toHaveBeenLastCalledWith('server.log', 0, 200, mask);
+  });
+
+  test('treats an absent or empty parameter as no filter', () => {
+    get(request({ file: 'server.log' }));
+    expect(mockLogManager.read).toHaveBeenLastCalledWith('server.log', 0, 200, 0);
+
+    get(request({ file: 'server.log', levels: '' }));
+    expect(mockLogManager.read).toHaveBeenLastCalledWith('server.log', 0, 200, 0);
+  });
+
+  test('reaches the info handler too', () => {
+    get(request({ file: 'server.log', action: 'info', levels: 'ERROR' }));
+
+    expect(mockLogManager.info).toHaveBeenCalledWith('server.log', 1 << 5);
+  });
+
+  test.each(['FATAL', 'WARN,NOPE', 'warn ,error', ',', 'E'.repeat(65)])(
+    'returns 400 for %s',
+    (levels) => {
+      const response = get(request({ file: 'server.log', levels }));
+
+      expect(response.status).toBe(400);
+      expect(parseBody(response).code).toBe('VALIDATION_ERROR');
+      expect(mockLogManager.read).not.toHaveBeenCalled();
+    },
+  );
+});
+
+describe('locate', () => {
+  test('passes the mask and the line through to the bean', () => {
+    mockLogManager.locate.mockReturnValue('{"position":3,"visible":false}');
+
+    const response = get(
+      request({ file: 'server.log', action: 'locate', line: '120', levels: 'ERROR' }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(parseBody(response).data).toEqual({ position: 3, visible: false });
+    expect(mockLogManager.locate).toHaveBeenCalledWith('server.log', 1 << 5, 120);
+  });
+
+  test('clamps a negative line', () => {
+    mockLogManager.locate.mockReturnValue('{"position":0,"visible":true}');
+
+    get(request({ file: 'server.log', action: 'locate', line: '-9' }));
+
+    expect(mockLogManager.locate).toHaveBeenCalledWith('server.log', 0, 0);
+  });
+
+  test('returns 400 without a line', () => {
+    const response = get(request({ file: 'server.log', action: 'locate' }));
+
+    expect(response.status).toBe(400);
+    expect(parseBody(response).code).toBe('VALIDATION_ERROR');
+    expect(mockLogManager.locate).not.toHaveBeenCalled();
+  });
+
+  test('returns 404 when the bean returns null', () => {
+    mockLogManager.locate.mockReturnValue(null);
+
+    const response = get(request({ file: 'server.log', action: 'locate', line: '1' }));
 
     expect(response.status).toBe(404);
     expect(parseBody(response).code).toBe('NOT_FOUND');
@@ -139,23 +230,23 @@ describe('read', () => {
 
     expect(response.status).toBe(200);
     expect(parseBody(response).data).toEqual(lines);
-    expect(mockLogManager.read).toHaveBeenCalledWith('server.log', 0, 200);
+    expect(mockLogManager.read).toHaveBeenCalledWith('server.log', 0, 200, 0);
   });
 
   test('clamps count and from before calling the bean', () => {
     mockLogManager.read.mockReturnValue(JSON.stringify(lines));
 
     get(request({ file: 'server.log', from: '10', count: '5000' }));
-    expect(mockLogManager.read).toHaveBeenLastCalledWith('server.log', 10, 1000);
+    expect(mockLogManager.read).toHaveBeenLastCalledWith('server.log', 10, 1000, 0);
 
     get(request({ file: 'server.log', from: '-4', count: '0' }));
-    expect(mockLogManager.read).toHaveBeenLastCalledWith('server.log', 0, 1);
+    expect(mockLogManager.read).toHaveBeenLastCalledWith('server.log', 0, 1, 0);
 
     get(request({ file: 'server.log', from: 'abc', count: 'xyz' }));
-    expect(mockLogManager.read).toHaveBeenLastCalledWith('server.log', 0, 200);
+    expect(mockLogManager.read).toHaveBeenLastCalledWith('server.log', 0, 200, 0);
 
     get(request({ file: 'server.log', from: '12.9', count: '7.5' }));
-    expect(mockLogManager.read).toHaveBeenLastCalledWith('server.log', 12, 7);
+    expect(mockLogManager.read).toHaveBeenLastCalledWith('server.log', 12, 7, 0);
   });
 
   test('returns 404 when the bean returns null', () => {

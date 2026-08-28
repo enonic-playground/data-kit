@@ -2,6 +2,8 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { UserEvent } from '@testing-library/user-event';
+
 import { fireEvent, renderRoute, screen, waitFor, within } from '../test-utils';
 
 vi.mock('../../../../main/resources/assets/js/lib/api/client', () => ({
@@ -67,13 +69,47 @@ const LOG_FILES = [
 
 type Params = Record<string, string>;
 
+// ? Effective level per line: the frame at index 2 belongs to the ERROR entry above it, which
+// ? is the whole reason filtering happens on the server.
+const LINE_LEVELS = ['INFO', 'ERROR', 'ERROR'] as const;
+
+const LEVEL_COUNTS = { unknown: 0, trace: 0, debug: 0, info: 1, warn: 0, error: 2 };
+
+/** The levels a request filters by, or `null` when it asks for every line. */
+function requestedLevels(params: Params): string[] | null {
+  const raw = params.levels;
+  if (raw == null || raw === '') return null;
+  const names = raw.split(',');
+  return names.length === LINE_LEVELS.length + 2 ? null : names;
+}
+
+/** Physical line numbers the request admits, in order. */
+function visibleLines(params: Params): number[] {
+  const names = requestedLevels(params);
+  if (names == null) return LOG_LINES.map((_, index) => index);
+  return LINE_LEVELS.flatMap((level, index) => (names.includes(level) ? [index] : []));
+}
+
 function respond(params: Params): unknown {
   if (params.action === 'info') {
-    return {
+    const info: Record<string, unknown> = {
       name: params.file,
       size: 2048,
       modified: '2026-08-27T10:23:46Z',
       lines: LOG_LINES.length,
+      levels: LEVEL_COUNTS,
+    };
+    if (requestedLevels(params) != null) info.filtered = visibleLines(params).length;
+    return info;
+  }
+  if (params.action === 'locate') {
+    const line = Number.parseInt(params.line ?? '0', 10);
+    const visible = visibleLines(params);
+    const exact = visible.indexOf(line);
+    if (exact >= 0) return { position: exact, visible: true };
+    return {
+      position: Math.max(0, visible.filter((entry) => entry < line).length - 1),
+      visible: false,
     };
   }
   if (params.action === 'search') {
@@ -90,7 +126,12 @@ function respond(params: Params): unknown {
     return { line: found?.index ?? null };
   }
   if (params.file != null) {
-    return { from: 0, lines: LOG_LINES, total: LOG_LINES.length, size: 2048 };
+    const visible = visibleLines(params);
+    const lines = visible.map((index) => LOG_LINES[index]);
+    if (requestedLevels(params) == null) {
+      return { from: 0, lines, total: lines.length, size: 2048 };
+    }
+    return { from: 0, lines, numbers: visible, total: visible.length, size: 2048 };
   }
   return { files: LOG_FILES };
 }
@@ -102,6 +143,51 @@ function mockApi(files = LOG_FILES): void {
     return Promise.resolve(respond(params));
   };
   vi.mocked(apiFetch).mockImplementation(handler as unknown as typeof apiFetch);
+}
+
+/** Info responses land late, so the view is momentarily empty between two filter toggles. */
+function mockApiWithSlowInfo(delayMs: number): void {
+  const handler = (_apiUrl: string, options?: { params?: Params }): Promise<unknown> => {
+    const params = options?.params ?? {};
+    const value = respond(params);
+    if (params.action !== 'info') return Promise.resolve(value);
+    return new Promise((resolve) => setTimeout(() => resolve(value), delayMs));
+  };
+  vi.mocked(apiFetch).mockImplementation(handler as unknown as typeof apiFetch);
+}
+
+/** Line reads never resolve, so no row ever learns its physical line number. */
+function mockApiWithPendingReads(): void {
+  const handler = (_apiUrl: string, options?: { params?: Params }): Promise<unknown> => {
+    const params = options?.params ?? {};
+    if (params.file != null && params.action == null) return new Promise(() => {});
+    return Promise.resolve(respond(params));
+  };
+  vi.mocked(apiFetch).mockImplementation(handler as unknown as typeof apiFetch);
+}
+
+/** Locate responses hang, so a second click lands while the first one is still unresolved. */
+function mockApiWithSlowLocate(delayMs: number): void {
+  const handler = (_apiUrl: string, options?: { params?: Params }): Promise<unknown> => {
+    const params = options?.params ?? {};
+    const value = respond(params);
+    if (params.action !== 'locate') return Promise.resolve(value);
+    return new Promise((resolve) => setTimeout(() => resolve(value), delayMs));
+  };
+  vi.mocked(apiFetch).mockImplementation(handler as unknown as typeof apiFetch);
+}
+
+function locateCalls(): Params[] {
+  return vi
+    .mocked(apiFetch)
+    .mock.calls.map((call) => (call[1] as { params?: Params })?.params ?? {})
+    .filter((params) => params.action === 'locate');
+}
+
+function levelParams(): (string | undefined)[] {
+  return vi
+    .mocked(apiFetch)
+    .mock.calls.map((call) => (call[1] as { params?: Params })?.params?.levels);
 }
 
 function searchCalls(): Params[] {
@@ -694,6 +780,394 @@ describe('LogsPage', () => {
     });
 
     expect(page.queryByText('No match')).not.toBeInTheDocument();
+  });
+
+  //
+  // * Level filter
+  //
+
+  async function hideLevels(user: UserEvent, ...names: string[]): Promise<void> {
+    await user.click(within(getLogsPage()).getByRole('button', { name: 'Log levels' }));
+    for (const name of names) {
+      await user.click(
+        await screen.findByRole('menuitemcheckbox', { name: new RegExp(`^${name}`) }),
+      );
+    }
+    await user.keyboard('{Escape}');
+  }
+
+  it('should list every level with its line count', async () => {
+    const { user } = renderRoute({ initialLocation: '/logs' });
+
+    await waitFor(() => {
+      expect(screen.getByText('3 lines')).toBeInTheDocument();
+    });
+
+    await user.click(within(getLogsPage()).getByRole('button', { name: 'Log levels' }));
+
+    expect(await screen.findByRole('menuitemcheckbox', { name: /^INFO/ })).toHaveTextContent('1');
+    expect(screen.getByRole('menuitemcheckbox', { name: /^ERROR/ })).toHaveTextContent('2');
+    expect(screen.getAllByRole('menuitemcheckbox')).toHaveLength(5);
+  });
+
+  it('should show only the selected levels, keeping physical line numbers', async () => {
+    const { user } = renderRoute({ initialLocation: '/logs' });
+
+    await waitFor(() => {
+      expect(screen.getByText('3 lines')).toBeInTheDocument();
+    });
+
+    await hideLevels(user, 'INFO');
+
+    await waitFor(() => {
+      expect(screen.queryByText(/Started dispatcher/)).not.toBeInTheDocument();
+    });
+
+    const rows = getLogsPage().querySelectorAll('[data-component="LogRow"]');
+    expect(rows).toHaveLength(2);
+    // ? The gutter keeps the number the line has in the file, not its row in the view.
+    expect(rows[0].getAttribute('data-line')).toBe('2');
+    expect(rows[1].getAttribute('data-line')).toBe('3');
+    expect(screen.getByText('2 of 3 lines')).toBeInTheDocument();
+  });
+
+  it('should send the selected levels in the canonical order', async () => {
+    const { user } = renderRoute({ initialLocation: '/logs' });
+
+    await waitFor(() => {
+      expect(screen.getByText('3 lines')).toBeInTheDocument();
+    });
+
+    // ? Unchecked in an order that is not the wire order; the request must not follow it.
+    await hideLevels(user, 'INFO', 'DEBUG', 'TRACE');
+
+    await waitFor(() => {
+      expect(levelParams()).toContain('WARN,ERROR');
+    });
+    expect(levelParams()).not.toContain('ERROR,WARN');
+  });
+
+  it('should send no level parameter while every level is selected', async () => {
+    renderRoute({ initialLocation: '/logs' });
+
+    await waitFor(() => {
+      expect(screen.getByText('3 lines')).toBeInTheDocument();
+    });
+
+    expect(levelParams().every((value) => value === undefined)).toBe(true);
+  });
+
+  it('should restore the whole file from the clear action', async () => {
+    const { user } = renderRoute({ initialLocation: '/logs' });
+
+    await waitFor(() => {
+      expect(screen.getByText('3 lines')).toBeInTheDocument();
+    });
+
+    await hideLevels(user, 'INFO');
+    await waitFor(() => {
+      expect(screen.getByText('2 of 3 lines')).toBeInTheDocument();
+    });
+
+    await user.click(within(getLogsPage()).getByRole('button', { name: 'Log levels' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Show all levels' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('3 lines')).toBeInTheDocument();
+    });
+    expect(screen.getByText(/Started dispatcher/)).toBeInTheDocument();
+  });
+
+  it('should scroll to a match the filter still shows', async () => {
+    const { user } = renderRoute({ initialLocation: '/logs' });
+
+    await waitFor(() => {
+      expect(screen.getByText('3 lines')).toBeInTheDocument();
+    });
+
+    await hideLevels(user, 'INFO');
+    await waitFor(() => {
+      expect(screen.getByText('2 of 3 lines')).toBeInTheDocument();
+    });
+
+    const page = within(getLogsPage());
+    await user.type(page.getByLabelText('Search in log file'), 'Failed to run script');
+    await user.click(page.getByLabelText('Next match'));
+
+    await waitFor(() => {
+      expect(page.getByText('Match at line 2')).toBeInTheDocument();
+    });
+  });
+
+  it('should report a match the filter is hiding', async () => {
+    const { user } = renderRoute({ initialLocation: '/logs' });
+
+    await waitFor(() => {
+      expect(screen.getByText('3 lines')).toBeInTheDocument();
+    });
+
+    await hideLevels(user, 'INFO');
+    await waitFor(() => {
+      expect(screen.getByText('2 of 3 lines')).toBeInTheDocument();
+    });
+
+    const page = within(getLogsPage());
+    await user.type(page.getByLabelText('Search in log file'), 'Started dispatcher');
+    await user.click(page.getByLabelText('Next match'));
+
+    await waitFor(() => {
+      expect(page.getByText('Match at line 1, hidden by the filter')).toBeInTheDocument();
+    });
+  });
+
+  it('should report a go-to-line the filter is hiding', async () => {
+    const { user } = renderRoute({ initialLocation: '/logs' });
+
+    await waitFor(() => {
+      expect(screen.getByText('3 lines')).toBeInTheDocument();
+    });
+
+    await hideLevels(user, 'INFO');
+    await waitFor(() => {
+      expect(screen.getByText('2 of 3 lines')).toBeInTheDocument();
+    });
+
+    const page = within(getLogsPage());
+    await user.type(page.getByLabelText('Go to line'), '1');
+    await user.click(page.getByRole('button', { name: 'Go' }));
+
+    await waitFor(() => {
+      expect(page.getByText('Line 1 is hidden by the filter')).toBeInTheDocument();
+    });
+  });
+
+  it('should step past a match the filter is hiding instead of finding it again', async () => {
+    const { user } = renderRoute({ initialLocation: '/logs' });
+
+    await waitFor(() => {
+      expect(screen.getByText('3 lines')).toBeInTheDocument();
+    });
+
+    await hideLevels(user, 'ERROR');
+    await waitFor(() => {
+      expect(screen.getByText('1 of 3 lines')).toBeInTheDocument();
+    });
+    await scrollViewerTo(0);
+
+    const page = within(getLogsPage());
+    await user.type(page.getByLabelText('Search in log file'), 'ScriptRunner');
+    await user.click(page.getByLabelText('Next match'));
+
+    await waitFor(() => {
+      expect(page.getByText('Match at line 3, hidden by the filter')).toBeInTheDocument();
+    });
+
+    // ? The hit sits below every visible row, so comparing it against the viewport would
+    // ? discard the cursor and hand back the same hit for ever.
+    await user.click(page.getByLabelText('Next match'));
+
+    await waitFor(() => {
+      expect(page.getByText('No match')).toBeInTheDocument();
+    });
+  });
+
+  it('should drop the hidden verdict once the filter that hid the line is gone', async () => {
+    const { user } = renderRoute({ initialLocation: '/logs' });
+
+    await waitFor(() => {
+      expect(screen.getByText('3 lines')).toBeInTheDocument();
+    });
+
+    await hideLevels(user, 'INFO');
+    await waitFor(() => {
+      expect(screen.getByText('2 of 3 lines')).toBeInTheDocument();
+    });
+
+    const page = within(getLogsPage());
+    await user.type(page.getByLabelText('Go to line'), '1');
+    await user.click(page.getByRole('button', { name: 'Go' }));
+
+    await waitFor(() => {
+      expect(page.getByText('Line 1 is hidden by the filter')).toBeInTheDocument();
+    });
+
+    await user.click(within(getLogsPage()).getByRole('button', { name: 'Log levels' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Show all levels' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('3 lines')).toBeInTheDocument();
+    });
+    expect(page.queryByText('Line 1 is hidden by the filter')).not.toBeInTheDocument();
+  });
+
+  it('should keep the reading position across a burst of level toggles', async () => {
+    mockApiWithSlowInfo(150);
+    const { user } = renderRoute({ initialLocation: '/logs' });
+
+    await waitFor(() => {
+      expect(screen.getByText('3 lines')).toBeInTheDocument();
+    });
+    await scrollViewerTo(0);
+
+    // ? The menu stays open across toggles, and the second one lands while the first refetch is
+    // ? still out — the moment the view has no rows to read a fresh anchor from.
+    await user.click(within(getLogsPage()).getByRole('button', { name: 'Log levels' }));
+    await user.click(await screen.findByRole('menuitemcheckbox', { name: /^TRACE/ }));
+    await user.click(await screen.findByRole('menuitemcheckbox', { name: /^DEBUG/ }));
+    await user.keyboard('{Escape}');
+
+    await waitFor(() => {
+      expect(locateCalls().length).toBeGreaterThan(0);
+    });
+    expect(locateCalls()[0].line).toBe('0');
+  });
+
+  it('should leave the gutter blank for a filtered row that has not arrived', async () => {
+    mockApiWithPendingReads();
+    const { user } = renderRoute({ initialLocation: '/logs' });
+
+    await waitFor(() => {
+      expect(screen.getByText('3 lines')).toBeInTheDocument();
+    });
+
+    const unfiltered = getLogsPage().querySelectorAll('[data-component="LogRow"]');
+    expect(unfiltered[0].getAttribute('data-line')).toBe('1');
+
+    await hideLevels(user, 'INFO');
+    await waitFor(() => {
+      expect(screen.getByText('2 of 3 lines')).toBeInTheDocument();
+    });
+
+    // ! Not '1' and '2'. Those are row positions, and a filter has decoupled them from the line
+    // ! numbers — printing them would renumber the gutter the moment the chunk lands.
+    const rows = getLogsPage().querySelectorAll('[data-component="LogRow"]');
+    expect(rows).toHaveLength(2);
+    expect(rows[0].getAttribute('data-line')).toBe('');
+    expect(rows[1].getAttribute('data-line')).toBe('');
+  });
+
+  it('should keep the reading position when a toggle lands between the count and the lines', async () => {
+    // ? The other ordering: the count arrives fast and consumes the anchor, so the second
+    // ? toggle reads a view that has rows but no line numbers yet.
+    mockApiWithPendingReads();
+    const { user } = renderRoute({ initialLocation: '/logs' });
+
+    await waitFor(() => {
+      expect(screen.getByText('3 lines')).toBeInTheDocument();
+    });
+    await scrollViewerTo(0);
+
+    await user.click(within(getLogsPage()).getByRole('button', { name: 'Log levels' }));
+    await user.click(await screen.findByRole('menuitemcheckbox', { name: /^TRACE/ }));
+    await waitFor(() => {
+      expect(locateCalls().length).toBe(1);
+    });
+
+    await user.click(await screen.findByRole('menuitemcheckbox', { name: /^DEBUG/ }));
+    await user.keyboard('{Escape}');
+
+    await waitFor(() => {
+      expect(locateCalls().length).toBe(2);
+    });
+    expect(locateCalls()[1]).toMatchObject({ line: '0', levels: 'INFO,WARN,ERROR' });
+  });
+
+  it('should step off a match whose row has not been resolved yet', async () => {
+    mockApiWithSlowLocate(5000);
+    const { user } = renderRoute({ initialLocation: '/logs' });
+
+    await waitFor(() => {
+      expect(screen.getByText('3 lines')).toBeInTheDocument();
+    });
+
+    await hideLevels(user, 'ERROR');
+    await waitFor(() => {
+      expect(screen.getByText('1 of 3 lines')).toBeInTheDocument();
+    });
+    await scrollViewerTo(0);
+
+    const page = within(getLogsPage());
+    await user.type(page.getByLabelText('Search in log file'), 'ScriptRunner');
+    await user.click(page.getByLabelText('Next match'));
+    await waitFor(() => {
+      expect(searchCalls()).toHaveLength(1);
+    });
+
+    // ? The locate for the hit is still out, so the cursor has no row to compare against the
+    // ? viewport — it must still be the step-off point rather than the viewport.
+    await user.click(page.getByLabelText('Next match'));
+
+    await waitFor(() => {
+      expect(page.getByText('No match')).toBeInTheDocument();
+    });
+    // ? Stepping off line 2 lands past the end of a three-line file, so the verdict is reached
+    // ? without asking the server at all. Restarting from the viewport would have asked again
+    // ? and been handed the same hit.
+    expect(searchCalls()).toHaveLength(1);
+  });
+
+  it('should search from the reader position when the filtered rows have no numbers', async () => {
+    mockApiWithPendingReads();
+    const { user } = renderRoute({ initialLocation: '/logs' });
+
+    await waitFor(() => {
+      expect(screen.getByText('3 lines')).toBeInTheDocument();
+    });
+
+    // ? Park the reader on line 2 through a match, then change the query so its cursor is
+    // ? dropped — the viewport is now the only thing that can say where the reader is.
+    const page = within(getLogsPage());
+    const search = page.getByLabelText('Search in log file');
+    await user.type(search, 'Failed to run script');
+    await user.click(page.getByLabelText('Next match'));
+    await waitFor(() => {
+      expect(searchCalls()).toHaveLength(1);
+    });
+
+    await hideLevels(user, 'INFO');
+    await waitFor(() => {
+      expect(screen.getByText('2 of 3 lines')).toBeInTheDocument();
+    });
+    await scrollViewerTo(0);
+
+    await user.clear(search);
+    await user.type(search, 'Started dispatcher');
+    await user.click(page.getByLabelText('Previous match'));
+
+    await waitFor(() => {
+      expect(searchCalls()).toHaveLength(2);
+    });
+    // ! Line 1, where the reader is — not line 2, the end of the file. No row carries a number
+    // ! here, so the origin is the last position the viewport actually resolved to.
+    expect(searchCalls()[1].from).toBe('1');
+  });
+
+  it('should drop the match verdict when the filter it was decided under changes', async () => {
+    const { user } = renderRoute({ initialLocation: '/logs' });
+
+    await waitFor(() => {
+      expect(screen.getByText('3 lines')).toBeInTheDocument();
+    });
+
+    await hideLevels(user, 'ERROR');
+    await waitFor(() => {
+      expect(screen.getByText('1 of 3 lines')).toBeInTheDocument();
+    });
+
+    const page = within(getLogsPage());
+    await user.type(page.getByLabelText('Search in log file'), 'ScriptRunner');
+    await user.click(page.getByLabelText('Next match'));
+    await waitFor(() => {
+      expect(page.getByText('Match at line 3, hidden by the filter')).toBeInTheDocument();
+    });
+
+    await hideLevels(user, 'WARN');
+
+    // ! Line 3 is still hidden, so dropping only the "hidden" half would assert it is on screen.
+    await waitFor(() => {
+      expect(page.queryByText('Match at line 3, hidden by the filter')).not.toBeInTheDocument();
+    });
+    expect(page.queryByText('Match at line 3')).not.toBeInTheDocument();
   });
 
   it('should show an empty state when there are no log files', async () => {
