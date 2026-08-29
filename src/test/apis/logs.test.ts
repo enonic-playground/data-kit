@@ -8,6 +8,7 @@ const mockLogManager = vi.hoisted(() => ({
   read: vi.fn(),
   locate: vi.fn(),
   search: vi.fn(),
+  matches: vi.fn(),
   download: vi.fn(),
 }));
 
@@ -36,6 +37,15 @@ function request(params: Record<string, string>): Request {
 
 function parseBody(response: { body?: string | object }) {
   return JSON.parse(response.body as string);
+}
+
+/** The count fields every scanning response carries, so a test can state only what it is about. */
+function progress(over: Record<string, unknown> = {}): Record<string, unknown> {
+  return { total: 0, levels: [0, 0, 0, 0, 0, 0], scanned: 0, lines: 0, complete: true, ...over };
+}
+
+function beanJson(over: Record<string, unknown>): string {
+  return JSON.stringify({ status: 'ok', ...progress(), ...over });
 }
 
 describe('authorization', () => {
@@ -260,15 +270,32 @@ describe('read', () => {
 });
 
 describe('search', () => {
-  test('returns the matched line number', () => {
-    mockLogManager.search.mockReturnValue(17);
+  test('returns the matched line with its ordinal into the whole-file count', () => {
+    mockLogManager.search.mockReturnValue(
+      beanJson({
+        line: 17,
+        ordinal: 2,
+        total: 9,
+        levels: [0, 0, 0, 4, 0, 5],
+        scanned: 400,
+        lines: 400,
+      }),
+    );
 
     const response = get(
       request({ file: 'server.log', action: 'search', query: 'ERROR', from: '5' }),
     );
 
     expect(response.status).toBe(200);
-    expect(parseBody(response).data).toEqual({ line: 17 });
+    expect(parseBody(response).data).toEqual({
+      line: 17,
+      ordinal: 2,
+      total: 9,
+      levels: [0, 0, 0, 4, 0, 5],
+      scanned: 400,
+      lines: 400,
+      complete: true,
+    });
     expect(mockLogManager.search).toHaveBeenCalledWith(
       'server.log',
       'ERROR',
@@ -281,7 +308,7 @@ describe('search', () => {
   });
 
   test('passes direction, regex and caseSensitive flags', () => {
-    mockLogManager.search.mockReturnValue(-1);
+    mockLogManager.search.mockReturnValue(beanJson({ line: null, ordinal: null }));
 
     const response = get(
       request({
@@ -294,7 +321,8 @@ describe('search', () => {
       }),
     );
 
-    expect(parseBody(response).data).toEqual({ line: null });
+    expect(parseBody(response).data.line).toBeNull();
+    expect(parseBody(response).data.ordinal).toBeNull();
     expect(mockLogManager.search).toHaveBeenCalledWith(
       'server.log',
       'e\\d+',
@@ -307,7 +335,7 @@ describe('search', () => {
   });
 
   test('scopes the search to the active level filter', () => {
-    mockLogManager.search.mockReturnValue(17);
+    mockLogManager.search.mockReturnValue(beanJson({ line: 17, ordinal: 0 }));
 
     const response = get(
       request({ file: 'server.log', action: 'search', query: 'boom', levels: 'WARN,ERROR' }),
@@ -335,7 +363,7 @@ describe('search', () => {
   });
 
   test('returns 404 when the bean reports a missing file', () => {
-    mockLogManager.search.mockReturnValue(-2);
+    mockLogManager.search.mockReturnValue(null);
 
     const response = get(request({ file: 'server.log', action: 'search', query: 'x' }));
 
@@ -343,7 +371,7 @@ describe('search', () => {
   });
 
   test('returns 400 when the bean aborts a regex that ran too long', () => {
-    mockLogManager.search.mockReturnValue(-3);
+    mockLogManager.search.mockReturnValue('{"status":"aborted"}');
 
     const response = get(
       request({ file: 'server.log', action: 'search', query: '(a+)+b', regex: 'true' }),
@@ -351,6 +379,15 @@ describe('search', () => {
 
     expect(response.status).toBe(400);
     expect(parseBody(response).code).toBe('SEARCH_TIMEOUT');
+  });
+
+  test('returns 409 when the file was rewritten mid-scan', () => {
+    mockLogManager.search.mockReturnValue('{"status":"stale"}');
+
+    const response = get(request({ file: 'server.log', action: 'search', query: 'x' }));
+
+    expect(response.status).toBe(409);
+    expect(parseBody(response).code).toBe('SEARCH_STALE');
   });
 
   test('returns 400 for a missing, empty or oversized query', () => {
@@ -394,6 +431,95 @@ describe('search', () => {
 
     expect(response.status).toBe(500);
     expect(parseBody(response).code).toBe('INTERNAL_ERROR');
+  });
+});
+
+describe('matches', () => {
+  test('returns the per-level split of the whole-file count', () => {
+    mockLogManager.matches.mockReturnValue(
+      beanJson({ total: 147, levels: [3, 0, 0, 86, 0, 58], scanned: 400, lines: 400 }),
+    );
+
+    const response = get(request({ file: 'server.log', action: 'matches', query: 'boom' }));
+
+    expect(response.status).toBe(200);
+    expect(parseBody(response).data).toEqual({
+      total: 147,
+      levels: [3, 0, 0, 86, 0, 58],
+      scanned: 400,
+      lines: 400,
+      complete: true,
+    });
+  });
+
+  test('passes the regex and caseSensitive flags but no level mask', () => {
+    mockLogManager.matches.mockReturnValue(beanJson({}));
+
+    get(
+      request({
+        file: 'server.log',
+        action: 'matches',
+        query: 'e\\d+',
+        regex: 'true',
+        caseSensitive: 'true',
+        levels: 'WARN,ERROR',
+      }),
+    );
+
+    expect(mockLogManager.matches).toHaveBeenCalledWith('server.log', 'e\\d+', true, true);
+  });
+
+  test('reports a scan that has not finished', () => {
+    mockLogManager.matches.mockReturnValue(
+      beanJson({ total: 12, scanned: 2048, lines: 300000, complete: false }),
+    );
+
+    const response = get(request({ file: 'server.log', action: 'matches', query: 'boom' }));
+
+    expect(response.status).toBe(200);
+    expect(parseBody(response).data.complete).toBe(false);
+    expect(parseBody(response).data.scanned).toBe(2048);
+  });
+
+  test('returns 404 when the bean reports a missing file', () => {
+    mockLogManager.matches.mockReturnValue(null);
+
+    const response = get(request({ file: 'server.log', action: 'matches', query: 'x' }));
+
+    expect(response.status).toBe(404);
+  });
+
+  test('returns 400 for a missing, empty or oversized query', () => {
+    expect(get(request({ file: 'server.log', action: 'matches' })).status).toBe(400);
+    expect(get(request({ file: 'server.log', action: 'matches', query: '' })).status).toBe(400);
+    expect(
+      get(request({ file: 'server.log', action: 'matches', query: 'x'.repeat(501) })).status,
+    ).toBe(400);
+    expect(mockLogManager.matches).not.toHaveBeenCalled();
+  });
+
+  test('returns 400 when the bean rejects the regex', () => {
+    mockLogManager.matches.mockImplementation(() => {
+      throw new Error('Invalid regular expression: Unclosed character class');
+    });
+
+    const response = get(
+      request({ file: 'server.log', action: 'matches', query: '[unclosed', regex: 'true' }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(parseBody(response).code).toBe('VALIDATION_ERROR');
+  });
+
+  test('returns 400 when the bean aborts a regex that ran too long', () => {
+    mockLogManager.matches.mockReturnValue('{"status":"aborted"}');
+
+    const response = get(
+      request({ file: 'server.log', action: 'matches', query: '(a+)+b', regex: 'true' }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(parseBody(response).code).toBe('SEARCH_TIMEOUT');
   });
 });
 

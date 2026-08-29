@@ -16,6 +16,7 @@ import java.nio.file.attribute.BasicFileAttributes
 import java.nio.file.attribute.FileTime
 import java.util.concurrent.Callable
 import java.util.concurrent.ExecutionException
+import java.util.concurrent.Future
 import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.SynchronousQueue
 import java.util.concurrent.ThreadPoolExecutor
@@ -37,6 +38,10 @@ private const val MAX_READ_BYTES = 100L shl 20
 private const val MATCH_BUDGET_MILLIS = 1000L
 private const val SEARCH_BUDGET_MILLIS = 30_000L
 private const val SEARCH_GRACE_MILLIS = 5_000L
+private const val MATCH_SLICE_MILLIS = 750L
+internal const val MAX_MATCH_SCANS = 4
+private const val COUNT_THREADS = 2
+private const val COUNT_THREADS_MAX = 6
 private const val SEARCH_THREADS = 4
 private const val SEARCH_THREADS_MAX = 20
 private const val SEARCH_THREAD_IDLE_SECONDS = 30L
@@ -97,6 +102,19 @@ internal const val LOG_NOT_FOUND = -2L
 internal const val LOG_NO_MATCH = -1L
 internal const val LOG_SEARCH_ABORTED = -3L
 internal const val LOG_SEARCH_STALE = -4L
+internal const val LOG_SLICE_OK = 0L
+internal const val LOG_SEARCH_BUSY = -5L
+
+private const val CURSOR_STALE = -1
+private const val CURSOR_BUSY = -2
+
+private const val FOLD_OK = 0
+private const val FOLD_SUPERSEDED = 1
+private const val FOLD_STALE = 2
+
+private const val ABORTED_JSON = """{"status":"aborted"}"""
+private const val STALE_JSON = """{"status":"stale"}"""
+private const val BUSY_JSON = """{"status":"busy"}"""
 
 @Component(immediate = true)
 class LogManager {
@@ -112,6 +130,9 @@ class LogManager {
     /** Test seam: milliseconds the caller waits past the search budget before abandoning. */
     internal var searchGraceMillis: Long = SEARCH_GRACE_MILLIS
 
+    /** Test seam: milliseconds one match-counting slice may scan before it hands back. */
+    internal var matchSliceMillis: Long = MATCH_SLICE_MILLIS
+
     /** Test seam: how far a pattern's repetition counts may multiply before it is refused. */
     internal var maxRepetitionProduct: Long = MAX_REPETITION_PRODUCT
 
@@ -119,22 +140,17 @@ class LogManager {
     internal var maxReadBytes: Long = MAX_READ_BYTES
 
     // ? A search runs on its own thread so the caller can walk away from one that will not stop.
-    // ! An abandoned match is lost for the life of the JVM. The pool grows one per abandonment so
-    // ! those never eat the live capacity, and stops at [SEARCH_THREADS_MAX] so they cannot
-    // ! exhaust the JVM's threads either.
-    private val searchExecutor = ThreadPoolExecutor(
-        0,
-        SEARCH_THREADS,
-        SEARCH_THREAD_IDLE_SECONDS,
-        TimeUnit.SECONDS,
-        SynchronousQueue(),
-    ) { runnable -> Thread(runnable, "datakit-log-search").apply { isDaemon = true } }
+    private val searchPool = ScanPool("datakit-log-search", SEARCH_THREADS, SEARCH_THREADS_MAX)
 
-    private val abandonedSearches = AtomicInteger()
+    // ! Its own pool, and so its own stranded-thread accounting: slices in flight must not make
+    // ! the next Enter fail, and crediting a stranded count to the search pool would leave
+    // ! counting permanently short of the capacity it just lost.
+    private val countPool = ScanPool("datakit-log-count", COUNT_THREADS, COUNT_THREADS_MAX)
 
     @Deactivate
     fun deactivate() {
-        searchExecutor.shutdownNow()
+        searchPool.shutdown()
+        countPool.shutdown()
     }
 
     fun list(): String {
@@ -214,10 +230,13 @@ class LogManager {
     }
 
     /**
-     * Returns the matching line number, [LOG_NO_MATCH] when nothing matches, [LOG_NOT_FOUND] when
-     * the file name is invalid or the file is missing, [LOG_SEARCH_ABORTED] when a regex ran past
-     * its time budget, or [LOG_SEARCH_STALE] when the file was rewritten mid-scan. Throws
-     * [IllegalArgumentException] for an empty query or an invalid regular expression.
+     * The next match in [forward]'s direction, with the whole file's match count around it:
+     * `{"status":"ok","line":L,"ordinal":O,"total":T,"levels":[..],"scanned":S,"lines":N,
+     * "complete":B}`. `line` and `ordinal` are `null` when nothing matches, and `ordinal` alone
+     * is `null` when the count has not reached the hit yet. `null` for an invalid or missing
+     * file; a `status` of `aborted` or `stale` when the scan could not finish or the file was
+     * rewritten under it. Throws [IllegalArgumentException] for an empty query or an invalid
+     * regular expression.
      *
      * A match is only ever a line [mask] admits, so the caller can always put the hit on screen.
      */
@@ -229,26 +248,78 @@ class LogManager {
         regex: Boolean,
         caseSensitive: Boolean,
         mask: Int,
-    ): Long {
+    ): String? {
         val matcher = lineMatcher(query, regex, caseSensitive, matchBudgetMillis, maxRepetitionProduct)
-        val file = resolveLogFile(name) ?: return LOG_NOT_FOUND
+        val key = matchKeyOf(query.orEmpty(), regex, caseSensitive)
+        val file = resolveLogFile(name) ?: return null
         val index = LogIndexCache.get(file)
 
+        // ? A complete match index answers from memory, so stepping through hits costs a binary
+        // ? search rather than a scan of the file. That is what the count pays for.
+        index.searchIndexed(key, mask, from, forward)?.let { return it }
+
+        val line = guarded(searchPool, searchBudgetMillis, file) {
+            index.search(matcher, mask, from, forward, searchBudgetMillis)
+        }
+
+        if (line == LOG_NOT_FOUND) return null
+        if (line == LOG_SEARCH_STALE) return STALE_JSON
+        if (line == LOG_SEARCH_BUSY) return BUSY_JSON
+        if (line == LOG_SEARCH_ABORTED) return ABORTED_JSON
+        return index.searchJson(key, mask, line)
+    }
+
+    /**
+     * Extends the whole-file match index by one bounded slice and reports where it has got to,
+     * as `{"status":"ok","total":T,"levels":[..],"scanned":S,"lines":N,"complete":B}`. The caller
+     * re-calls while `complete` is false, so the request loop is the scheduler and the count
+     * needs no background thread of its own.
+     *
+     * `null` for an invalid or missing file; a `status` of `aborted` or `stale` as [search].
+     * Throws [IllegalArgumentException] for an empty query or an invalid regular expression.
+     *
+     * No level mask reaches this method: `levels` carries the per-level split of every match, so
+     * the caller derives the visible and hidden counts from whichever filter is active without
+     * the scan being thrown away when it changes.
+     */
+    fun matches(name: String?, query: String?, regex: Boolean, caseSensitive: Boolean): String? {
+        val matcher = lineMatcher(query, regex, caseSensitive, matchBudgetMillis, maxRepetitionProduct)
+        val key = matchKeyOf(query.orEmpty(), regex, caseSensitive)
+        val file = resolveLogFile(name) ?: return null
+        val index = LogIndexCache.get(file)
+
+        val outcome = guarded(countPool, matchSliceMillis, file) {
+            index.matchSlice(matcher, key, matchSliceMillis)
+        }
+
+        if (outcome == LOG_NOT_FOUND) return null
+        if (outcome == LOG_SEARCH_STALE) return STALE_JSON
+        if (outcome == LOG_SEARCH_BUSY) return BUSY_JSON
+        if (outcome == LOG_SEARCH_ABORTED) return ABORTED_JSON
+        return index.matchesJson(key)
+    }
+
+    /**
+     * Runs [work] on [pool] under a watchdog set [budgetMillis] past its own deadline, or one of
+     * the `LOG_SEARCH_*` codes when it could not be run, would not stop, or died on a pattern the
+     * deadline check never reached.
+     */
+    private fun guarded(pool: ScanPool, budgetMillis: Long, file: Path, work: () -> Long): Long {
         val task = try {
-            searchExecutor.submit(Callable { index.search(matcher, mask, from, forward, searchBudgetMillis) })
+            pool.submit(work)
         } catch (_: RejectedExecutionException) {
-            // ? Every thread is busy or stranded, or the component has been deactivated. Either way
-            // ? the search cannot run, and saying so beats exhausting the JVM to avoid saying it.
-            return LOG_SEARCH_ABORTED
+            // ! Distinct from a timeout: nothing ran, so nothing took too long. Reporting this as
+            // ! an abort told the reader their pattern was too slow when the pool was merely full.
+            return LOG_SEARCH_BUSY
         }
 
         return try {
-            task.get(searchBudgetMillis + searchGraceMillis, TimeUnit.MILLISECONDS)
+            task.get(budgetMillis + searchGraceMillis, TimeUnit.MILLISECONDS)
         } catch (_: TimeoutException) {
-            // ! Abandoned, not stopped: nothing can interrupt a match in progress. It holds no
-            // ! monitor, so it costs only its thread — replaced here to keep the live capacity.
+            // ! Abandoned, not stopped: nothing can interrupt a match in progress. It costs only
+            // ! its thread, which [ScanPool.strand] replaces to keep the live capacity.
             task.cancel(true)
-            searchExecutor.maximumPoolSize = searchPoolCeiling(abandonedSearches.incrementAndGet())
+            pool.strand()
             LOG_SEARCH_ABORTED
         } catch (_: InterruptedException) {
             Thread.currentThread().interrupt()
@@ -256,9 +327,9 @@ class LogManager {
         } catch (e: ExecutionException) {
             when (val cause = e.cause) {
                 // ! Some patterns exhaust the stack before the deadline check runs. Matching mutates
-                // ! no index state, so the search is simply over.
+                // ! no index state, so the scan is simply over.
                 is MatchTimeoutException, is StackOverflowError -> LOG_SEARCH_ABORTED
-                null -> throw RuntimeException("Failed to search log '${'$'}{file.fileName}'", e)
+                null -> throw RuntimeException("Failed to scan log '${'$'}{file.fileName}'", e)
                 else -> throw cause
             }
         }
@@ -283,8 +354,57 @@ class LogManager {
 
 private class LogFileEntry(val name: String, val size: Long, val modified: FileTime)
 
+/**
+ * A pool of scan threads that replaces the ones it strands. Nothing can interrupt a match in
+ * progress, so a scan that will not stop is abandoned rather than killed; growing the pool one
+ * thread per abandonment keeps that from costing later scans their capacity, and [max] keeps a run
+ * of them from exhausting the JVM.
+ */
+private class ScanPool(name: String, private val threads: Int, private val max: Int) {
+    private val stranded = AtomicInteger()
+
+    private val executor = ThreadPoolExecutor(
+        0,
+        threads,
+        SEARCH_THREAD_IDLE_SECONDS,
+        TimeUnit.SECONDS,
+        SynchronousQueue(),
+    ) { runnable -> Thread(runnable, name).apply { isDaemon = true } }
+
+    fun submit(work: () -> Long): Future<Long> = executor.submit(Callable(work))
+
+    fun strand() {
+        executor.maximumPoolSize = poolCeiling(threads, stranded.incrementAndGet(), max)
+    }
+
+    fun shutdown() {
+        executor.shutdownNow()
+    }
+}
+
 /** What one search was started against: how far it may scan, and which build of the index. */
 private class SearchScope(val total: Int, val generation: Int)
+
+/**
+ * One query's scan of one file: the physical lines it matched, and how far it has read. Sized by
+ * matches found rather than by lines, so a query that hits nothing costs nothing to hold.
+ */
+private class MatchScan(val key: String) {
+    var lines = IntArray(0)
+    var count = 0
+    var scanned = 0
+
+    /** First index into [lines] at or after [line]. */
+    fun lowerBound(line: Int): Int {
+        var low = 0
+        var high = count
+        while (low < high) {
+            val mid = (low + high) ushr 1
+            if (lines[mid] < line) low = mid + 1 else high = mid
+        }
+        return low
+    }
+}
 
 /**
  * Lines [start] until [end], copied out of the index so matching can run outside its monitor.
@@ -297,6 +417,15 @@ private class LineBlock(
     val lines: List<String>,
     val levels: ByteArray,
 )
+
+/**
+ * Cache key of one query. The level mask is deliberately not part of it: matches are stored as
+ * physical line numbers and `levels[]` already holds each line's level, so a mask is applied
+ * when the index is read rather than when it is built. Toggling a level — which is exactly when
+ * a reader is counting — then never throws a scan away.
+ */
+private fun matchKeyOf(query: String, regex: Boolean, caseSensitive: Boolean): String =
+    "${if (regex) 'r' else 'p'}${if (caseSensitive) 's' else 'i'}\u0000$query"
 
 private fun lineMatcher(
     query: String?,
@@ -581,12 +710,10 @@ private fun classifyHead(head: ByteArray, length: Int): Byte {
 }
 
 /**
- * Threads the search pool may hold once [stranded] matches have been abandoned. One replacement
- * each, so a runaway never costs a later search its capacity, up to a ceiling that keeps a run of
- * them from exhausting the JVM.
+ * Threads a pool of [base] may hold once [stranded] of its scans have been abandoned. One
+ * replacement each, so a runaway never costs a later scan its capacity, up to [max].
  */
-internal fun searchPoolCeiling(stranded: Int): Int =
-    minOf(SEARCH_THREADS + stranded, SEARCH_THREADS_MAX)
+internal fun poolCeiling(base: Int, stranded: Int, max: Int): Int = minOf(base + stranded, max)
 
 /**
  * Whether [mask] is a real filter. A mask admitting all five levels is the same view as no
@@ -629,6 +756,13 @@ internal class LogLineIndex(private val path: Path) {
     private var filteredCount = 0
     private var filteredScanned = 0
     private var maskCached = -1
+
+    // ? One scan per query, most-recent first — not the MRU-of-one `maskCached` uses, which is
+    // ? safe only because `filteredIndex` rebuilds inside a single monitor hold.
+    // ! A scan stops short of a line the file has not terminated. `filtered` has to show that
+    // ! line; a match verdict on it is one the next byte can overturn, and leaving it out is
+    // ! what makes every folded entry final.
+    private val matchScans = ArrayDeque<MatchScan>()
 
     @Synchronized
     fun infoJson(name: String, mask: Int): String? {
@@ -876,6 +1010,245 @@ internal class LogLineIndex(private val path: Path) {
         return LOG_NO_MATCH
     }
 
+    /**
+     * Extends the scan for [key] by up to [sliceMillis] and stops. Returns [LOG_SLICE_OK] whether
+     * or not it reached the end — [matchesJson] is what says which — [LOG_NOT_FOUND] when the file
+     * is gone, [LOG_SEARCH_STALE] when it was rebuilt underneath, or [LOG_SEARCH_BUSY] when the
+     * file is already counting as many queries at once as it will.
+     *
+     * Deliberately not `@Synchronized`, as [search]: blocks are copied out under the monitor and
+     * matched outside it, so reads and follow polls never queue behind a count.
+     */
+    fun matchSlice(matches: (String) -> Boolean, key: String, sliceMillis: Long): Long {
+        val scope = matchScope() ?: return LOG_NOT_FOUND
+        val deadlineNanos = System.nanoTime() + sliceMillis * 1_000_000L
+
+        while (true) {
+            val cursor = matchCursor(scope, key)
+            if (cursor == CURSOR_STALE) return LOG_SEARCH_STALE
+            if (cursor == CURSOR_BUSY) return LOG_SEARCH_BUSY
+            if (cursor >= scope.total) return LOG_SLICE_OK
+
+            val block = searchBlock(cursor, true, scope) ?: return LOG_SEARCH_STALE
+            val hits = IntArray(block.end - block.start)
+            var found = 0
+            for (index in block.lines.indices) {
+                if (matches(block.lines[index])) hits[found++] = block.start + index
+            }
+
+            // ? A lost fold is contention, not staleness — the next turn picks up the cursor
+            // ? the winner left. Only a rebuilt file invalidates the line numbers.
+            if (foldMatches(scope, key, cursor, block.end, hits, found) == FOLD_STALE) {
+                return LOG_SEARCH_STALE
+            }
+
+            // ! Checked after a block, never before one. A deadline shorter than a single block
+            // ! would otherwise hand back having scanned nothing, and the caller's loop — which
+            // ! re-calls until the scan is complete — would never end.
+            if (System.nanoTime() - deadlineNanos >= 0) return LOG_SLICE_OK
+        }
+    }
+
+    /** The extent one slice may cover, or `null` when the file is gone. */
+    @Synchronized
+    private fun matchScope(): SearchScope? {
+        refresh() ?: return null
+        return SearchScope(matchLimit(), generation)
+    }
+
+    /**
+     * The scan for [key], promoted to most-recent, or `null` when the file is already holding as
+     * many unfinished scans as it will.
+     *
+     * ! Only a finished scan is ever evicted. Dropping one still in progress makes a set of
+     * ! readers restart each other from line 0 for ever — `scanned` walks backwards and no count
+     * ! reaches `complete`. Refusing the newcomer bounds that to whoever arrived last.
+     */
+    private fun openScan(key: String): MatchScan? {
+        val existing = matchScans.firstOrNull { it.key == key }
+        if (existing != null) {
+            matchScans.remove(existing)
+            matchScans.addFirst(existing)
+            return existing
+        }
+
+        if (matchScans.size >= MAX_MATCH_SCANS) {
+            // ? A finished scan can go: nobody is polling it any more, and re-deriving it costs a
+            // ? rescan nobody is waiting on.
+            val limit = matchLimit()
+            val done = matchScans.lastOrNull { it.scanned >= limit } ?: return null
+            matchScans.remove(done)
+        }
+
+        val fresh = MatchScan(key)
+        matchScans.addFirst(fresh)
+        return fresh
+    }
+
+    /**
+     * Where [key]'s scan has got to, opening one when it has none. [CURSOR_STALE] when the index
+     * was rebuilt under [scope] and the line numbers it holds describe content that is gone;
+     * [CURSOR_BUSY] when the file has no room for another scan.
+     */
+    @Synchronized
+    private fun matchCursor(scope: SearchScope, key: String): Int {
+        if (generation != scope.generation) return CURSOR_STALE
+        return openScan(key)?.scanned ?: CURSOR_BUSY
+    }
+
+    /**
+     * Folds the first [hitCount] of [hits] into [key]'s scan and advances it to [end].
+     *
+     * ! The key is checked here, not just the cursor. A slice matched outside the monitor against
+     * ! one query must never land in another's scan: the count would report the wrong total, and
+     * ! [searchIndexed] would then serve navigation from it without ever running the matcher.
+     */
+    @Synchronized
+    private fun foldMatches(
+        scope: SearchScope,
+        key: String,
+        start: Int,
+        end: Int,
+        hits: IntArray,
+        hitCount: Int,
+    ): Int {
+        if (generation != scope.generation) return FOLD_STALE
+
+        val scan = matchScans.firstOrNull { it.key == key } ?: return FOLD_SUPERSEDED
+        if (scan.scanned != start) return FOLD_SUPERSEDED
+
+        for (index in 0 until hitCount) {
+            if (scan.count == scan.lines.size) {
+                val grown = if (scan.lines.isEmpty()) INITIAL_OFFSET_CAPACITY else scan.lines.size * 2
+                scan.lines = scan.lines.copyOf(grown)
+            }
+            scan.lines[scan.count++] = hits[index]
+        }
+        scan.scanned = end
+
+        return FOLD_OK
+    }
+
+    /**
+     * Lines a scan may cover: every line the file has terminated. A trailing line still being
+     * written is left out, because the bytes still to come can change what it matches.
+     */
+    private fun matchLimit(): Int = if (insideLine) maxOf(0, lineCount - 1) else lineCount
+
+    /** How far the count for [key] has got, as the response body the API hands the client. */
+    @Synchronized
+    fun matchesJson(key: String): String = buildString {
+        append("{\"status\":\"ok\"")
+        appendMatchProgress(key)
+        append('}')
+    }
+
+    /**
+     * A search verdict with the count around it. [line] carries one of the `LOG_*` codes when
+     * there is no hit, in which case the ordinal is left out with it.
+     */
+    @Synchronized
+    fun searchJson(key: String, mask: Int, line: Long): String = buildString {
+        append("{\"status\":\"ok\",\"line\":")
+        if (line < 0) append("null") else append(line)
+
+        append(",\"ordinal\":")
+        val ordinal = if (line < 0) -1 else ordinalOf(key, mask, line.toInt())
+        if (ordinal < 0) append("null") else append(ordinal)
+
+        appendMatchProgress(key)
+        append('}')
+    }
+
+    /**
+     * The next match at or after [fromRequested] in [forward]'s direction, answered from [key]'s
+     * scan alone, or `null` when it cannot be: no scan for that query, or one that does not yet
+     * cover every line of the file.
+     *
+     * The bar is [lineCount] rather than [matchLimit], one line stricter than `complete`: a count
+     * may round off a half-written trailing line, but navigation that silently skipped it would
+     * report a match as absent.
+     */
+    @Synchronized
+    fun searchIndexed(key: String, mask: Int, fromRequested: Long, forward: Boolean): String? {
+        refresh() ?: return null
+
+        val scan = matchScans.firstOrNull { it.key == key } ?: return null
+        if (scan.scanned < lineCount) return null
+
+        // ! Clamped to the file, not to `Int.MAX_VALUE`: `from + 1` below would overflow to
+        // ! `Int.MIN_VALUE` and report a backward search as no match. The scanning path clamps
+        // ! the same way, so both answer a large `from` alike.
+        val from = fromRequested.coerceIn(0L, lineCount.toLong()).toInt()
+        val filtering = isFiltering(mask)
+        var line = LOG_NO_MATCH
+
+        var index = if (forward) scan.lowerBound(from) else scan.lowerBound(from + 1) - 1
+        val step = if (forward) 1 else -1
+        while (index in 0 until scan.count) {
+            val match = scan.lines[index]
+            if (!filtering || mask and (1 shl levels[match].toInt()) != 0) {
+                line = match.toLong()
+                break
+            }
+            index += step
+        }
+
+        return searchJson(key, mask, line)
+    }
+
+    /**
+     * Zero-based position of the match at [line] among the matches [mask] admits, or `-1` when
+     * [key] has no scan or the scan has not reached [line] and there is no ordinal to give yet.
+     *
+     * A walk rather than a binary search because the mask hides an arbitrary subset: the count of
+     * admitted matches before a line is not a function of that line's index.
+     */
+    private fun ordinalOf(key: String, mask: Int, line: Int): Int {
+        val scan = matchScans.firstOrNull { it.key == key } ?: return -1
+        if (line >= scan.scanned) return -1
+
+        val filtering = isFiltering(mask)
+        var ordinal = 0
+        for (index in 0 until scan.count) {
+            val match = scan.lines[index]
+            if (match >= line) break
+            if (!filtering || mask and (1 shl levels[match].toInt()) != 0) ordinal++
+        }
+
+        return ordinal
+    }
+
+    /**
+     * The count fields shared by both responses. `levels` is the per-level split of every match
+     * found so far, from which the caller derives what its own filter shows and hides — the mask
+     * never reaches this class, so a filter change costs no rescan.
+     */
+    private fun StringBuilder.appendMatchProgress(key: String) {
+        // ? Counted per call, like the per-level line counts in `infoJson`. Every folded match
+        // ? sits on a terminated line, so its level is settled and the pass cannot disagree with
+        // ? what was counted when it was found.
+        val scan = matchScans.firstOrNull { it.key == key }
+        val counts = IntArray(LEVEL_COUNT)
+        if (scan != null) {
+            for (index in 0 until scan.count) counts[levels[scan.lines[index]].toInt()]++
+        }
+
+        append(",\"total\":")
+        append(scan?.count ?: 0)
+        append(",\"levels\":[")
+        for (code in 0 until LEVEL_COUNT) {
+            if (code > 0) append(',')
+            append(counts[code])
+        }
+        append("],\"scanned\":")
+        append(scan?.scanned ?: 0)
+        append(",\"lines\":")
+        append(lineCount)
+        append(",\"complete\":")
+        append(scan != null && scan.scanned >= matchLimit())
+    }
+
     /** Whether the index still describes the file [scope] was taken against. */
     @Synchronized
     private fun stillCurrent(scope: SearchScope): Boolean {
@@ -940,6 +1313,7 @@ internal class LogLineIndex(private val path: Path) {
         filteredCount = 0
         filteredScanned = 0
         maskCached = -1
+        matchScans.clear()
     }
 
     private fun scan(endPos: Long) {
