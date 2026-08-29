@@ -46,8 +46,32 @@ export type LogLocation = {
   visible: boolean;
 };
 
-export type LogSearchResult = {
+/**
+ * How far the whole-file count for one query has got. `levels` is the per-level split of every
+ * match found so far, indexed by level code — the caller sums it against its own filter, which
+ * is why no level parameter reaches the count.
+ */
+export type LogMatchCount = {
+  total: number;
+  levels: number[];
+  scanned: number;
+  lines: number;
+  complete: boolean;
+};
+
+export type LogSearchResult = LogMatchCount & {
   line: number | null;
+  /** Zero-based position of `line` among the matches the active filter admits. */
+  ordinal: number | null;
+};
+
+/**
+ * How the bean reports a scan that could not deliver. It is transport between the bean and this
+ * file only — an `ok` response is unwrapped before it reaches the client, and the other two
+ * become a status code.
+ */
+type BeanStatus = {
+  status: 'ok' | 'aborted' | 'stale' | 'busy';
 };
 
 //
@@ -75,11 +99,6 @@ const INVALID_LEVELS = -1;
 
 // ? The bean throws IllegalArgumentException carrying this prefix for a rejected pattern.
 const INVALID_REGEX_MARKER = 'Invalid regular expression';
-
-const NOT_FOUND = -2;
-const NO_MATCH = -1;
-const SEARCH_ABORTED = -3;
-const SEARCH_STALE = -4;
 
 //
 // * Bean
@@ -157,7 +176,8 @@ function locateLine(req: Request, file: string, mask: number): Response {
   return jsonResponse(JSON.parse(json) as LogLocation);
 }
 
-function searchLines(req: Request, file: string, mask: number): Response {
+/** The `query` a scanning action needs, or the response explaining why it has none. */
+function requireQuery(req: Request): string | Response {
   const query = getParam(req, 'query');
   if (query == null || query.length === 0) {
     return errorResponse(400, 'query is required', 'VALIDATION_ERROR');
@@ -169,6 +189,43 @@ function searchLines(req: Request, file: string, mask: number): Response {
       'VALIDATION_ERROR',
     );
   }
+  return query;
+}
+
+/** A rejected pattern reaches the API as a thrown message rather than a status. */
+function scanFailure(e: unknown): Response {
+  const message = String(e);
+  const marker = message.indexOf(INVALID_REGEX_MARKER);
+  if (marker >= 0) return errorResponse(400, message.slice(marker), 'VALIDATION_ERROR');
+  return errorResponse(500, message, 'INTERNAL_ERROR');
+}
+
+/** The response for a scan that did not finish, or `null` when it did. */
+function scanStatus(status: string): Response | null {
+  if (status === 'stale') {
+    return errorResponse(
+      409,
+      'Search stopped: the log file changed while it was being scanned',
+      'SEARCH_STALE',
+    );
+  }
+  if (status === 'aborted') {
+    return errorResponse(
+      400,
+      'Search stopped: the pattern took too long to evaluate',
+      'SEARCH_TIMEOUT',
+    );
+  }
+  // ? Nothing ran, so nothing is wrong with the request — it is worth sending again.
+  if (status === 'busy') {
+    return errorResponse(503, 'Too many searches running; try again', 'SEARCH_BUSY');
+  }
+  return null;
+}
+
+function searchLines(req: Request, file: string, mask: number): Response {
+  const query = requireQuery(req);
+  if (typeof query !== 'string') return query;
 
   const direction = getParam(req, 'direction') ?? 'forward';
   if (direction !== 'forward' && direction !== 'backward') {
@@ -179,9 +236,9 @@ function searchLines(req: Request, file: string, mask: number): Response {
   const regex = getParam(req, 'regex') === 'true';
   const caseSensitive = getParam(req, 'caseSensitive') === 'true';
 
-  let line: number;
+  let json: string | null;
   try {
-    line = logManager.search(
+    json = logManager.search(
       file,
       query,
       from,
@@ -191,33 +248,33 @@ function searchLines(req: Request, file: string, mask: number): Response {
       mask,
     );
   } catch (e) {
-    const message = String(e);
-    if (message.indexOf(INVALID_REGEX_MARKER) >= 0) {
-      return errorResponse(
-        400,
-        message.slice(message.indexOf(INVALID_REGEX_MARKER)),
-        'VALIDATION_ERROR',
-      );
-    }
-    return errorResponse(500, message, 'INTERNAL_ERROR');
+    return scanFailure(e);
   }
 
-  if (line === NOT_FOUND) return notFound(file);
-  if (line === SEARCH_STALE) {
-    return errorResponse(
-      409,
-      'Search stopped: the log file changed while it was being scanned',
-      'SEARCH_STALE',
-    );
+  if (json == null) return notFound(file);
+
+  const { status, ...result } = JSON.parse(json) as LogSearchResult & BeanStatus;
+  return scanStatus(status) ?? jsonResponse<LogSearchResult>(result);
+}
+
+function countMatches(req: Request, file: string): Response {
+  const query = requireQuery(req);
+  if (typeof query !== 'string') return query;
+
+  const regex = getParam(req, 'regex') === 'true';
+  const caseSensitive = getParam(req, 'caseSensitive') === 'true';
+
+  let json: string | null;
+  try {
+    json = logManager.matches(file, query, regex, caseSensitive);
+  } catch (e) {
+    return scanFailure(e);
   }
-  if (line === SEARCH_ABORTED) {
-    return errorResponse(
-      400,
-      'Search stopped: the pattern took too long to evaluate',
-      'SEARCH_TIMEOUT',
-    );
-  }
-  return jsonResponse<LogSearchResult>({ line: line === NO_MATCH ? null : line });
+
+  if (json == null) return notFound(file);
+
+  const { status, ...result } = JSON.parse(json) as LogMatchCount & BeanStatus;
+  return scanStatus(status) ?? jsonResponse<LogMatchCount>(result);
 }
 
 function downloadFile(file: string): Response {
@@ -269,6 +326,7 @@ export function get(req: Request): Response {
     if (action == null) return readLines(req, file, mask);
     if (action === 'info') return readInfo(file, mask);
     if (action === 'search') return searchLines(req, file, mask);
+    if (action === 'matches') return countMatches(req, file);
     if (action === 'locate') return locateLine(req, file, mask);
     if (action === 'download') return downloadFile(file);
     return errorResponse(400, `Unknown action '${action}'`, 'VALIDATION_ERROR');

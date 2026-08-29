@@ -631,46 +631,46 @@ class LogManagerTest {
     fun `search finds the first match forward from the given line`() {
         writeLog("server.log", "alpha\nbeta\nalpha\ngamma\n")
 
-        assertEquals(0, manager.search("server.log", "alpha", 0, true, false, false, 0))
-        assertEquals(2, manager.search("server.log", "alpha", 1, true, false, false, 0))
-        assertEquals(-1, manager.search("server.log", "alpha", 3, true, false, false, 0))
-        assertEquals(-1, manager.search("server.log", "alpha", 99, true, false, false, 0))
+        assertEquals(0, searchLine("server.log", "alpha", 0, true, false, false, 0))
+        assertEquals(2, searchLine("server.log", "alpha", 1, true, false, false, 0))
+        assertEquals(-1, searchLine("server.log", "alpha", 3, true, false, false, 0))
+        assertEquals(-1, searchLine("server.log", "alpha", 99, true, false, false, 0))
     }
 
     @Test
     fun `search finds the previous match backward from the given line`() {
         writeLog("server.log", "alpha\nbeta\nalpha\ngamma\n")
 
-        assertEquals(2, manager.search("server.log", "alpha", 3, false, false, false, 0))
-        assertEquals(0, manager.search("server.log", "alpha", 1, false, false, false, 0))
-        assertEquals(-1, manager.search("server.log", "beta", 0, false, false, false, 0))
-        assertEquals(2, manager.search("server.log", "alpha", 99, false, false, false, 0))
+        assertEquals(2, searchLine("server.log", "alpha", 3, false, false, false, 0))
+        assertEquals(0, searchLine("server.log", "alpha", 1, false, false, false, 0))
+        assertEquals(-1, searchLine("server.log", "beta", 0, false, false, false, 0))
+        assertEquals(2, searchLine("server.log", "alpha", 99, false, false, false, 0))
     }
 
     @Test
     fun `plain search is case-insensitive unless case sensitivity is requested`() {
         writeLog("server.log", "Alpha\nbeta\n")
 
-        assertEquals(0, manager.search("server.log", "alpha", 0, true, false, false, 0))
-        assertEquals(-1, manager.search("server.log", "alpha", 0, true, false, true, 0))
-        assertEquals(0, manager.search("server.log", "Alpha", 0, true, false, true, 0))
+        assertEquals(0, searchLine("server.log", "alpha", 0, true, false, false, 0))
+        assertEquals(-1, searchLine("server.log", "alpha", 0, true, false, true, 0))
+        assertEquals(0, searchLine("server.log", "Alpha", 0, true, false, true, 0))
     }
 
     @Test
     fun `regex search matches anywhere in the line and honours case sensitivity`() {
         writeLog("server.log", "10:00:00.000 INFO  c.e.Foo - started\nplain text\nERROR boom\n")
 
-        assertEquals(2, manager.search("server.log", "^ERROR\\s", 0, true, true, false, 0))
-        assertEquals(0, manager.search("server.log", "c\\.e\\.\\w+", 0, true, true, true, 0))
-        assertEquals(2, manager.search("server.log", "error", 0, true, true, false, 0))
-        assertEquals(-1, manager.search("server.log", "error", 0, true, true, true, 0))
+        assertEquals(2, searchLine("server.log", "^ERROR\\s", 0, true, true, false, 0))
+        assertEquals(0, searchLine("server.log", "c\\.e\\.\\w+", 0, true, true, true, 0))
+        assertEquals(2, searchLine("server.log", "error", 0, true, true, false, 0))
+        assertEquals(-1, searchLine("server.log", "error", 0, true, true, true, 0))
     }
 
     @Test
     fun `regex search matches unicode case-insensitively`() {
         writeLog("server.log", "ÉCHEC du démarrage\n")
 
-        assertEquals(0, manager.search("server.log", "échec", 0, true, true, false, 0))
+        assertEquals(0, searchLine("server.log", "échec", 0, true, true, false, 0))
     }
 
     @Test
@@ -678,7 +678,7 @@ class LogManagerTest {
         writeLog("server.log", "alpha\n")
 
         val error = assertFailsWith<IllegalArgumentException> {
-            manager.search("server.log", "[unclosed", 0, true, true, false, 0)
+            searchLine("server.log", "[unclosed", 0, true, true, false, 0)
         }
         assertTrue(error.message?.startsWith("Invalid regular expression") == true)
     }
@@ -688,10 +688,10 @@ class LogManagerTest {
         writeLog("server.log", "alpha\n")
 
         assertFailsWith<IllegalArgumentException> {
-            manager.search("server.log", "", 0, true, false, false, 0)
+            searchLine("server.log", "", 0, true, false, false, 0)
         }
         assertFailsWith<IllegalArgumentException> {
-            manager.search("server.log", null, 0, true, false, false, 0)
+            searchLine("server.log", null, 0, true, false, false, 0)
         }
     }
 
@@ -699,13 +699,13 @@ class LogManagerTest {
     fun `search spans several blocks and an empty file`() {
         writeLog("server.log", (0 until 5000).joinToString("") { "line-$it\n" })
 
-        assertEquals(4999, manager.search("server.log", "line-4999", 0, true, false, false, 0))
-        assertEquals(-1, manager.search("server.log", "line-5000", 0, true, false, false, 0))
-        assertEquals(4321, manager.search("server.log", "line-4321", 5000, false, false, false, 0))
-        assertEquals(2500, manager.search("server.log", "^line-2500$", 0, true, true, false, 0))
+        assertEquals(4999, searchLine("server.log", "line-4999", 0, true, false, false, 0))
+        assertEquals(-1, searchLine("server.log", "line-5000", 0, true, false, false, 0))
+        assertEquals(4321, searchLine("server.log", "line-4321", 5000, false, false, false, 0))
+        assertEquals(2500, searchLine("server.log", "^line-2500$", 0, true, true, false, 0))
 
         writeLog("empty.log", "")
-        assertEquals(-1, manager.search("empty.log", "anything", 0, true, false, false, 0))
+        assertEquals(-1, searchLine("empty.log", "anything", 0, true, false, false, 0))
     }
 
     @Test
@@ -714,8 +714,8 @@ class LogManagerTest {
         // ? Java only backtracks exponentially on this pattern once the line is long.
         writeLog("server.log", "harmless\n" + "a".repeat(20_000) + "!\n")
 
-        assertEquals(-3, manager.search("server.log", "(a+)+b", 0, true, true, false, 0))
-        assertEquals(-3, manager.search("server.log", "(a+)+b", 1, false, true, false, 0))
+        assertEquals(-3, searchLine("server.log", "(a+)+b", 0, true, true, false, 0))
+        assertEquals(-3, searchLine("server.log", "(a+)+b", 1, false, true, false, 0))
     }
 
     @Test
@@ -723,8 +723,8 @@ class LogManagerTest {
         manager.matchBudgetMillis = 50
         writeLog("server.log", "alpha\nbeta-42\n")
 
-        assertEquals(1, manager.search("server.log", "beta-\\d+", 0, true, true, false, 0))
-        assertEquals(-1, manager.search("server.log", "gamma", 0, true, true, false, 0))
+        assertEquals(1, searchLine("server.log", "beta-\\d+", 0, true, true, false, 0))
+        assertEquals(-1, searchLine("server.log", "gamma", 0, true, true, false, 0))
     }
 
     @Test
@@ -732,8 +732,8 @@ class LogManagerTest {
         manager.searchBudgetMillis = 0
         writeLog("server.log", "alpha\nbeta\n")
 
-        assertEquals(-3, manager.search("server.log", "beta", 0, true, false, false, 0))
-        assertEquals(-3, manager.search("server.log", "alpha", 1, false, false, false, 0))
+        assertEquals(-3, searchLine("server.log", "beta", 0, true, false, false, 0))
+        assertEquals(-3, searchLine("server.log", "alpha", 1, false, false, false, 0))
     }
 
     @Test
@@ -741,7 +741,7 @@ class LogManagerTest {
         // ? This pattern exhausts the stack on a long line rather than reaching the deadline.
         writeLog("server.log", "a".repeat(200_000) + "!\n")
 
-        assertEquals(-3, manager.search("server.log", "(a|aa)+b", 0, true, true, false, 0))
+        assertEquals(-3, searchLine("server.log", "(a|aa)+b", 0, true, true, false, 0))
     }
 
     @Test
@@ -795,7 +795,7 @@ class LogManagerTest {
         // ? Consumes no input, so `DeadlineInput.get` never runs and neither bound can fire. The
         // ? repetition counts keep the abandoned thread finite rather than spinning for the JVM.
         val started = System.nanoTime()
-        assertEquals(-3, manager.search("server.log", "(?:(?:){60000}){60000}", 0, true, true, false, 0))
+        assertEquals(-3, searchLine("server.log", "(?:(?:){60000}){60000}", 0, true, true, false, 0))
         assertTrue((System.nanoTime() - started) / 1_000_000 < 5_000, "watchdog did not fire")
     }
 
@@ -809,19 +809,24 @@ class LogManagerTest {
         // ? Each of these strands its worker: the pattern consumes no input, so nothing can stop
         // ? the match and the thread never comes back. Search has to survive that.
         val callers = (0 until 5).map {
-            thread { manager.search("server.log", "(?:(?:){30000}){30000}", 0, true, true, false, 0) }
+            thread { searchLine("server.log", "(?:(?:){30000}){30000}", 0, true, true, false, 0) }
         }
         callers.forEach { it.join(5_000) }
 
-        assertEquals(1, manager.search("server.log", "beta", 0, true, false, false, 0))
+        assertEquals(1, searchLine("server.log", "beta", 0, true, false, false, 0))
     }
 
     @Test
-    fun `the search pool stops replacing stranded threads at its ceiling`() {
-        assertEquals(4, searchPoolCeiling(0))
-        assertEquals(9, searchPoolCeiling(5))
-        assertEquals(20, searchPoolCeiling(16))
-        assertEquals(20, searchPoolCeiling(100))
+    fun `a scan pool stops replacing stranded threads at its ceiling`() {
+        assertEquals(4, poolCeiling(4, 0, 20))
+        assertEquals(9, poolCeiling(4, 5, 20))
+        assertEquals(20, poolCeiling(4, 16, 20))
+        assertEquals(20, poolCeiling(4, 100, 20))
+
+        // ? The count pool is smaller and has its own ceiling; it must not borrow the search
+        // ? pool's numbers, which is what crediting a stranded count to `searchExecutor` did.
+        assertEquals(2, poolCeiling(2, 0, 6))
+        assertEquals(6, poolCeiling(2, 100, 6))
     }
 
     @Test
@@ -884,7 +889,7 @@ class LogManagerTest {
 
         for (query in runaway) {
             val error = assertFailsWith<IllegalArgumentException>(query) {
-                manager.search("server.log", query, 0, true, true, false, 0)
+                searchLine("server.log", query, 0, true, true, false, 0)
             }
             assertTrue(
                 error.message?.startsWith("Invalid regular expression") == true,
@@ -897,18 +902,18 @@ class LogManagerTest {
     fun `the repetition guard leaves ordinary patterns alone`() {
         writeLog("server.log", "10:00:00.000 ERROR c.e.x.Test - code 4021 at ff03a9b1\n")
 
-        assertEquals(0, manager.search("server.log", "\\d{4}", 0, true, true, false, 0))
-        assertEquals(0, manager.search("server.log", "[a-f0-9]{8}", 0, true, true, false, 0))
-        assertEquals(0, manager.search("server.log", ".{1,200}", 0, true, true, false, 0))
-        assertEquals(0, manager.search("server.log", "(?:\\w{2}){4}", 0, true, true, false, 0))
+        assertEquals(0, searchLine("server.log", "\\d{4}", 0, true, true, false, 0))
+        assertEquals(0, searchLine("server.log", "[a-f0-9]{8}", 0, true, true, false, 0))
+        assertEquals(0, searchLine("server.log", ".{1,200}", 0, true, true, false, 0))
+        assertEquals(0, searchLine("server.log", "(?:\\w{2}){4}", 0, true, true, false, 0))
 
         // ? Several bounded spans in a row is what hunting through a stack trace looks like. Their
         // ? counts are sequential, so they must not compound into a refusal.
-        assertEquals(0, manager.search("server.log", "c\\..{0,1000}code.{0,1000}at.{0,1000}", 0, true, true, false, 0))
+        assertEquals(0, searchLine("server.log", "c\\..{0,1000}code.{0,1000}at.{0,1000}", 0, true, true, false, 0))
 
         // ? Braces that are not quantifiers: a literal inside a class and an escaped pair.
-        assertEquals(-1, manager.search("server.log", "[{20000}]{4}", 0, true, true, false, 0))
-        assertEquals(-1, manager.search("server.log", "\\{20000\\}", 0, true, true, false, 0))
+        assertEquals(-1, searchLine("server.log", "[{20000}]{4}", 0, true, true, false, 0))
+        assertEquals(-1, searchLine("server.log", "\\{20000\\}", 0, true, true, false, 0))
     }
 
     @Test
@@ -954,15 +959,15 @@ class LogManagerTest {
 
         for (query in listOf("(?x)alpha", "(?x:alpha)", "(?ix)alpha", "(?x-i)alpha")) {
             val error = assertFailsWith<IllegalArgumentException>(query) {
-                manager.search("server.log", query, 0, true, true, false, 0)
+                searchLine("server.log", query, 0, true, true, false, 0)
             }
             assertTrue(error.message?.contains("extended mode") == true, query)
         }
 
         // ? Turning it back off is not turning it on, and a plain group is not a flag group.
-        assertEquals(0, manager.search("server.log", "(?i-x)alpha", 0, true, true, false, 0))
-        assertEquals(0, manager.search("server.log", "(?:alpha)", 0, true, true, false, 0))
-        assertEquals(0, manager.search("server.log", "(?i)ALPHA", 0, true, true, false, 0))
+        assertEquals(0, searchLine("server.log", "(?i-x)alpha", 0, true, true, false, 0))
+        assertEquals(0, searchLine("server.log", "(?:alpha)", 0, true, true, false, 0))
+        assertEquals(0, searchLine("server.log", "(?i)ALPHA", 0, true, true, false, 0))
     }
 
     @Test
@@ -987,9 +992,9 @@ class LogManagerTest {
         )
         val errors = mask(LEVEL_ERROR)
 
-        assertEquals(1, manager.search("server.log", "boom", 0, true, false, false, errors))
-        assertEquals(-1, manager.search("server.log", "boom", 2, true, false, false, errors))
-        assertEquals(1, manager.search("server.log", "boom", 2, false, false, false, errors))
+        assertEquals(1, searchLine("server.log", "boom", 0, true, false, false, errors))
+        assertEquals(-1, searchLine("server.log", "boom", 2, true, false, false, errors))
+        assertEquals(1, searchLine("server.log", "boom", 2, false, false, false, errors))
     }
 
     @Test
@@ -1003,25 +1008,25 @@ class LogManagerTest {
         val errors = mask(LEVEL_ERROR)
 
         // ? The frame inherits ERROR from the entry above it, so it is part of the filtered view.
-        assertEquals(1, manager.search("server.log", "nope", 0, true, false, false, errors))
-        assertEquals(-1, manager.search("server.log", "nope", 2, true, false, false, errors))
-        assertEquals(2, manager.search("server.log", "nope", 2, true, false, false, 0))
+        assertEquals(1, searchLine("server.log", "nope", 0, true, false, false, errors))
+        assertEquals(-1, searchLine("server.log", "nope", 2, true, false, false, errors))
+        assertEquals(2, searchLine("server.log", "nope", 2, true, false, false, 0))
     }
 
     @Test
     fun `a filtered search reports absence when every hit is hidden`() {
         writeLog("server.log", entry("INFO", "alpha") + entry("DEBUG", "alpha"))
 
-        assertEquals(-1, manager.search("server.log", "alpha", 0, true, false, false, mask(LEVEL_ERROR)))
-        assertEquals(-1, manager.search("server.log", "alpha", 1, false, false, false, mask(LEVEL_ERROR)))
+        assertEquals(-1, searchLine("server.log", "alpha", 0, true, false, false, mask(LEVEL_ERROR)))
+        assertEquals(-1, searchLine("server.log", "alpha", 1, false, false, false, mask(LEVEL_ERROR)))
     }
 
     @Test
     fun `a mask admitting every level searches every line`() {
         writeLog("server.log", entry("INFO", "alpha") + entry("ERROR", "beta"))
 
-        assertEquals(0, manager.search("server.log", "alpha", 0, true, false, false, LEVEL_MASK_ALL))
-        assertEquals(1, manager.search("server.log", "beta", 0, true, false, false, LEVEL_MASK_ALL))
+        assertEquals(0, searchLine("server.log", "alpha", 0, true, false, false, LEVEL_MASK_ALL))
+        assertEquals(1, searchLine("server.log", "beta", 0, true, false, false, LEVEL_MASK_ALL))
     }
 
     @Test
@@ -1030,15 +1035,377 @@ class LogManagerTest {
         writeLog("server.log", log)
         val errors = mask(LEVEL_ERROR)
 
-        assertEquals(5999, manager.search("server.log", "line-2999", 0, true, false, false, errors))
-        assertEquals(5001, manager.search("server.log", "line-2500", 6000, false, false, false, errors))
-        assertEquals(-1, manager.search("server.log", "line-3000", 0, true, false, false, errors))
+        assertEquals(5999, searchLine("server.log", "line-2999", 0, true, false, false, errors))
+        assertEquals(5001, searchLine("server.log", "line-2500", 6000, false, false, false, errors))
+        assertEquals(-1, searchLine("server.log", "line-3000", 0, true, false, false, errors))
     }
 
     @Test
     fun `search returns the not-found marker for an unknown file`() {
-        assertEquals(-2, manager.search("missing.log", "x", 0, true, false, false, 0))
-        assertEquals(-2, manager.search("../server.log", "x", 0, true, false, false, 0))
+        assertEquals(-2, searchLine("missing.log", "x", 0, true, false, false, 0))
+        assertEquals(-2, searchLine("../server.log", "x", 0, true, false, false, 0))
+    }
+
+    //
+    // * match count
+    //
+
+    @Test
+    fun `matches counts every hit in the file and splits them by level`() {
+        writeLog(
+            "server.log",
+            entry("INFO", "alpha one") +
+                entry("ERROR", "alpha two") +
+                "\tat alpha.Frame.run(Frame.java:1)\n" +
+                entry("WARN", "beta"),
+        )
+
+        val json = countMatches("server.log", "alpha")
+
+        assertEquals(3, number(json, "total"))
+        // ? The stack frame belongs to the ERROR entry above it, so it counts as an error.
+        assertEquals(listOf(0, 0, 0, 1, 0, 2), matchLevels(json))
+        assertEquals(4, number(json, "lines"))
+    }
+
+    @Test
+    fun `the count ignores the level mask entirely`() {
+        writeLog("server.log", entry("INFO", "alpha") + entry("ERROR", "alpha"))
+
+        // ! No mask parameter exists on `matches` at all: a filter is applied to the finished
+        // ! counts, which is what keeps a level toggle from discarding a scan in progress.
+        val json = countMatches("server.log", "alpha")
+
+        assertEquals(2, number(json, "total"))
+        assertEquals(listOf(0, 0, 0, 1, 0, 1), matchLevels(json))
+    }
+
+    @Test
+    fun `a count reports its progress and finishes over several slices`() {
+        val log = (0 until 6000).joinToString("") { entry("INFO", "line-$it") }
+        writeLog("server.log", log)
+        manager.matchSliceMillis = 0
+
+        // ? A zero-length slice still folds the block it is holding, so the scan advances by one
+        // ? block per call — which is exactly the loop the client runs.
+        val first = assertNotNull(manager.matches("server.log", "line-", false, false))
+        assertTrue(first.contains(""""complete":false"""), first)
+        assertTrue(number(first, "scanned") > 0, first)
+        assertTrue(number(first, "scanned") < 6000, first)
+
+        manager.matchSliceMillis = 750
+        val done = countMatches("server.log", "line-")
+
+        assertTrue(done.contains(""""complete":true"""), done)
+        assertEquals(6000, number(done, "total"))
+        assertEquals(6000, number(done, "scanned"))
+    }
+
+    @Test
+    fun `a count resumes where the previous slice stopped`() {
+        val log = (0 until 6000).joinToString("") { entry("INFO", "line-$it") }
+        writeLog("server.log", log)
+        manager.matchSliceMillis = 0
+
+        val first = assertNotNull(manager.matches("server.log", "line-", false, false))
+        val second = assertNotNull(manager.matches("server.log", "line-", false, false))
+
+        assertTrue(number(second, "scanned") > number(first, "scanned"), second)
+        assertTrue(number(second, "total") > number(first, "total"), second)
+    }
+
+    @Test
+    fun `two queries on one file each keep their own count`() {
+        writeLog("server.log", entry("INFO", "alpha") + entry("ERROR", "beta"))
+
+        assertEquals(1, number(countMatches("server.log", "alpha"), "total"))
+        assertEquals(1, number(countMatches("server.log", "beta"), "total"))
+        assertEquals(1, number(countMatches("server.log", "alpha"), "total"))
+    }
+
+    @Test
+    fun `a second query does not evict a count still in progress`() {
+        val log = (0 until 6000).joinToString("") { entry("INFO", "alpha-$it") + entry("ERROR", "beta-$it") }
+        writeLog("server.log", log)
+        manager.matchSliceMillis = 0
+
+        // ? One slice each, interleaved — the shape two readers counting the same file produce.
+        val alphaFirst = assertNotNull(manager.matches("server.log", "alpha-", false, false))
+        manager.matches("server.log", "beta-", false, false)
+        val alphaSecond = assertNotNull(manager.matches("server.log", "alpha-", false, false))
+
+        // ! Resumed, not restarted: an MRU of one would have reset this to the first block again,
+        // ! and neither reader would ever reach a complete count.
+        assertTrue(
+            number(alphaSecond, "scanned") > number(alphaFirst, "scanned"),
+            "$alphaFirst then $alphaSecond",
+        )
+    }
+
+    @Test
+    fun `an unfinished scan never walks backwards`() {
+        val log = (0 until 8000).joinToString("") { entry("INFO", "alpha-$it") }
+        writeLog("server.log", log)
+        manager.matchSliceMillis = 0
+
+        // ? More queries than the file will count at once, polled round-robin — the shape that
+        // ? made every scan evict the one polled before it.
+        val queries = (1..MAX_MATCH_SCANS + 2).map { "alpha-$it" }
+        val furthest = mutableMapOf<String, Long>()
+        val finished = mutableSetOf<String>()
+
+        repeat(12) {
+            for (query in queries) {
+                if (query in finished) continue
+
+                val json = manager.matches("server.log", query, false, false) ?: continue
+                if (!json.contains(""""status":"ok"""")) continue
+
+                val scanned = number(json, "scanned")
+                // ! Monotonic while the scan is unfinished. One walking backwards is being
+                // ! recreated from line 0 every round, and never reaches a total at all.
+                assertTrue(
+                    scanned >= (furthest[query] ?: 0L),
+                    "$query went backwards: ${furthest[query]} then $scanned",
+                )
+                furthest[query] = scanned
+
+                // ? A finished scan may be evicted to make room, which legitimately restarts it.
+                if (json.contains(""""complete":true""")) finished += query
+            }
+        }
+
+        assertTrue(finished.isNotEmpty(), "no query ever reached a complete count")
+    }
+
+    @Test
+    fun `a file counting all it can refuses another query rather than evicting one`() {
+        val log = (0 until 8000).joinToString("") { entry("INFO", "alpha-$it") }
+        writeLog("server.log", log)
+        manager.matchSliceMillis = 0
+
+        // ? One slice each, so none of them finishes and none can be evicted.
+        for (index in 0 until MAX_MATCH_SCANS) {
+            val json = assertNotNull(manager.matches("server.log", "alpha-$index", false, false))
+            assertTrue(json.contains(""""status":"ok""""), json)
+        }
+
+        val refused = assertNotNull(manager.matches("server.log", "alpha-overflow", false, false))
+        assertTrue(refused.contains(""""status":"busy""""), refused)
+
+        // ! The refusal must not have cost an existing scan its place.
+        manager.matchSliceMillis = 750
+        assertEquals(1, number(countMatches("server.log", "alpha-0"), "total"))
+    }
+
+    @Test
+    fun `interleaved counts never fold one query's matches into another`() {
+        writeLog("server.log", entry("INFO", "alpha") + entry("ERROR", "beta"))
+        manager.matchSliceMillis = 0
+
+        repeat(4) {
+            manager.matches("server.log", "alpha", false, false)
+            manager.matches("server.log", "beta", false, false)
+        }
+
+        val alpha = countMatches("server.log", "alpha")
+        val beta = countMatches("server.log", "beta")
+
+        assertEquals(1, number(alpha, "total"))
+        assertEquals(listOf(0, 0, 0, 1, 0, 0), matchLevels(alpha))
+        assertEquals(1, number(beta, "total"))
+        assertEquals(listOf(0, 0, 0, 0, 0, 1), matchLevels(beta))
+    }
+
+    @Test
+    fun `concurrent counts of different queries both complete`() {
+        val log = (0 until 4000).joinToString("") { entry("INFO", "alpha-$it") + entry("ERROR", "beta-$it") }
+        writeLog("server.log", log)
+
+        val results = java.util.concurrent.ConcurrentHashMap<String, String>()
+        val threads = listOf("alpha-", "beta-").map { query ->
+            thread { results[query] = countMatches("server.log", query) }
+        }
+        threads.forEach { it.join(30_000) }
+
+        for (query in listOf("alpha-", "beta-")) {
+            val json = assertNotNull(results[query], "$query never finished")
+            assertTrue(json.contains(""""complete":true"""), "$query: $json")
+            assertEquals(4000, number(json, "total"), "$query: $json")
+        }
+    }
+
+    @Test
+    fun `case sensitivity and regex are part of the count's identity`() {
+        writeLog("server.log", entry("INFO", "Alpha") + entry("ERROR", "alpha"))
+
+        assertEquals(2, number(countMatches("server.log", "alpha"), "total"))
+        assertEquals(1, number(countMatches("server.log", "alpha", caseSensitive = true), "total"))
+        assertEquals(2, number(countMatches("server.log", "al.ha", regex = true), "total"))
+    }
+
+    @Test
+    fun `a count leaves out the trailing line until the file terminates it`() {
+        writeLog("server.log", entry("INFO", "alpha one"))
+        append(logsDir.resolve("server.log"), "08:00:00.000 INFO  c.e.x.Test - alpha two")
+
+        // ! The half-written line is excluded, not counted: the bytes still to come can change
+        // ! what it matches, and a folded entry has to be final.
+        val partial = countMatches("server.log", "alpha")
+        assertEquals(1, number(partial, "total"))
+        assertEquals(2, number(partial, "lines"))
+        assertEquals(1, number(partial, "scanned"))
+
+        append(logsDir.resolve("server.log"), "\n")
+
+        assertEquals(2, number(countMatches("server.log", "alpha"), "total"))
+    }
+
+    @Test
+    fun `a count picks up lines appended after it finished`() {
+        writeLog("server.log", entry("INFO", "alpha one"))
+        assertEquals(1, number(countMatches("server.log", "alpha"), "total"))
+
+        append(logsDir.resolve("server.log"), entry("ERROR", "alpha two"))
+
+        val json = countMatches("server.log", "alpha")
+        assertEquals(2, number(json, "total"))
+        assertEquals(listOf(0, 0, 0, 1, 0, 1), matchLevels(json))
+    }
+
+    @Test
+    fun `a count is rebuilt when the file is truncated`() {
+        writeLog("server.log", entry("INFO", "alpha") + entry("ERROR", "alpha"))
+        assertEquals(2, number(countMatches("server.log", "alpha"), "total"))
+
+        writeLog("server.log", entry("WARN", "alpha"))
+
+        val json = countMatches("server.log", "alpha")
+        assertEquals(1, number(json, "total"))
+        assertEquals(listOf(0, 0, 0, 0, 1, 0), matchLevels(json))
+    }
+
+    @Test
+    fun `matches returns null for an unknown file`() {
+        assertNull(manager.matches("missing.log", "x", false, false))
+        assertNull(manager.matches("../server.log", "x", false, false))
+    }
+
+    @Test
+    fun `matches rejects an empty query and an invalid regex`() {
+        writeLog("server.log", entry("INFO", "alpha"))
+
+        assertFailsWith<IllegalArgumentException> { manager.matches("server.log", "", false, false) }
+        assertFailsWith<IllegalArgumentException> { manager.matches("server.log", null, false, false) }
+        assertFailsWith<IllegalArgumentException> {
+            manager.matches("server.log", "[unclosed", true, false)
+        }
+    }
+
+    //
+    // * match ordinal
+    //
+
+    @Test
+    fun `search reports the position of the hit among all the matches`() {
+        writeLog(
+            "server.log",
+            entry("INFO", "alpha") + entry("ERROR", "alpha") + entry("WARN", "alpha"),
+        )
+        countMatches("server.log", "alpha")
+
+        assertEquals(0, ordinalOf("server.log", "alpha", 0, 0))
+        assertEquals(1, ordinalOf("server.log", "alpha", 1, 0))
+        assertEquals(2, ordinalOf("server.log", "alpha", 2, 0))
+    }
+
+    @Test
+    fun `the ordinal counts only the matches the mask admits`() {
+        writeLog(
+            "server.log",
+            entry("INFO", "alpha") + entry("ERROR", "alpha") + entry("ERROR", "alpha"),
+        )
+        countMatches("server.log", "alpha")
+        val errors = mask(LEVEL_ERROR)
+
+        // ? The INFO hit above them is not in this view, so the first error is the first match.
+        assertEquals(0, ordinalOf("server.log", "alpha", 1, errors))
+        assertEquals(1, ordinalOf("server.log", "alpha", 2, errors))
+    }
+
+    @Test
+    fun `a backward search past the end of the file finds the last match`() {
+        writeLog("server.log", entry("INFO", "alpha") + entry("ERROR", "beta") + entry("WARN", "alpha"))
+        countMatches("server.log", "alpha")
+
+        // ! `Int.MAX_VALUE` used to overflow the indexed path's `from + 1` into `Int.MIN_VALUE`,
+        // ! so the same request answered differently once the count completed.
+        assertEquals(2, searchLine("server.log", "alpha", Int.MAX_VALUE.toLong(), false, false, false, 0))
+        assertEquals(2, searchLine("server.log", "alpha", Long.MAX_VALUE, false, false, false, 0))
+    }
+
+    @Test
+    fun `a search reports no ordinal until the count has reached the hit`() {
+        val log = (0 until 6000).joinToString("") { entry("INFO", "line-$it") }
+        writeLog("server.log", log)
+
+        // ? Nothing has counted anything yet, so the hit has no position to report.
+        val json = assertNotNull(manager.search("server.log", "line-5999", 0, true, false, false, 0))
+        assertEquals(5999, number(json, "line"))
+        assertTrue(json.contains(""""ordinal":null"""), json)
+    }
+
+    @Test
+    fun `a search with no hit reports neither a line nor an ordinal`() {
+        writeLog("server.log", entry("INFO", "alpha"))
+        countMatches("server.log", "alpha")
+
+        val json = assertNotNull(manager.search("server.log", "alpha", 1, true, false, false, 0))
+
+        assertTrue(json.contains(""""line":null"""), json)
+        assertTrue(json.contains(""""ordinal":null"""), json)
+    }
+
+    @Test
+    fun `a completed count answers navigation without rescanning the file`() {
+        writeLog(
+            "server.log",
+            entry("INFO", "alpha") + entry("ERROR", "beta") + entry("WARN", "alpha"),
+        )
+        countMatches("server.log", "alpha")
+
+        // ! Served from the index rather than the scan, so the whole-search budget cannot apply.
+        manager.searchBudgetMillis = 0
+
+        assertEquals(0, searchLine("server.log", "alpha", 0, true, false, false, 0))
+        assertEquals(2, searchLine("server.log", "alpha", 1, true, false, false, 0))
+        assertEquals(0, searchLine("server.log", "alpha", 1, false, false, false, 0))
+        assertEquals(-1, searchLine("server.log", "alpha", 3, true, false, false, 0))
+    }
+
+    @Test
+    fun `the indexed path still honours the level mask`() {
+        writeLog(
+            "server.log",
+            entry("INFO", "alpha") + entry("ERROR", "alpha") + entry("WARN", "alpha"),
+        )
+        countMatches("server.log", "alpha")
+        manager.searchBudgetMillis = 0
+
+        assertEquals(1, searchLine("server.log", "alpha", 0, true, false, false, mask(LEVEL_ERROR)))
+        assertEquals(2, searchLine("server.log", "alpha", 0, true, false, false, mask(LEVEL_WARN)))
+        assertEquals(-1, searchLine("server.log", "alpha", 0, true, false, false, mask(LEVEL_DEBUG)))
+    }
+
+    @Test
+    fun `an appended line puts navigation back on the scanning path`() {
+        writeLog("server.log", entry("INFO", "alpha"))
+        countMatches("server.log", "alpha")
+        append(logsDir.resolve("server.log"), entry("ERROR", "alpha"))
+
+        // ? The index no longer covers the file, so the search scans — and finds the new line
+        // ? rather than reporting the stale count's last word on it.
+        assertEquals(1, searchLine("server.log", "alpha", 1, true, false, false, 0))
     }
 
     //
@@ -1135,6 +1502,55 @@ class LogManagerTest {
     private fun rotatedNames(json: String): List<String> =
         Regex(""""name":"([^"]+)","size":\d+,"modified":"[^"]+","active":(?:true|false),"rotated":true""")
             .findAll(json).map { it.groupValues[1] }.toList()
+
+    /**
+     * The search verdict as the plain line-number code the bean used to return: the matched line,
+     * [LOG_NO_MATCH], [LOG_NOT_FOUND], [LOG_SEARCH_ABORTED] or [LOG_SEARCH_STALE]. The count that
+     * now travels with it has its own tests; these are about which line was found.
+     */
+    private fun searchLine(
+        name: String?,
+        query: String?,
+        from: Long,
+        forward: Boolean,
+        regex: Boolean,
+        caseSensitive: Boolean,
+        mask: Int,
+    ): Long {
+        val json = manager.search(name, query, from, forward, regex, caseSensitive, mask)
+            ?: return LOG_NOT_FOUND
+        if (json.contains(""""status":"aborted"""")) return LOG_SEARCH_ABORTED
+        if (json.contains(""""status":"stale"""")) return LOG_SEARCH_STALE
+        return if (json.contains(""""line":null""")) LOG_NO_MATCH else number(json, "line")
+    }
+
+    /** The `ordinal` a search for [query] reports when it lands on [line]. */
+    private fun ordinalOf(name: String, query: String, line: Long, mask: Int): Long {
+        val json = assertNotNull(manager.search(name, query, line, true, false, false, mask))
+        assertEquals(line, number(json, "line"))
+        return number(json, "ordinal")
+    }
+
+    /** Runs the count to completion the way the client does — one call per slice until it says so. */
+    private fun countMatches(
+        name: String,
+        query: String,
+        regex: Boolean = false,
+        caseSensitive: Boolean = false,
+    ): String {
+        var json = manager.matches(name, query, regex, caseSensitive).orEmpty()
+        var guard = 0
+        while (json.contains(""""complete":false""") && guard++ < 100) {
+            json = manager.matches(name, query, regex, caseSensitive).orEmpty()
+        }
+        return json
+    }
+
+    /** The `levels` array of a count response, indexed by level code. */
+    private fun matchLevels(json: String): List<Int> {
+        val body = json.substringAfter(""""levels":[""").substringBefore(']')
+        return body.split(',').map { it.trim().toInt() }
+    }
 
     private fun number(json: String, key: String): Long =
         NUMBER_REGEX.findAll(json).first { it.groupValues[1] == key }.groupValues[2].toLong()

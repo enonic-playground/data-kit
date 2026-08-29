@@ -24,11 +24,18 @@ import {
   useRef,
   useState,
 } from 'react';
+import { type TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { z } from 'zod';
 
 import type { LineAlign, LogViewerHandle } from '../components/log-viewer/log-viewer';
-import type { LogLevel, LogLevelCounts, LogSearchDirection } from '../lib/api/logs';
+import type {
+  LogLevel,
+  LogLevelCounts,
+  LogSearchDirection,
+  MatchSplit,
+  SearchCriteria,
+} from '../lib/api/logs';
 import type { ApiError } from '../types/api';
 
 import { LEVEL_EMPHASIS, LEVEL_TOKEN_CLASS } from '../components/log-viewer/log-line';
@@ -61,6 +68,8 @@ import {
   logDownloadUrl,
   logFilesQueryOptions,
   logInfoQueryOptions,
+  logMatchesQueryOptions,
+  matchSplit,
   searchLog,
 } from '../lib/api/logs';
 import { cn } from '../lib/utils';
@@ -97,6 +106,18 @@ const searchSchema = z.object({
  */
 type SearchCursor = { line: number; position: number | null; inclusive: boolean };
 
+/**
+ * The single occupant of the badge slot. `hit` carries a physical line and, once the count has
+ * reached it, its position among the matches the active filter admits; `hidden` is the other way
+ * a jump ends, a goto whose target the filter does not show.
+ */
+type VerdictState =
+  | { kind: 'none' }
+  | { kind: 'noMatch' }
+  | { kind: 'error'; message: string }
+  | { kind: 'hit'; line: number; ordinal: number | null }
+  | { kind: 'hidden'; line: number };
+
 function formatSize(bytes: number): string {
   if (bytes < 0) return '—';
   if (bytes === 0) return '0 B';
@@ -120,6 +141,38 @@ function escapeRegExp(value: string): string {
 
 function isApiError(error: unknown): error is ApiError {
   return typeof error === 'object' && error != null && 'status' in error && 'message' in error;
+}
+
+/**
+ * How a hit reads: its ordinal into the whole-file count, the matches the filter is holding back,
+ * and the line number alone until the count has scanned far enough to place it.
+ *
+ * A running count says `3 of 147…`, because the total is a floor rather than an answer — flat, it
+ * would tell the reader a query was exhausted when nobody has finished looking.
+ */
+function hitLabel(
+  t: TFunction,
+  line: number,
+  ordinal: number | null,
+  split: MatchSplit | null,
+  complete: boolean,
+): string {
+  if (ordinal == null || split == null) {
+    return t('logs.search.matchAt', { line: (line + 1).toLocaleString() });
+  }
+
+  // ! The ordinal comes from the search response and the split from the count query, which are
+  // ! separate requests. While the count is still running the split can lag behind the hit the
+  // ! search already placed, and an unclamped total would read as "5 of 3".
+  const total = Math.max(split.visible, ordinal + 1);
+  const key = complete ? 'logs.search.matchOrdinal' : 'logs.search.matchOrdinalPartial';
+  const counted = t(key, {
+    ordinal: (ordinal + 1).toLocaleString(),
+    total: total.toLocaleString(),
+  });
+
+  if (split.hidden === 0) return counted;
+  return `${counted} ${t('logs.search.matchesHidden', { hidden: split.hidden.toLocaleString() })}`;
 }
 
 //
@@ -190,13 +243,13 @@ const LogsPage = (): ReactElement => {
   const [query, setQuery] = useState('');
   const [useRegex, setUseRegex] = useState(false);
   const [caseSensitive, setCaseSensitive] = useState(false);
-  const [noMatch, setNoMatch] = useState(false);
-  const [matchLine, setMatchLine] = useState<number | null>(null);
-  const [searchError, setSearchError] = useState<string | null>(null);
+  const [verdict, setVerdict] = useState<VerdictState>({ kind: 'none' });
+  // ? What the count is for. Set when a search runs, never while typing: a count reads the whole
+  // ? file, so it follows the criteria a reader committed to rather than every keystroke.
+  const [counted, setCounted] = useState<SearchCriteria | null>(null);
   const [searching, setSearching] = useState(false);
   const [gotoValue, setGotoValue] = useState('');
   const [levels, setLevels] = useState<LogLevel[]>([...LOG_LEVELS]);
-  const [hiddenLine, setHiddenLine] = useState<number | null>(null);
 
   const levelsKey = levelsParam(levels) ?? '';
   const filtering = levelsKey !== '';
@@ -230,6 +283,15 @@ const LogsPage = (): ReactElement => {
 
   const { data: info, error: infoError } = useQuery(
     logInfoQueryOptions(selected, levels, infoPoll),
+  );
+
+  // ? Keyed without the levels, mirroring the server: the scan counts physical lines, and a
+  // ? filter is a sum over the per-level split it returns. Toggling a level then costs nothing.
+  const { data: matches } = useQuery(logMatchesQueryOptions(selected, counted));
+
+  const split = useMemo(
+    () => (matches == null ? null : matchSplit(matches.levels, levels)),
+    [levels, matches],
   );
 
   const highlight = useMemo(() => {
@@ -294,7 +356,6 @@ const LogsPage = (): ReactElement => {
       if (!filtering) {
         locateAbortRef.current?.abort();
         locateAbortRef.current = null;
-        setHiddenLine(null);
         cursorRef.current = { line, position: line, inclusive };
         viewerRef.current?.scrollToLine(line, align);
         return;
@@ -308,7 +369,11 @@ const LogsPage = (): ReactElement => {
       locateLogLine(selected, line, levelsRef.current, controller.signal)
         .then((location) => {
           if (controller.signal.aborted) return;
-          setHiddenLine(location.visible ? null : line);
+          // ? Only a jump that claimed nothing can become a "hidden" verdict. A search hit is
+          // ? always a line the filter admits, so a locate cannot overturn one.
+          if (!location.visible) {
+            setVerdict((prev) => (prev.kind === 'none' ? { kind: 'hidden', line } : prev));
+          }
           // ! The row the view actually reached, not the line — a hidden hit sits at no row of
           // ! its own, and comparing the line against the viewport would discard the cursor and
           // ! hand back the same hit for ever.
@@ -327,6 +392,10 @@ const LogsPage = (): ReactElement => {
   const runSearch = useCallback(
     (direction: LogSearchDirection) => {
       if (selected == null || query === '' || searchingRef.current) return;
+
+      // ? Running a search is what commits the reader to these criteria, and the only thing that
+      // ? starts a whole-file count of them.
+      setCounted({ query, regex: useRegex, caseSensitive });
 
       // ? Stepping off the last match only makes sense while it is still on screen; once the
       // ? user has scrolled away, the viewport is the anchor. The test is in row space because
@@ -354,10 +423,8 @@ const LogsPage = (): ReactElement => {
       const step = forward ? 1 : -1;
       const from = anchor != null ? anchor.line + (anchor.inclusive ? 0 : step) : fromViewport;
 
-      setSearchError(null);
-
       if (from < 0 || from >= lineTotal) {
-        setNoMatch(true);
+        setVerdict({ kind: 'noMatch' });
         return;
       }
 
@@ -379,22 +446,22 @@ const LogsPage = (): ReactElement => {
         .then((result) => {
           if (controller.signal.aborted) return;
           if (result.line == null) {
-            setNoMatch(true);
+            setVerdict({ kind: 'noMatch' });
             return;
           }
-          setNoMatch(false);
-          setMatchLine(result.line);
+          setVerdict({ kind: 'hit', line: result.line, ordinal: result.ordinal });
           setFollow(false);
           revealLine(result.line, 'center', false);
         })
         .catch((cause: unknown) => {
           if (controller.signal.aborted) return;
-          setNoMatch(false);
-          setSearchError(
-            isApiError(cause) && cause.message !== ''
-              ? cause.message
-              : t('common.error.unexpected'),
-          );
+          setVerdict({
+            kind: 'error',
+            message:
+              isApiError(cause) && cause.message !== ''
+                ? cause.message
+                : t('common.error.unexpected'),
+          });
         })
         .finally(() => {
           if (searchAbortRef.current !== controller) return;
@@ -416,10 +483,7 @@ const LogsPage = (): ReactElement => {
   );
 
   const clearSearchVerdict = useCallback(() => {
-    setNoMatch(false);
-    setMatchLine(null);
-    setSearchError(null);
-    setHiddenLine(null);
+    setVerdict({ kind: 'none' });
   }, []);
 
   const handleGoto = useCallback(() => {
@@ -489,27 +553,23 @@ const LogsPage = (): ReactElement => {
     anchorRef.current = null;
     originRef.current = null;
     setFollow(true);
-    setNoMatch(false);
-    setMatchLine(null);
-    setSearchError(null);
-    setHiddenLine(null);
+    setVerdict({ kind: 'none' });
     return () => {
       searchAbortRef.current?.abort();
       locateAbortRef.current?.abort();
     };
   }, [selected]);
 
-  // ? Every verdict here was decided against a filter no longer in effect.
-  // ! The search is aborted too, not just the locate: it is scoped to the levels it was sent
-  // ! with, so a hit still in flight would land on a line this filter hides.
+  // ! Every verdict here was decided against a filter no longer in effect, a hit's ordinal
+  // ! included: it counts the matches one mask admits, so pairing it with a split re-derived
+  // ! from another reports two views as one number. The count itself is keyed without levels
+  // ! and survives. The search is aborted too, not just the locate — it is scoped to the levels
+  // ! it was sent with, so a hit still in flight would land on a line this filter hides.
   useEffect(() => {
     locateAbortRef.current?.abort();
     locateAbortRef.current = null;
     searchAbortRef.current?.abort();
-    setHiddenLine(null);
-    setMatchLine(null);
-    setNoMatch(false);
-    setSearchError(null);
+    setVerdict({ kind: 'none' });
   }, [levelsKey]);
 
   // ? Runs once the re-indexed count has landed, which is the first moment a position in the
@@ -543,9 +603,7 @@ const LogsPage = (): ReactElement => {
   useEffect(() => {
     if (cursorRef.current?.inclusive === false) cursorRef.current = null;
     searchAbortRef.current?.abort();
-    setNoMatch(false);
-    setMatchLine(null);
-    setSearchError(null);
+    setVerdict({ kind: 'none' });
   }, [query, useRegex, caseSensitive]);
 
   if (files.length === 0) {
@@ -561,28 +619,28 @@ const LogsPage = (): ReactElement => {
   }
 
   let searchVerdict: ReactNode = null;
-  if (searchError != null) {
+  if (verdict.kind === 'error') {
     searchVerdict = (
       <Badge variant="destructive" className="max-w-[16rem] shrink-0 truncate">
-        {searchError}
+        {verdict.message}
       </Badge>
     );
-  } else if (noMatch) {
+  } else if (verdict.kind === 'noMatch') {
     searchVerdict = (
       <Badge variant="destructive" className="shrink-0">
         {t('logs.search.noMatch')}
       </Badge>
     );
-  } else if (matchLine != null) {
+  } else if (verdict.kind === 'hit') {
     searchVerdict = (
       <Badge variant="outline" className="shrink-0 whitespace-nowrap">
-        {t('logs.search.matchAt', { line: (matchLine + 1).toLocaleString() })}
+        {hitLabel(t, verdict.line, verdict.ordinal, split, matches?.complete ?? false)}
       </Badge>
     );
-  } else if (hiddenLine != null) {
+  } else if (verdict.kind === 'hidden') {
     searchVerdict = (
       <Badge variant="outline" className="shrink-0 whitespace-nowrap">
-        {t('logs.filter.lineHidden', { line: (hiddenLine + 1).toLocaleString() })}
+        {t('logs.filter.lineHidden', { line: (verdict.line + 1).toLocaleString() })}
       </Badge>
     );
   }
@@ -751,11 +809,7 @@ const LogsPage = (): ReactElement => {
         <div className="flex items-center gap-2">
           <Input
             value={query}
-            onChange={(event) => {
-              setQuery(event.target.value);
-              setNoMatch(false);
-              setSearchError(null);
-            }}
+            onChange={(event) => setQuery(event.target.value)}
             onKeyDown={handleSearchKeyDown}
             placeholder={t('logs.field.searchPlaceholder')}
             aria-label={t('logs.field.search')}

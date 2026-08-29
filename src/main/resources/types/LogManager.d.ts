@@ -17,9 +17,12 @@ declare interface LogManager {
    */
   locate: (name: string, mask: number, line: number) => string | null;
   /**
-   * Matching line number among the lines `mask` admits, `-1` when there is no match, `-2` when the
-   * file is invalid or missing, `-3` when a regex ran past its time budget, `-4` when the file was
-   * rewritten mid-scan.
+   * The next match among the lines `mask` admits, with the whole-file count around it:
+   * `{"status":"ok","line":L,"ordinal":O,"total":T,"levels":[..],"scanned":S,"lines":N,
+   * "complete":B}`. `line` and `ordinal` are `null` when nothing matches, `ordinal` alone when
+   * the count has not reached the hit. `null` when the file is invalid or missing; a `status` of
+   * `aborted` when a regex ran past its time budget, or `stale` when the file was rewritten
+   * mid-scan.
    */
   search: (
     name: string,
@@ -29,7 +32,19 @@ declare interface LogManager {
     regex: boolean,
     caseSensitive: boolean,
     mask: number,
-  ) => number;
+  ) => string | null;
+  /**
+   * One bounded slice of the whole-file match count, as
+   * `{"status":"ok","total":T,"levels":[..],"scanned":S,"lines":N,"complete":B}`. Call again
+   * while `complete` is false. Takes no mask: `levels` splits every match by level, so the
+   * caller derives what its own filter shows and hides without the scan being invalidated.
+   */
+  matches: (
+    name: string,
+    query: string,
+    regex: boolean,
+    caseSensitive: boolean,
+  ) => string | null;
   download: (name: string) => import('@enonic-types/core').ByteSource | null;
 }
 

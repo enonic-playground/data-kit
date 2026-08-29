@@ -22,6 +22,8 @@ const SCAN_BUFFER_BYTES = 1024 * 1024;
 const SEARCH_BLOCK_LINES = 2048;
 const SEARCH_BLOCK_BYTES = 4 * 1024 * 1024;
 const MAX_READ_BYTES = 100 * 1024 * 1024;
+const MATCH_SLICE_MS = 750;
+const MAX_MATCH_SCANS = 4;
 const MAX_CACHED_INDEXES = 4;
 const HEAD_CAPACITY = 512;
 
@@ -80,6 +82,19 @@ type LogLocation = {
   visible: boolean;
 };
 
+type LogMatchCount = {
+  total: number;
+  levels: number[];
+  scanned: number;
+  lines: number;
+  complete: boolean;
+};
+
+type LogSearchResult = LogMatchCount & {
+  line: number | null;
+  ordinal: number | null;
+};
+
 //
 // * Line Index
 //
@@ -99,6 +114,16 @@ type LineIndex = {
   filteredCount: number;
   filteredScanned: number;
   maskCached: number;
+  matchScans: MatchScan[];
+};
+
+// One query's scan of one file, most-recent first. Not an MRU of one: two readers counting
+// different queries on the same file would evict each other every slice and neither would finish.
+type MatchScan = {
+  key: string;
+  lines: Int32Array;
+  count: number;
+  scanned: number;
 };
 
 const indexes = new Map<string, LineIndex>();
@@ -119,6 +144,7 @@ function createIndex(): LineIndex {
     filteredCount: 0,
     filteredScanned: 0,
     maskCached: -1,
+    matchScans: [],
   };
 }
 
@@ -358,6 +384,112 @@ function searchIndex(
     end = start - 1;
   }
   return null;
+}
+
+// The level mask is deliberately not part of the key: matches are physical line numbers and a
+// filter is applied when the index is read, so toggling a level never discards a scan.
+function matchKeyOf(query: string, regex: boolean, caseSensitive: boolean): string {
+  return `${regex ? 'r' : 'p'}${caseSensitive ? 's' : 'i'}\u0000${query}`;
+}
+
+// Lines the match scan may cover: every line the file has terminated. A trailing line still
+// being written is left out, because the bytes still to come can change what it matches.
+function matchLimit(index: LineIndex): number {
+  return index.expectLineStart ? index.count : Math.max(0, index.count - 1);
+}
+
+// The scan for one key, promoted to most-recent, or null when the file already holds as many
+// unfinished scans as it will. Only a finished scan is evicted: dropping one still in progress
+// makes a set of readers restart each other from line 0 and never reach a total.
+function openScan(index: LineIndex, key: string): MatchScan | null {
+  const existing = index.matchScans.find((scan) => scan.key === key);
+  if (existing != null) {
+    index.matchScans = [existing, ...index.matchScans.filter((scan) => scan !== existing)];
+    return existing;
+  }
+
+  if (index.matchScans.length >= MAX_MATCH_SCANS) {
+    const limit = matchLimit(index);
+    const done = index.matchScans.findLast((scan) => scan.scanned >= limit);
+    if (done == null) return null;
+    index.matchScans = index.matchScans.filter((scan) => scan !== done);
+  }
+
+  const fresh: MatchScan = { key, lines: new Int32Array(0), count: 0, scanned: 0 };
+  index.matchScans = [fresh, ...index.matchScans];
+  return fresh;
+}
+
+function findScan(index: LineIndex, key: string): MatchScan | undefined {
+  return index.matchScans.find((scan) => scan.key === key);
+}
+
+// Extends one key's scan by up to MATCH_SLICE_MS of scanning, and stops. The client re-calls
+// while `complete` is false, so the request loop is the scheduler.
+function matchSlice(file: string, index: LineIndex, matcher: Matcher, key: string): boolean {
+  const scan = openScan(index, key);
+  if (scan == null) return false;
+
+  const limit = matchLimit(index);
+  const deadline = Date.now() + MATCH_SLICE_MS;
+
+  while (scan.scanned < limit) {
+    const cursor = scan.scanned;
+    const lines = readLines(file, index, cursor, blockLines(index, cursor));
+    if (lines.length === 0) break;
+
+    for (let i = 0; i < lines.length; i += 1) {
+      if (cursor + i >= limit) break;
+      if (!matcher(lines[i])) continue;
+      if (scan.count === scan.lines.length) {
+        const grown = new Int32Array(scan.lines.length === 0 ? 1024 : scan.lines.length * 2);
+        grown.set(scan.lines);
+        scan.lines = grown;
+      }
+      scan.lines[scan.count] = cursor + i;
+      scan.count += 1;
+    }
+
+    scan.scanned = Math.min(cursor + lines.length, limit);
+
+    // Checked after a block, as LogManager.matchSlice does: a deadline shorter than one block
+    // would hand back having scanned nothing, and the client re-calls until the scan is done.
+    if (Date.now() >= deadline) break;
+  }
+
+  return true;
+}
+
+function matchProgress(index: LineIndex, key: string): LogMatchCount {
+  const levels = [0, 0, 0, 0, 0, 0];
+  const scan = findScan(index, key);
+  if (scan != null) {
+    for (let i = 0; i < scan.count; i += 1) levels[index.levels[scan.lines[i]]] += 1;
+  }
+
+  return {
+    total: scan?.count ?? 0,
+    levels,
+    scanned: scan?.scanned ?? 0,
+    lines: index.count,
+    complete: scan != null && scan.scanned >= matchLimit(index),
+  };
+}
+
+// Zero-based position of `line` among the matches `mask` admits, or null when the scan has not
+// reached it. A walk rather than a binary search: the mask hides an arbitrary subset.
+function ordinalOf(index: LineIndex, key: string, mask: number, line: number): number | null {
+  const scan = findScan(index, key);
+  if (scan == null || line >= scan.scanned) return null;
+
+  const filtering = isFiltering(mask);
+  let ordinal = 0;
+  for (let i = 0; i < scan.count; i += 1) {
+    const match = scan.lines[i];
+    if (match >= line) break;
+    if (!filtering || (mask & (1 << index.levels[match])) !== 0) ordinal += 1;
+  }
+  return ordinal;
 }
 
 //
@@ -636,21 +768,42 @@ function parseLevels(value: string | null): number {
   return mask;
 }
 
+// What every scanning action needs from the request, or null once it has answered it.
+type Scan = { matcher: Matcher; indexKey: string };
+
+function requireScan(res: ServerResponse, params: URLSearchParams): Scan | null {
+  const query = params.get('query');
+  if (query == null || query === '') {
+    sendError(res, 400, 'query is required', 'VALIDATION_ERROR');
+    return null;
+  }
+  if (query.length > MAX_QUERY_LENGTH) {
+    sendError(res, 400, `query exceeds ${MAX_QUERY_LENGTH} characters`, 'VALIDATION_ERROR');
+    return null;
+  }
+
+  const regex = params.get('regex') === 'true';
+  const matchCase = params.get('caseSensitive') === 'true';
+
+  try {
+    return {
+      matcher: createMatcher(query, regex, matchCase),
+      indexKey: matchKeyOf(query, regex, matchCase),
+    };
+  } catch (e) {
+    sendError(res, 400, `Invalid regular expression: ${String(e)}`, 'VALIDATION_ERROR');
+    return null;
+  }
+}
+
 function handleSearch(
   res: ServerResponse,
   resolved: Resolved,
   params: URLSearchParams,
   mask: number,
 ): void {
-  const query = params.get('query');
-  if (query == null || query === '') {
-    sendError(res, 400, 'query is required', 'VALIDATION_ERROR');
-    return;
-  }
-  if (query.length > MAX_QUERY_LENGTH) {
-    sendError(res, 400, `query exceeds ${MAX_QUERY_LENGTH} characters`, 'VALIDATION_ERROR');
-    return;
-  }
+  const scan = requireScan(res, params);
+  if (scan == null) return;
 
   const direction = params.get('direction') ?? 'forward';
   if (direction !== 'forward' && direction !== 'backward') {
@@ -662,19 +815,26 @@ function handleSearch(
   const index = getIndex(resolved.file, resolved.size, resolved.mtimeMs);
   const from = Math.max(0, toInt(params.get('from'), 0));
 
-  let matcher: Matcher;
-  try {
-    matcher = createMatcher(
-      query,
-      params.get('regex') === 'true',
-      params.get('caseSensitive') === 'true',
-    );
-  } catch (e) {
-    sendError(res, 400, `Invalid regular expression: ${String(e)}`, 'VALIDATION_ERROR');
+  const line = searchIndex(resolved.file, index, scan.matcher, from, forward, mask);
+
+  sendData(res, {
+    ...matchProgress(index, scan.indexKey),
+    line,
+    ordinal: line == null ? null : ordinalOf(index, scan.indexKey, mask, line),
+  } satisfies LogSearchResult);
+}
+
+function handleMatches(res: ServerResponse, resolved: Resolved, params: URLSearchParams): void {
+  const scan = requireScan(res, params);
+  if (scan == null) return;
+
+  const index = getIndex(resolved.file, resolved.size, resolved.mtimeMs);
+  if (!matchSlice(resolved.file, index, scan.matcher, scan.indexKey)) {
+    sendError(res, 503, 'Too many searches running; try again', 'SEARCH_BUSY');
     return;
   }
 
-  sendData(res, { line: searchIndex(resolved.file, index, matcher, from, forward, mask) });
+  sendData(res, matchProgress(index, scan.indexKey));
 }
 
 function handleDownload(res: ServerResponse, resolved: Resolved): void {
@@ -719,6 +879,10 @@ function handleLogs(res: ServerResponse, params: URLSearchParams): void {
   }
   if (action === 'search') {
     handleSearch(res, resolved, params, mask);
+    return;
+  }
+  if (action === 'matches') {
+    handleMatches(res, resolved, params);
     return;
   }
   if (action === 'locate') {

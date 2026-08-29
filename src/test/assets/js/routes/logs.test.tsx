@@ -104,6 +104,31 @@ function visibleLines(params: Params): number[] {
   return LINE_LEVELS.flatMap((level, index) => (names.includes(level) ? [index] : []));
 }
 
+// ! Level codes, not positions in LINE_LEVELS — the wire format indexes `levels` by the code in
+// ! `LogManager.kt`, where 0 is a continuation belonging to the entry above it.
+const LEVEL_CODES: Record<string, number> = { TRACE: 1, DEBUG: 2, INFO: 3, WARN: 4, ERROR: 5 };
+
+/** Every match in the file, filter or no filter — the count is built without a level mask. */
+function allMatches(query: string): number[] {
+  if (query === '') return [];
+  return LOG_LINES.flatMap((line, index) => (line.includes(query) ? [index] : []));
+}
+
+/** The whole-file count fields both scanning actions carry. The fixture is small enough to
+ *  finish in one slice, so `complete` is always true. */
+function matchProgress(query: string): Record<string, unknown> {
+  const matches = allMatches(query);
+  const levels = [0, 0, 0, 0, 0, 0];
+  for (const index of matches) levels[LEVEL_CODES[LINE_LEVELS[index]]] += 1;
+  return {
+    total: matches.length,
+    levels,
+    scanned: LOG_LINES.length,
+    lines: LOG_LINES.length,
+    complete: true,
+  };
+}
+
 function respond(params: Params): unknown {
   if (params.action === 'info') {
     const info: Record<string, unknown> = {
@@ -126,16 +151,25 @@ function respond(params: Params): unknown {
       visible: false,
     };
   }
+  if (params.action === 'matches') {
+    return matchProgress(params.query ?? '');
+  }
   if (params.action === 'search') {
     const from = Number.parseInt(params.from ?? '0', 10);
     const query = params.query ?? '';
     // ? Scoped to the filter, like the server: a hit it hides is not a place the reader can go.
-    const hits = visibleLines(params).filter((index) => LOG_LINES[index].includes(query));
+    const visible = visibleLines(params);
+    const hits = visible.filter((index) => LOG_LINES[index].includes(query));
     const found =
       params.direction === 'backward'
         ? hits.findLast((index) => index <= from)
         : hits.find((index) => index >= from);
-    return { line: found ?? null };
+    // ? Matches the filter admits that sit above the hit — the same walk the server does.
+    const ordinal =
+      found == null
+        ? null
+        : allMatches(query).filter((index) => index < found && visible.includes(index)).length;
+    return { ...matchProgress(query), line: found ?? null, ordinal };
   }
   if (params.file != null) {
     const visible = visibleLines(params);
@@ -243,6 +277,13 @@ function searchCalls(): Params[] {
     .mocked(apiFetch)
     .mock.calls.map((call) => (call[1] as { params?: Params })?.params ?? {})
     .filter((params) => params.action === 'search');
+}
+
+function matchCalls(): Params[] {
+  return vi
+    .mocked(apiFetch)
+    .mock.calls.map((call) => (call[1] as { params?: Params })?.params ?? {})
+    .filter((params) => params.action === 'matches');
 }
 
 function getLogsPage(): HTMLElement {
@@ -913,7 +954,7 @@ describe('LogsPage', () => {
     });
   });
 
-  it('should report the line a match was found on', async () => {
+  it('should report which match of how many the reader is on', async () => {
     const { user } = renderRoute({ initialLocation: '/logs' });
 
     await waitFor(() => {
@@ -921,11 +962,39 @@ describe('LogsPage', () => {
     });
 
     const page = within(getLogsPage());
-    await user.type(page.getByLabelText('Search in log file'), 'ScriptExecutor');
+    await user.type(page.getByLabelText('Search in log file'), 'com.enonic.xp');
     await user.click(page.getByLabelText('Next match'));
 
     await waitFor(() => {
-      expect(page.getByText('Match at line 2')).toBeInTheDocument();
+      expect(page.getByText('1 of 3')).toBeInTheDocument();
+    });
+
+    await user.click(page.getByLabelText('Next match'));
+
+    await waitFor(() => {
+      expect(page.getByText('2 of 3')).toBeInTheDocument();
+    });
+  });
+
+  it('should count the matches the filter is holding back', async () => {
+    const { user } = renderRoute({ initialLocation: '/logs' });
+
+    await waitFor(() => {
+      expect(screen.getByText('3 lines')).toBeInTheDocument();
+    });
+
+    await hideLevels(user, 'INFO');
+    await waitFor(() => {
+      expect(screen.getByText('2 of 3 lines')).toBeInTheDocument();
+    });
+
+    const page = within(getLogsPage());
+    await user.type(page.getByLabelText('Search in log file'), 'com.enonic.xp');
+    await user.click(page.getByLabelText('Next match'));
+
+    // ? Three matches in the file, one of them on the INFO line the filter now hides.
+    await waitFor(() => {
+      expect(page.getByText('1 of 2 (+1 hidden by filter)')).toBeInTheDocument();
     });
   });
 
@@ -1074,7 +1143,7 @@ describe('LogsPage', () => {
     await user.click(page.getByLabelText('Next match'));
 
     await waitFor(() => {
-      expect(page.getByText('Match at line 2')).toBeInTheDocument();
+      expect(page.getByText('1 of 1')).toBeInTheDocument();
     });
   });
 
@@ -1336,31 +1405,54 @@ describe('LogsPage', () => {
     expect(searchCalls()[1].from).toBe('1');
   });
 
-  it('should drop the match verdict when the filter it was decided under changes', async () => {
+  it('should drop an ordinal decided under a filter the reader has changed', async () => {
     const { user } = renderRoute({ initialLocation: '/logs' });
 
     await waitFor(() => {
       expect(screen.getByText('3 lines')).toBeInTheDocument();
     });
 
-    await hideLevels(user, 'INFO');
+    const page = within(getLogsPage());
+    await user.type(page.getByLabelText('Search in log file'), 'com.enonic.xp');
+    await user.click(page.getByLabelText('Next match'));
     await waitFor(() => {
-      expect(screen.getByText('2 of 3 lines')).toBeInTheDocument();
+      expect(page.getByText('1 of 3')).toBeInTheDocument();
+    });
+
+    const before = matchCalls().length;
+    await hideLevels(user, 'INFO');
+
+    // ! The hit sat on the INFO line the filter now hides, and its ordinal counted matches in a
+    // ! view that no longer exists. Keeping it would pair it with a split read off the new view.
+    await waitFor(() => {
+      expect(page.queryByText('1 of 3')).not.toBeInTheDocument();
+    });
+    expect(page.queryByText(/of 2/)).not.toBeInTheDocument();
+
+    // ? The count itself is keyed without levels, so the toggle costs no rescan.
+    expect(matchCalls()).toHaveLength(before);
+  });
+
+  it('should not count anything until a search is actually run', async () => {
+    const { user } = renderRoute({ initialLocation: '/logs' });
+
+    await waitFor(() => {
+      expect(screen.getByText('3 lines')).toBeInTheDocument();
     });
 
     const page = within(getLogsPage());
-    await user.type(page.getByLabelText('Search in log file'), 'ScriptRunner');
+    await user.type(page.getByLabelText('Search in log file'), 'com.enonic.xp');
+
+    // ! A count reads the whole file. Firing one per keystroke turns a 13-character query into
+    // ! 13 whole-file scans, each holding a server slice the reader has already moved past.
+    expect(matchCalls()).toHaveLength(0);
+
     await user.click(page.getByLabelText('Next match'));
-    await waitFor(() => {
-      expect(page.getByText('Match at line 3')).toBeInTheDocument();
-    });
 
-    await hideLevels(user, 'WARN');
-
-    // ! The verdict was decided against the old view; the new one has to be searched again.
     await waitFor(() => {
-      expect(page.queryByText('Match at line 3')).not.toBeInTheDocument();
+      expect(matchCalls().length).toBeGreaterThan(0);
     });
+    expect(matchCalls().every((params) => params.query === 'com.enonic.xp')).toBe(true);
   });
 
   it('should discard a search that was sent under a filter the reader has left', async () => {

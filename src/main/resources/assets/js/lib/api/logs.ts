@@ -60,8 +60,29 @@ export type LogLocation = {
 
 export type LogSearchDirection = 'forward' | 'backward';
 
-export type LogSearchResult = {
+/**
+ * How far the whole-file count for one query has got. `levels` is every match found so far split
+ * by level code, so the visible and hidden halves of a filtered view are a sum over it rather
+ * than a second request — which is why the count itself takes no levels.
+ */
+export type LogMatchCount = {
+  total: number;
+  levels: number[];
+  scanned: number;
+  lines: number;
+  complete: boolean;
+};
+
+export type LogSearchResult = LogMatchCount & {
   line: number | null;
+  /** Zero-based position of `line` among the matches the active filter admits. */
+  ordinal: number | null;
+};
+
+/** Matches the active filter shows, and matches it hides. */
+export type MatchSplit = {
+  visible: number;
+  hidden: number;
 };
 
 export type LogSearchParams = {
@@ -76,6 +97,31 @@ export type LogSearchParams = {
   signal?: AbortSignal;
 };
 
+/** What a reader committed to when they ran a search, as opposed to what they are still typing. */
+export type SearchCriteria = {
+  query: string;
+  regex: boolean;
+  caseSensitive: boolean;
+};
+
+const EMPTY_CRITERIA: SearchCriteria = { query: '', regex: false, caseSensitive: false };
+
+export type LogMatchParams = {
+  file: string;
+  query: string;
+  regex?: boolean;
+  caseSensitive?: boolean;
+  signal?: AbortSignal;
+};
+
+// ! Index into `LogMatchCount.levels` is the level code in `LogManager.kt`, which sits one past
+// ! the position in `LOG_LEVELS` — code 0 is `unknown`, a continuation with no level of its own.
+const LEVEL_CODE_OFFSET = 1;
+
+// ? Long enough not to hammer the API between slices, short enough that a count of a large file
+// ? still reads as one continuous operation rather than a series of steps.
+const MATCH_SLICE_GAP_MS = 100;
+
 /**
  * Canonical `levels` query value, or `undefined` when the selection is not a filter. Selecting
  * none is the same view as selecting all, so both mean "no filter" rather than "show nothing".
@@ -84,6 +130,22 @@ export function levelsParam(levels: readonly LogLevel[]): string | undefined {
   const selected = LOG_LEVELS.filter((level) => levels.includes(level));
   if (selected.length === 0 || selected.length === LOG_LEVELS.length) return undefined;
   return selected.join(',');
+}
+
+/** Splits `counts` into the matches `levels` admits and the matches it hides. */
+export function matchSplit(counts: number[], levels: readonly LogLevel[]): MatchSplit {
+  const total = counts.reduce((sum, count) => sum + count, 0);
+
+  // ? An unfiltered view shows every match, including the `unknown` continuations that no level
+  // ? names — so it cannot be reached by summing the levels that are selected.
+  if (levelsParam(levels) == null) return { visible: total, hidden: 0 };
+
+  let visible = 0;
+  LOG_LEVELS.forEach((level, index) => {
+    if (levels.includes(level)) visible += counts[index + LEVEL_CODE_OFFSET] ?? 0;
+  });
+
+  return { visible, hidden: total - visible };
 }
 
 function withLevels(
@@ -167,6 +229,26 @@ export function searchLog({
   });
 }
 
+export function fetchLogMatches({
+  file,
+  query,
+  regex = false,
+  caseSensitive = false,
+  signal,
+}: LogMatchParams): Promise<LogMatchCount> {
+  const { apiUris } = getConfig();
+  return apiFetch<LogMatchCount>(apiUris.logs, {
+    params: {
+      file,
+      action: 'matches',
+      query,
+      regex: String(regex),
+      caseSensitive: String(caseSensitive),
+    },
+    signal,
+  });
+}
+
 export function logDownloadUrl(file: string): string {
   const { apiUris } = getConfig();
   return buildUrl(apiUris.logs, { file, action: 'download' });
@@ -177,6 +259,35 @@ export function logFilesQueryOptions(refetchInterval?: number) {
     queryKey: ['logs', 'files'],
     queryFn: ({ signal }) => fetchLogFiles(signal),
     refetchInterval,
+  });
+}
+
+/**
+ * The whole-file match count for the criteria a reader has committed to — `null` until they run a
+ * search, because a count is a scan of the entire file and the query being typed is not one they
+ * have asked for yet.
+ *
+ * The key holds no levels, mirroring the server: a filter is applied to the finished counts, so
+ * toggling one must not discard a scan in progress.
+ */
+export function logMatchesQueryOptions(file: string | undefined, criteria: SearchCriteria | null) {
+  const name = file ?? '';
+  const { query, regex, caseSensitive } = criteria ?? EMPTY_CRITERIA;
+
+  return queryOptions({
+    queryKey: ['logs', 'matches', name, query, regex, caseSensitive],
+    queryFn: ({ signal }) => fetchLogMatches({ file: name, query, regex, caseSensitive, signal }),
+    enabled: name !== '' && query !== '',
+    // ? The request loop is the scheduler: each call extends the scan by one slice, and a
+    // ? slice is bounded server side, so this is never an unbounded hold on the file.
+    // ! A slice that scanned nothing means the scan was evicted rather than advanced, and
+    // ! polling through that never converges — stop with a partial count instead.
+    refetchInterval: (cached) => {
+      const data = cached.state.data;
+      if (data == null || data.complete || data.scanned === 0) return false;
+      return MATCH_SLICE_GAP_MS;
+    },
+    retry: false,
   });
 }
 
