@@ -26,6 +26,7 @@ import {
   logLineClass,
   parseLogLine,
 } from './log-line';
+import { useLogSelection } from './use-log-selection';
 
 const LOG_VIEWER_NAME = 'LogViewer';
 const LOG_ROW_NAME = 'LogRow';
@@ -293,6 +294,7 @@ export const LogViewer = ({
   // ? Held open between the jump to the end and the layout that jump was aiming at. See the
   // ? resize effect below for why the two are not the same moment.
   const pinnedRef = useRef(false);
+  const measuredRef = useRef({ total, size });
 
   fileRef.current = file;
   levelsRef.current = levels;
@@ -319,6 +321,9 @@ export const LogViewer = ({
   const version = useSyncExternalStore(cache.subscribe, cache.getVersion, cache.getVersion);
 
   const [minWidth, setMinWidth] = useState(0);
+  // ? Bumped when the file shrinks, so a held selection is dropped rather than re-read against
+  // ? indices that now mean different lines.
+  const [generation, setGeneration] = useState(0);
 
   const virtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
     count: total,
@@ -419,6 +424,21 @@ export const LogViewer = ({
     return highlight.global ? highlight : new RegExp(highlight.source, `${highlight.flags}g`);
   }, [highlight]);
 
+  const fetchSelectionLines = useCallback(
+    (from: number, count: number, signal: AbortSignal): Promise<string[]> =>
+      fetchLogLines(fileRef.current, from, count, levelsRef.current, signal).then(
+        (result) => result.lines,
+      ),
+    [],
+  );
+
+  const { onCopy } = useLogSelection({
+    rowsRef,
+    getLine: cache.getLine,
+    fetchLines: fetchSelectionLines,
+    resetKey: `${file}\u0000${levelsKey}\u0000${generation}`,
+  });
+
   useImperativeHandle(
     ref,
     () => ({
@@ -484,6 +504,15 @@ export const LogViewer = ({
     cache.setTotal(total, size);
   }, [cache, total, size]);
 
+  // ? A file that shrank was rotated or truncated, which is what `LineCache` treats as
+  // ? invalidating everything — row indices no longer point at the lines they did. Growth is
+  // ? just an append and leaves them alone.
+  useEffect(() => {
+    const previous = measuredRef.current;
+    measuredRef.current = { total, size };
+    if (total < previous.total || size < previous.size) setGeneration((value) => value + 1);
+  }, [total, size]);
+
   // ? Wrap toggle invalidates every measured row height.
   useEffect(() => {
     virtualizerRef.current.measure();
@@ -537,6 +566,7 @@ export const LogViewer = ({
       onWheel={handleGesture}
       onPointerDown={handleGesture}
       onKeyDown={handleGesture}
+      onCopy={onCopy}
       className={containerClass}
     >
       <div
