@@ -4,6 +4,7 @@ import { get as getRepo } from '/lib/xp/repo';
 import type { Request, Response } from '@enonic-types/core';
 
 import { errorResponse, getParam, jsonResponse, requireAdmin } from '../../lib/api';
+import { type NodeImage, resolveNodeImage } from '../../lib/node-image';
 
 type NodeDto = {
   _id: string;
@@ -12,6 +13,8 @@ type NodeDto = {
   hasChildren: boolean;
   _nodeType: string;
   _ts: string;
+  _versionKey: string;
+  image?: NodeImage;
 };
 
 type NodesResult = {
@@ -41,6 +44,7 @@ function getNodeList(req: Request, repoId: string, branch: string): Response {
   const start = parseInt(getParam(req, 'start') || '0', 10);
   const count = parseInt(getParam(req, 'count') || String(DEFAULT_COUNT), 10);
   const sort = getParam(req, 'sort') || '_name ASC';
+  const withImages = getParam(req, 'images') === 'true';
 
   try {
     const repo = connect({ repoId, branch });
@@ -79,6 +83,8 @@ function getNodeList(req: Request, repoId: string, branch: string): Response {
         hasChildren: children.total > 0,
         _nodeType: node._nodeType,
         _ts: node._ts,
+        _versionKey: node._versionKey,
+        image: withImages ? resolveNodeImage(repo, node) : undefined,
       };
     });
 

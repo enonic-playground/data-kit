@@ -30,14 +30,15 @@ import themeGithubDarkDefault from 'shiki/dist/themes/github-dark-default.mjs';
 import themeGithubLightDefault from 'shiki/dist/themes/github-light-default.mjs';
 import { createJavaScriptRegexEngine } from 'shiki/engine/javascript';
 
-import { buildBinaryDownloadUrl } from '../lib/api/binary';
+import { buildBinaryDownloadUrl, buildBinaryPreviewUrl } from '../lib/api/binary';
 import { branchesQueryOptions } from '../lib/api/branches';
 import {
   type AccessControlEntry,
-  type AttachmentInfo,
   type NodeDetail,
   type NodeDetailParams,
+  type NodeImageDetail,
   nodeDetailQueryOptions,
+  nodeImageQueryOptions,
   useCreateNode,
   useDeleteNode,
   useDuplicateNode,
@@ -116,11 +117,11 @@ const SYSTEM_KEY_PREFIX = '_';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function detectValueType(value: unknown, attachments: Record<string, AttachmentInfo>): string {
+function detectValueType(value: unknown, binaryReference: string | undefined): string {
   if (value == null) return 'null';
   if (Array.isArray(value)) return 'array';
   if (typeof value === 'string') {
-    if (attachments[value] != null) return 'BinaryReference';
+    if (value === binaryReference) return 'BinaryReference';
     if (UUID_REGEX.test(value)) return 'Reference';
   }
   return typeof value;
@@ -162,13 +163,14 @@ type PropertyEntry = {
   type: string;
   value: string;
   rawValue: unknown;
-  binaryInfo?: AttachmentInfo;
+  binaryInfo?: NodeImageDetail;
 };
 
 type PropertiesTabProps = {
   node: NodeDetail;
   repoId: string;
   branch: string;
+  image?: NodeImageDetail;
   onNavigateToNode?: (nodeId: string) => void;
 };
 
@@ -178,29 +180,29 @@ const PropertiesTab = ({
   node,
   repoId,
   branch,
+  image,
   onNavigateToNode,
 }: PropertiesTabProps): ReactElement => {
   const { t } = useTranslation();
 
   const properties = useMemo<PropertyEntry[]>(() => {
-    const attachments = node._attachments ?? {};
     const entries: PropertyEntry[] = [];
     const keys = Object.keys(node);
     for (let i = 0; i < keys.length; i++) {
       const key = keys[i];
       if (key.startsWith(SYSTEM_KEY_PREFIX)) continue;
       const value = node[key];
-      const type = detectValueType(value, attachments);
+      const type = detectValueType(value, image?.binaryReference);
       entries.push({
         name: key,
         type,
         value: formatValue(value),
         rawValue: value,
-        binaryInfo: type === 'BinaryReference' ? attachments[value as string] : undefined,
+        binaryInfo: type === 'BinaryReference' ? image : undefined,
       });
     }
     return entries;
-  }, [node]);
+  }, [node, image]);
 
   if (properties.length === 0) {
     return (
@@ -973,6 +975,47 @@ const PanelActions = ({ node, repoId, branch, onNodeMutated }: PanelActionsProps
 };
 
 //
+// * NodeImagePreview
+//
+
+const NODE_IMAGE_PREVIEW_NAME = 'NodeImagePreview';
+
+const NodeImagePreview = ({
+  node,
+  repoId,
+  branch,
+  image,
+}: {
+  node: NodeDetail;
+  repoId: string;
+  branch: string;
+  image?: NodeImageDetail;
+}): ReactElement | null => {
+  if (image == null) return null;
+
+  return (
+    <div
+      data-component={NODE_IMAGE_PREVIEW_NAME}
+      className="border-border bg-muted shrink-0 border-b p-2"
+    >
+      <img
+        src={buildBinaryPreviewUrl({
+          repoId,
+          branch,
+          key: node._id,
+          binaryReference: image.binaryReference,
+          versionKey: node._versionKey,
+        })}
+        alt={node._name}
+        className="max-h-60 w-full object-contain"
+      />
+    </div>
+  );
+};
+
+NodeImagePreview.displayName = NODE_IMAGE_PREVIEW_NAME;
+
+//
 // * NodeDetailContent
 //
 
@@ -991,6 +1034,10 @@ const NodeDetailContent = ({
 }): ReactElement => {
   const { t } = useTranslation();
   const { data: node, isLoading, error } = useQuery(nodeDetailQueryOptions(params));
+  const { data: image } = useQuery({
+    ...nodeImageQueryOptions({ ...params, versionKey: node?._versionKey ?? '' }),
+    enabled: node?._versionKey != null,
+  });
   const versionsInfinite = useInfiniteQuery(
     versionsInfiniteQueryOptions({
       repoId: params.repoId,
@@ -1053,6 +1100,13 @@ const NodeDetailContent = ({
         </div>
       </div>
 
+      <NodeImagePreview
+        node={node}
+        repoId={params.repoId}
+        branch={params.branch}
+        image={image ?? undefined}
+      />
+
       {/* Tabs */}
       <Tabs defaultValue="properties" className="flex flex-1 flex-col overflow-hidden">
         <TabsList className="mx-4 mt-2 w-auto">
@@ -1104,6 +1158,7 @@ const NodeDetailContent = ({
               node={node}
               repoId={params.repoId}
               branch={params.branch}
+              image={image ?? undefined}
               onNavigateToNode={onNavigateToNode}
             />
           </TabsContent>
