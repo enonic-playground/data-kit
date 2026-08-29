@@ -6,6 +6,11 @@ vi.mock('/lib/xp/auth', () => ({
   hasRole: vi.fn(() => true),
 }));
 
+vi.mock('/lib/xp/io', () => ({
+  getMimeType: vi.fn(),
+  getSize: vi.fn(),
+}));
+
 vi.mock('/lib/xp/node', () => ({
   connect: vi.fn(),
 }));
@@ -15,6 +20,7 @@ vi.mock('/lib/xp/repo', () => ({
 }));
 
 import { hasRole } from '/lib/xp/auth';
+import { getMimeType, getSize } from '/lib/xp/io';
 import { connect } from '/lib/xp/node';
 import { get as getRepo } from '/lib/xp/repo';
 
@@ -43,9 +49,28 @@ function createMockConnection(overrides: Record<string, unknown> = {}) {
   };
 }
 
+
+const mockedGetMimeType = vi.mocked(getMimeType);
+const mockedGetSize = vi.mocked(getSize);
+
+const MIME_BY_EXTENSION: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  pdf: 'application/pdf',
+  txt: 'text/plain',
+};
+
+function byExtension(name: string): string {
+  const dot = name.lastIndexOf('.');
+  if (dot < 0) return 'application/octet-stream';
+  return MIME_BY_EXTENSION[name.slice(dot + 1).toLowerCase()] ?? 'application/octet-stream';
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   mockedHasRole.mockReturnValue(true);
+  mockedGetMimeType.mockImplementation(byExtension);
+  mockedGetSize.mockReturnValue(2048);
 });
 
 describe('GET /nodes', () => {
@@ -103,9 +128,102 @@ describe('GET /nodes', () => {
       hasChildren: true,
       _nodeType: 'default',
       _ts: '2026-01-01T00:00:00Z',
+      _versionKey: 'v1',
     });
     expect(body.data.nodes[1].hasChildren).toBe(false);
     expect(mockedConnect).toHaveBeenCalledWith({ repoId: 'my-repo', branch: 'master' });
+  });
+
+  test('resolves a verified image binary for the grid view', () => {
+    const mockConn = createMockConnection({
+      query: vi.fn().mockReturnValue({
+        total: 1,
+        count: 1,
+        hits: [{ id: 'id-1', score: 1 }],
+      }),
+      get: vi.fn().mockReturnValue([
+        {
+          _id: 'id-1',
+          _name: 'photo',
+          _path: '/photo',
+          _nodeType: 'default',
+          _ts: '2026-01-01T00:00:00Z',
+          _versionKey: 'v1',
+          media: 'photo.png',
+        },
+      ]),
+      findChildren: vi.fn().mockReturnValue({ total: 0, count: 0, hits: [] }),
+      getBinary: vi.fn().mockReturnValue({ _bytes: true }),
+    });
+    mockedConnect.mockReturnValue(mockConn as never);
+
+    const response = get({
+      params: { repoId: 'my-repo', branch: 'master', images: 'true' },
+    } as unknown as Request);
+    const body = parseBody(response);
+
+    expect(response.status).toBe(200);
+    expect(body.data.nodes[0]._versionKey).toBe('v1');
+    expect(body.data.nodes[0].image).toEqual({
+      binaryReference: 'photo.png',
+      mimeType: 'image/png',
+    });
+  });
+
+  test('skips image resolution entirely unless the caller asks for it', () => {
+    const getBinary = vi.fn().mockReturnValue({ _bytes: true });
+    const mockConn = createMockConnection({
+      query: vi.fn().mockReturnValue({ total: 1, count: 1, hits: [{ id: 'id-1', score: 1 }] }),
+      get: vi.fn().mockReturnValue([
+        {
+          _id: 'id-1',
+          _name: 'photo',
+          _path: '/photo',
+          _nodeType: 'default',
+          _ts: '2026-01-01T00:00:00Z',
+          _versionKey: 'v1',
+          media: 'photo.png',
+        },
+      ]),
+      findChildren: vi.fn().mockReturnValue({ total: 0, count: 0, hits: [] }),
+      getBinary,
+    });
+    mockedConnect.mockReturnValue(mockConn as never);
+
+    const response = get({
+      params: { repoId: 'my-repo', branch: 'master' },
+    } as unknown as Request);
+
+    expect(parseBody(response).data.nodes[0].image).toBeUndefined();
+    expect(getBinary).not.toHaveBeenCalled();
+  });
+
+  test('omits image when the candidate is not a real binary', () => {
+    const mockConn = createMockConnection({
+      query: vi.fn().mockReturnValue({ total: 1, count: 1, hits: [{ id: 'id-1', score: 1 }] }),
+      get: vi.fn().mockReturnValue([
+        {
+          _id: 'id-1',
+          _name: 'note',
+          _path: '/note',
+          _nodeType: 'default',
+          _ts: '2026-01-01T00:00:00Z',
+          _versionKey: 'v1',
+          caption: 'see diagram.png',
+        },
+      ]),
+      findChildren: vi.fn().mockReturnValue({ total: 0, count: 0, hits: [] }),
+      getBinary: vi.fn(() => {
+        throw new Error('no such binary');
+      }),
+    });
+    mockedConnect.mockReturnValue(mockConn as never);
+
+    const response = get({
+      params: { repoId: 'my-repo', branch: 'master', images: 'true' },
+    } as unknown as Request);
+
+    expect(parseBody(response).data.nodes[0].image).toBeUndefined();
   });
 
   test('uses default parentPath / when omitted', () => {

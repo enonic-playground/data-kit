@@ -3,6 +3,15 @@ import { queryOptions, useMutation, useQueryClient } from '@tanstack/react-query
 import { getConfig } from '../config';
 import { apiFetch } from './client';
 
+export type NodeImage = {
+  binaryReference: string;
+  mimeType: string;
+};
+
+export type NodeImageDetail = NodeImage & {
+  size: number;
+};
+
 export type NodeEntry = {
   _id: string;
   _name: string;
@@ -10,6 +19,8 @@ export type NodeEntry = {
   hasChildren: boolean;
   _nodeType: string;
   _ts: string;
+  _versionKey: string;
+  image?: NodeImage;
 };
 
 export type NodesResponse = {
@@ -23,6 +34,8 @@ export type NodesParams = {
   parentPath?: string;
   start?: number;
   count?: number;
+  /** Resolving an image per node costs a repository lookup, so only grid view asks for it. */
+  images?: boolean;
 };
 
 export function fetchNodes(params: NodesParams): Promise<NodesResponse> {
@@ -41,6 +54,9 @@ export function fetchNodes(params: NodesParams): Promise<NodesResponse> {
   if (params.count != null) {
     queryParams.count = String(params.count);
   }
+  if (params.images === true) {
+    queryParams.images = 'true';
+  }
 
   return apiFetch<NodesResponse>(apiUris.nodes, {
     params: queryParams,
@@ -56,6 +72,7 @@ export function nodesQueryOptions(params: NodesParams) {
       params.parentPath ?? '/',
       params.start ?? 0,
       params.count ?? 25,
+      params.images === true,
     ],
     queryFn: () => fetchNodes(params),
   });
@@ -71,12 +88,6 @@ export type AccessControlEntry = {
   deny: string[];
 };
 
-export type AttachmentInfo = {
-  mimeType: string;
-  size: number;
-  label?: string;
-};
-
 export type NodeDetail = Record<string, unknown> & {
   _id: string;
   _name: string;
@@ -87,7 +98,6 @@ export type NodeDetail = Record<string, unknown> & {
   _state: string;
   _versionKey: string;
   _permissions: AccessControlEntry[];
-  _attachments?: Record<string, AttachmentInfo>;
 };
 
 export type NodeDetailParams = {
@@ -111,6 +121,34 @@ export function nodeDetailQueryOptions(params: NodeDetailParams) {
   return queryOptions({
     queryKey: ['node-detail', params.repoId, params.branch, params.key],
     queryFn: () => fetchNodeDetail(params),
+  });
+}
+
+export type NodeImageParams = {
+  repoId: string;
+  branch: string;
+  key: string;
+  versionKey: string;
+};
+
+export function fetchNodeImage(params: NodeImageParams): Promise<NodeImageDetail | null> {
+  const { apiUris } = getConfig();
+  return apiFetch<NodeImageDetail>(apiUris.binary, {
+    params: {
+      repoId: params.repoId,
+      branch: params.branch,
+      key: params.key,
+      resolve: 'image',
+    },
+  }).catch(() => null);
+}
+
+export function nodeImageQueryOptions(params: NodeImageParams) {
+  return queryOptions({
+    queryKey: ['node-image', params.repoId, params.branch, params.key, params.versionKey],
+    queryFn: () => fetchNodeImage(params),
+    // ? Keyed on the version, and a version's binaries never change — so a hit is never stale.
+    staleTime: Infinity,
   });
 }
 

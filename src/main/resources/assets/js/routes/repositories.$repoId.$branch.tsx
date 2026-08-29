@@ -29,6 +29,7 @@ import { useTranslation } from 'react-i18next';
 import { z } from 'zod';
 
 import { NodeDetailPanel } from '../components/node-detail-panel';
+import { NodeGrid } from '../components/node-grid';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Checkbox } from '../components/ui/checkbox';
@@ -92,6 +93,7 @@ const searchSchema = z.object({
   start: z.number().int().min(0).default(0),
   count: z.number().int().min(1).max(100).default(DEFAULT_COUNT),
   nodeId: z.string().optional(),
+  view: z.enum(['list', 'grid']).default('list'),
 });
 
 const columnHelper = createColumnHelper<NodeEntry>();
@@ -850,17 +852,27 @@ const CreateNodeDialog = ({ repoId, branch, parentPath }: CreateNodeDialogProps)
 const NodeBrowserPage = (): ReactElement => {
   const { t } = useTranslation();
   const { repoId, branch } = Route.useParams();
-  const { path, start, count, nodeId } = Route.useSearch();
+  const { path, start, count, nodeId, view: viewMode } = Route.useSearch();
   const navigate = useNavigate({ from: Route.fullPath });
-  const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
+
+  const setViewMode = (view: 'list' | 'grid') => {
+    navigate({ search: (prev: Record<string, unknown>) => ({ ...prev, view }) });
+  };
 
   const { data } = useSuspenseQuery(
-    nodesQueryOptions({ repoId, branch, parentPath: path, start, count }),
+    nodesQueryOptions({
+      repoId,
+      branch,
+      parentPath: path,
+      start,
+      count,
+      images: viewMode === 'grid',
+    }),
   );
 
   const navigateToPath = (newPath: string) => {
     navigate({
-      search: { path: newPath, start: 0, count },
+      search: { path: newPath, start: 0, count, view: viewMode },
     });
   };
 
@@ -949,6 +961,84 @@ const NodeBrowserPage = (): ReactElement => {
   const hasPrev = start > 0;
   const hasNext = end < data.total;
 
+  const navigateUp = () => {
+    if (isRoot) {
+      navigate({ to: '/repositories/$repoId', params: { repoId } });
+      return;
+    }
+    navigateToPath(getParentPath(path));
+  };
+
+  const listView = (
+    <Table className="table-fixed">
+      <TableHeader>
+        {table.getHeaderGroups().map((headerGroup) => (
+          <TableRow key={headerGroup.id}>
+            {headerGroup.headers.map((header) => {
+              const meta = header.column.columnDef.meta as { className?: string } | undefined;
+              return (
+                <TableHead key={header.id} className={meta?.className}>
+                  {header.isPlaceholder
+                    ? null
+                    : flexRender(header.column.columnDef.header, header.getContext())}
+                </TableHead>
+              );
+            })}
+          </TableRow>
+        ))}
+      </TableHeader>
+      <TableBody>
+        <TableRow className="cursor-pointer" onClick={navigateUp}>
+          <TableCell colSpan={columns.length}>
+            <span className="text-muted-foreground flex min-h-8 items-center gap-2">
+              <ArrowLeft className="size-3.5 shrink-0" />
+              <span className="font-mono text-[13px]">..</span>
+            </span>
+          </TableCell>
+        </TableRow>
+        {table.getRowModel().rows.map((row) => {
+          const isSelected = nodeId === row.original._id;
+
+          return (
+            <TableRow
+              key={row.id}
+              className="cursor-pointer"
+              data-state={isSelected ? 'selected' : undefined}
+              onClick={() => {
+                if (row.original.hasChildren) {
+                  navigateToPath(row.original._path);
+                } else {
+                  openNodeDetail(row.original._id);
+                }
+              }}
+            >
+              {row.getVisibleCells().map((cell) => {
+                const meta = cell.column.columnDef.meta as { className?: string } | undefined;
+                return (
+                  <TableCell key={cell.id} className={meta?.className}>
+                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                  </TableCell>
+                );
+              })}
+            </TableRow>
+          );
+        })}
+      </TableBody>
+    </Table>
+  );
+
+  const gridView = (
+    <NodeGrid
+      nodes={data.nodes}
+      repoId={repoId}
+      branch={branch}
+      selectedNodeId={nodeId}
+      onSelect={openNodeDetail}
+      onNavigate={navigateToPath}
+      onNavigateUp={navigateUp}
+    />
+  );
+
   return (
     <div data-component={NODE_BROWSER_PAGE_NAME} className="flex h-full flex-col">
       <BreadcrumbToolbar repoId={repoId} branch={branch} path={path} onNavigate={navigateToPath} />
@@ -963,6 +1053,8 @@ const NodeBrowserPage = (): ReactElement => {
             variant="ghost"
             size="icon"
             className={cn(viewMode === 'list' && 'bg-accent')}
+            aria-label={t('node.view.list')}
+            aria-pressed={viewMode === 'list'}
             onClick={() => setViewMode('list')}
           >
             <LayoutList className="size-4" />
@@ -971,6 +1063,8 @@ const NodeBrowserPage = (): ReactElement => {
             variant="ghost"
             size="icon"
             className={cn(viewMode === 'grid' && 'bg-accent')}
+            aria-label={t('node.view.grid')}
+            aria-pressed={viewMode === 'grid'}
             onClick={() => setViewMode('grid')}
           >
             <LayoutGrid className="size-4" />
@@ -979,73 +1073,9 @@ const NodeBrowserPage = (): ReactElement => {
       </div>
 
       <div className="flex flex-1 overflow-hidden">
-        {/* Table area */}
+        {/* Node list */}
         <div className="flex flex-1 flex-col overflow-auto">
-          <Table className="table-fixed">
-            <TableHeader>
-              {table.getHeaderGroups().map((headerGroup) => (
-                <TableRow key={headerGroup.id}>
-                  {headerGroup.headers.map((header) => {
-                    const meta = header.column.columnDef.meta as { className?: string } | undefined;
-                    return (
-                      <TableHead key={header.id} className={meta?.className}>
-                        {header.isPlaceholder
-                          ? null
-                          : flexRender(header.column.columnDef.header, header.getContext())}
-                      </TableHead>
-                    );
-                  })}
-                </TableRow>
-              ))}
-            </TableHeader>
-            <TableBody>
-              <TableRow
-                className="cursor-pointer"
-                onClick={() =>
-                  isRoot
-                    ? navigate({
-                        to: '/repositories/$repoId',
-                        params: { repoId },
-                      })
-                    : navigateToPath(getParentPath(path))
-                }
-              >
-                <TableCell colSpan={columns.length}>
-                  <span className="text-muted-foreground flex min-h-8 items-center gap-2">
-                    <ArrowLeft className="size-3.5 shrink-0" />
-                    <span className="font-mono text-[13px]">..</span>
-                  </span>
-                </TableCell>
-              </TableRow>
-              {table.getRowModel().rows.map((row) => {
-                const isSelected = nodeId === row.original._id;
-
-                return (
-                  <TableRow
-                    key={row.id}
-                    className="cursor-pointer"
-                    data-state={isSelected ? 'selected' : undefined}
-                    onClick={() => {
-                      if (row.original.hasChildren) {
-                        navigateToPath(row.original._path);
-                      } else {
-                        openNodeDetail(row.original._id);
-                      }
-                    }}
-                  >
-                    {row.getVisibleCells().map((cell) => {
-                      const meta = cell.column.columnDef.meta as { className?: string } | undefined;
-                      return (
-                        <TableCell key={cell.id} className={meta?.className}>
-                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                        </TableCell>
-                      );
-                    })}
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
+          {viewMode === 'grid' ? gridView : listView}
           {data.nodes.length === 0 ? (
             <div className="flex flex-1 items-center justify-center">
               <EmptyState
@@ -1075,6 +1105,7 @@ const NodeBrowserPage = (): ReactElement => {
                           path,
                           start: Math.max(0, start - count),
                           count,
+                          view: viewMode,
                         },
                       })
                     }
@@ -1091,6 +1122,7 @@ const NodeBrowserPage = (): ReactElement => {
                           path,
                           start: start + count,
                           count,
+                          view: viewMode,
                         },
                       })
                     }
@@ -1128,10 +1160,17 @@ export const Route = createFileRoute('/repositories/$repoId/$branch')({
   loader: ({
     context: { queryClient },
     params: { repoId, branch },
-    deps: { path, start, count },
+    deps: { path, start, count, view },
   }) =>
     queryClient.ensureQueryData(
-      nodesQueryOptions({ repoId, branch, parentPath: path, start, count }),
+      nodesQueryOptions({
+        repoId,
+        branch,
+        parentPath: path,
+        start,
+        count,
+        images: view === 'grid',
+      }),
     ),
   component: NodeBrowserPage,
 });

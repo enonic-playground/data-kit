@@ -1,8 +1,10 @@
+import { getMimeType, getSize } from '/lib/xp/io';
 import { connect } from '/lib/xp/node';
 
 import type { ByteSource, Request, Response } from '@enonic-types/core';
 
 import { errorResponse, getParam, jsonResponse, requireAdmin } from '../../lib/api';
+import { resolveNodeImage } from '../../lib/node-image';
 
 export function get(req: Request): Response {
   const forbidden = requireAdmin();
@@ -23,12 +25,15 @@ export function get(req: Request): Response {
     return errorResponse(400, 'Node key is required', 'VALIDATION_ERROR');
   }
 
+  const isImageLookup = getParam(req, 'resolve') === 'image';
   const binaryReference = getParam(req, 'binaryReference');
-  if (binaryReference == null) {
+  if (binaryReference == null && !isImageLookup) {
     return errorResponse(400, 'Binary reference is required', 'VALIDATION_ERROR');
   }
 
+  const reference = binaryReference ?? '';
   const isInfo = getParam(req, 'info') === 'true';
+  const isInline = getParam(req, 'inline') === 'true';
 
   try {
     const repo = connect({ repoId, branch });
@@ -38,31 +43,38 @@ export function get(req: Request): Response {
       return errorResponse(404, `Node '${key}' not found`, 'NOT_FOUND');
     }
 
-    const attachments = node._attachments as
-      | Record<string, { mimeType: string; size: number; label?: string }>
-      | undefined;
-    const attachment = attachments?.[binaryReference];
-
-    if (attachment == null) {
-      return errorResponse(404, `Binary '${binaryReference}' not found`, 'NOT_FOUND');
+    if (isImageLookup) {
+      const image = resolveNodeImage(repo, node);
+      if (image == null) {
+        return errorResponse(404, `Node '${key}' has no image binary`, 'NOT_FOUND');
+      }
+      const source = repo.getBinary({ key, binaryReference: image.binaryReference });
+      return jsonResponse({ ...image, size: getSize(source) });
     }
+
+    let binary: ByteSource;
+    try {
+      binary = repo.getBinary({ key, binaryReference: reference });
+    } catch (_e) {
+      return errorResponse(404, `Binary '${reference}' not found`, 'NOT_FOUND');
+    }
+
+    if (binary == null) {
+      return errorResponse(404, `Binary '${reference}' not found`, 'NOT_FOUND');
+    }
+
+    const mimeType = getMimeType(reference);
 
     if (isInfo) {
-      return jsonResponse({
-        mimeType: attachment.mimeType,
-        size: attachment.size,
-        label: attachment.label,
-      });
+      return jsonResponse({ mimeType, size: getSize(binary) });
     }
-
-    const binary: ByteSource = repo.getBinary({ key, binaryReference });
 
     return {
       status: 200,
-      contentType: attachment.mimeType || 'application/octet-stream',
+      contentType: mimeType,
       body: binary,
       headers: {
-        'Content-Disposition': `attachment; filename="${binaryReference}"`,
+        'Content-Disposition': `${isInline ? 'inline' : 'attachment'}; filename="${reference}"`,
         'Cache-Control': 'max-age=3600',
       },
     };
