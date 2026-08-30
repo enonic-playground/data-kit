@@ -3,7 +3,6 @@ import {
   ArrowRightLeft,
   Braces,
   Copy,
-  Download,
   Ellipsis,
   History,
   Info,
@@ -30,7 +29,7 @@ import themeGithubDarkDefault from 'shiki/dist/themes/github-dark-default.mjs';
 import themeGithubLightDefault from 'shiki/dist/themes/github-light-default.mjs';
 import { createJavaScriptRegexEngine } from 'shiki/engine/javascript';
 
-import { buildBinaryDownloadUrl, buildBinaryPreviewUrl } from '../lib/api/binary';
+import { buildBinaryPreviewUrl } from '../lib/api/binary';
 import { branchesQueryOptions } from '../lib/api/branches';
 import {
   type AccessControlEntry,
@@ -48,6 +47,7 @@ import {
 } from '../lib/api/nodes';
 import { versionsInfiniteQueryOptions } from '../lib/api/versions';
 import { cn } from '../lib/utils';
+import { NodePropertiesTab } from './node-properties/node-properties-tab';
 import { NodeVersionsTab } from './node-versions-tab';
 import { useTheme } from './theme-provider';
 import { Badge } from './ui/badge';
@@ -77,7 +77,6 @@ import { Skeleton } from './ui/skeleton';
 import { toast } from './ui/sonner';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
-import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 
 const highlighterPromise = createHighlighterCore({
   themes: [themeGithubDarkDefault, themeGithubLightDefault],
@@ -113,33 +112,6 @@ const METADATA_KEYS = [
   '_versionKey',
 ] as const;
 
-const SYSTEM_KEY_PREFIX = '_';
-
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-function detectValueType(value: unknown, binaryReference: string | undefined): string {
-  if (value == null) return 'null';
-  if (Array.isArray(value)) return 'array';
-  if (typeof value === 'string') {
-    if (value === binaryReference) return 'BinaryReference';
-    if (UUID_REGEX.test(value)) return 'Reference';
-  }
-  return typeof value;
-}
-
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
-}
-
-function formatValue(value: unknown): string {
-  if (value == null) return 'null';
-  if (typeof value === 'object') return JSON.stringify(value);
-  return String(value);
-}
-
 function formatTimestamp(ts: string): string {
   try {
     return new Date(ts).toLocaleString();
@@ -153,141 +125,6 @@ function resolveTheme(theme: string): 'light' | 'dark' {
   if (theme === 'light') return 'light';
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 }
-
-//
-// * PropertiesTab
-//
-
-type PropertyEntry = {
-  name: string;
-  type: string;
-  value: string;
-  rawValue: unknown;
-  binaryInfo?: NodeImageDetail;
-};
-
-type PropertiesTabProps = {
-  node: NodeDetail;
-  repoId: string;
-  branch: string;
-  image?: NodeImageDetail;
-  onNavigateToNode?: (nodeId: string) => void;
-};
-
-const PROPERTIES_TAB_NAME = 'PropertiesTab';
-
-const PropertiesTab = ({
-  node,
-  repoId,
-  branch,
-  image,
-  onNavigateToNode,
-}: PropertiesTabProps): ReactElement => {
-  const { t } = useTranslation();
-
-  const properties = useMemo<PropertyEntry[]>(() => {
-    const entries: PropertyEntry[] = [];
-    const keys = Object.keys(node);
-    for (let i = 0; i < keys.length; i++) {
-      const key = keys[i];
-      if (key.startsWith(SYSTEM_KEY_PREFIX)) continue;
-      const value = node[key];
-      const type = detectValueType(value, image?.binaryReference);
-      entries.push({
-        name: key,
-        type,
-        value: formatValue(value),
-        rawValue: value,
-        binaryInfo: type === 'BinaryReference' ? image : undefined,
-      });
-    }
-    return entries;
-  }, [node, image]);
-
-  if (properties.length === 0) {
-    return (
-      <div
-        data-component={PROPERTIES_TAB_NAME}
-        className="text-muted-foreground flex flex-col items-center gap-2 py-8"
-      >
-        <Table2 className="size-8" />
-        <p className="text-sm">{t('node.properties.empty')}</p>
-      </div>
-    );
-  }
-
-  return (
-    <div data-component={PROPERTIES_TAB_NAME}>
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>{t('node.properties.column.name')}</TableHead>
-            <TableHead>{t('node.properties.column.type')}</TableHead>
-            <TableHead>{t('node.properties.column.value')}</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {properties.map((prop) => (
-            <TableRow key={prop.name}>
-              <TableCell className="font-medium">{prop.name}</TableCell>
-              <TableCell>
-                <Badge variant="secondary">{prop.type}</Badge>
-              </TableCell>
-              <TableCell className="font-mono text-sm break-all">
-                {prop.type === 'BinaryReference' ? (
-                  <span className="flex items-start gap-1.5">
-                    <span className="break-all">{prop.value}</span>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <a
-                          href={buildBinaryDownloadUrl({
-                            repoId,
-                            branch,
-                            key: node._id,
-                            binaryReference: prop.value,
-                          })}
-                          download
-                          className={cn(
-                            'inline-flex size-6 shrink-0 items-center justify-center rounded-md',
-                            'text-muted-foreground transition-colors',
-                            'hover:bg-accent hover:text-accent-foreground',
-                          )}
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <Download className="size-3.5" />
-                        </a>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>{prop.binaryInfo?.mimeType ?? t('node.binary.unknownMime')}</p>
-                        <p>
-                          {prop.binaryInfo != null
-                            ? formatFileSize(prop.binaryInfo.size)
-                            : t('node.binary.unknownSize')}
-                        </p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </span>
-                ) : prop.type === 'Reference' ? (
-                  <button
-                    type="button"
-                    className="decoration-muted-foreground/50 hover:decoration-foreground text-left break-all underline underline-offset-2"
-                    onClick={() => onNavigateToNode?.(prop.value)}
-                  >
-                    {prop.value}
-                  </button>
-                ) : (
-                  <span className="break-all">{prop.value}</span>
-                )}
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </div>
-  );
-};
-
-PropertiesTab.displayName = PROPERTIES_TAB_NAME;
 
 //
 // * MetadataTab
@@ -1154,7 +991,7 @@ const NodeDetailContent = ({
         </TabsList>
         <div className="flex-1 overflow-auto">
           <TabsContent value="properties">
-            <PropertiesTab
+            <NodePropertiesTab
               node={node}
               repoId={params.repoId}
               branch={params.branch}
