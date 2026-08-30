@@ -277,6 +277,11 @@ const LogsPage = (): ReactElement => {
   // ? then held, so the view grows at its end as the file does instead of sliding off its front.
   const [cut, setCut] = useState<LogWindow>(NO_CUT);
 
+  // ? Read by the search when it runs off an edge, which is a decision about the hit already
+  // ? standing rather than about the criteria the callback closed over.
+  const verdictRef = useRef(verdict);
+  verdictRef.current = verdict;
+
   const levelsKey = levelsParam(levels) ?? '';
   const filtering = levelsKey !== '';
   const levelsRef = useRef(levels);
@@ -425,6 +430,23 @@ const LogsPage = (): ReactElement => {
     [filtering, selected, startLocate],
   );
 
+  /**
+   * How a search that reached an edge ends. Every verdict is discarded when the criteria, the
+   * filter or the file change, so a hit still standing is one of *these* matches: the reader is
+   * at the last or first of them, and stepping past it holds there rather than reporting the
+   * query dry. Only a search that never placed a hit has nothing to match.
+   */
+  const settleExhausted = useCallback(() => {
+    const current = verdictRef.current;
+    if (current.kind !== 'hit') {
+      setVerdict({ kind: 'noMatch' });
+      return;
+    }
+    // ? Re-revealed rather than left alone: the reader may have scrolled away, and a badge
+    // ? asserting a match off screen is the same lie as a wrong count.
+    revealLine(current.line, 'center', false);
+  }, [revealLine]);
+
   const runSearch = useCallback(
     (direction: LogSearchDirection) => {
       if (selected == null || query === '' || searchingRef.current) return;
@@ -460,7 +482,7 @@ const LogsPage = (): ReactElement => {
       const from = anchor != null ? anchor.line + (anchor.inclusive ? 0 : step) : fromViewport;
 
       if (from < start || from >= lineTotal) {
-        setVerdict({ kind: 'noMatch' });
+        settleExhausted();
         return;
       }
 
@@ -483,7 +505,7 @@ const LogsPage = (): ReactElement => {
         .then((result) => {
           if (controller.signal.aborted) return;
           if (result.line == null) {
-            setVerdict({ kind: 'noMatch' });
+            settleExhausted();
             return;
           }
           setVerdict({ kind: 'hit', line: result.line, ordinal: result.ordinal });
@@ -513,6 +535,7 @@ const LogsPage = (): ReactElement => {
       query,
       revealLine,
       selected,
+      settleExhausted,
       start,
       t,
       useRegex,
@@ -975,6 +998,7 @@ const LogsPage = (): ReactElement => {
           >
             <CaseSensitive className="size-4" />
           </IconAction>
+          {searchVerdict}
           <IconAction
             label={t('logs.action.previousMatch')}
             disabled={searching || query === ''}
@@ -989,7 +1013,6 @@ const LogsPage = (): ReactElement => {
           >
             <ChevronDown className="size-4" />
           </IconAction>
-          {searchVerdict}
 
           <div className="bg-border mx-1 h-5 w-px" />
 
