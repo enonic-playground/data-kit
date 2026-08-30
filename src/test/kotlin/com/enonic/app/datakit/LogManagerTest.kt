@@ -18,6 +18,8 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
+private const val WHOLE_FILE = """{"line":0,"time":null}"""
+
 private val NUMBER_REGEX = """"([a-zA-Z]+)":(-?\d+)""".toRegex()
 
 class LogManagerTest {
@@ -136,7 +138,7 @@ class LogManagerTest {
     fun `info counts lines and reports size`() {
         writeLog("server.log", "one\ntwo\nthree\n")
 
-        val json = assertNotNull(manager.info("server.log", 0))
+        val json = assertNotNull(manager.info("server.log", 0, 0L))
 
         assertEquals(3, number(json, "lines"))
         assertEquals(14, number(json, "size"))
@@ -145,17 +147,17 @@ class LogManagerTest {
 
     @Test
     fun `info returns null for a missing file`() {
-        assertNull(manager.info("server.log", 0))
+        assertNull(manager.info("server.log", 0, 0L))
     }
 
     @Test
     fun `empty file has zero lines and reads as an empty list`() {
         writeLog("server.log", "")
 
-        assertEquals(0, number(assertNotNull(manager.info("server.log", 0)), "lines"))
+        assertEquals(0, number(assertNotNull(manager.info("server.log", 0, 0L)), "lines"))
         assertEquals(
             """{"from":0,"lines":[],"total":0,"size":0}""",
-            manager.read("server.log", 0, 200, 0),
+            manager.read("server.log", 0, 200, 0, 0L),
         )
     }
 
@@ -163,7 +165,7 @@ class LogManagerTest {
     fun `a trailing line without a newline still counts`() {
         writeLog("server.log", "one\ntwo")
 
-        assertEquals(2, number(assertNotNull(manager.info("server.log", 0)), "lines"))
+        assertEquals(2, number(assertNotNull(manager.info("server.log", 0, 0L)), "lines"))
         assertEquals(listOf("one", "two"), readLines("server.log", 0, 200))
     }
 
@@ -182,7 +184,7 @@ class LogManagerTest {
     fun `read decodes multibyte UTF-8 and keeps the offsets aligned`() {
         writeLog("server.log", "ñ ü\n日本語\n🚀 emoji\nplain\n")
 
-        assertEquals(4, number(assertNotNull(manager.info("server.log", 0)), "lines"))
+        assertEquals(4, number(assertNotNull(manager.info("server.log", 0, 0L)), "lines"))
         assertEquals(listOf("ñ ü", "日本語", "🚀 emoji", "plain"), readLines("server.log", 0, 200))
         assertEquals(listOf("日本語"), readLines("server.log", 1, 1))
     }
@@ -211,7 +213,7 @@ class LogManagerTest {
 
         assertEquals(emptyList(), readLines("server.log", 2, 10))
         assertEquals(emptyList(), readLines("server.log", 99, 10))
-        assertEquals(99, number(assertNotNull(manager.read("server.log", 99, 10, 0)), "from"))
+        assertEquals(99, number(assertNotNull(manager.read("server.log", 99, 10, 0, 0L)), "from"))
     }
 
     @Test
@@ -236,7 +238,7 @@ class LogManagerTest {
         manager.maxReadBytes = 200
         writeLog("server.log", (0 until 10).joinToString("") { "line-$it".padEnd(29, '.') + "\n" })
 
-        val json = assertNotNull(manager.read("server.log", 0, 10, 0))
+        val json = assertNotNull(manager.read("server.log", 0, 10, 0, 0L))
 
         assertTrue(json.toByteArray(Charsets.UTF_8).size <= 200)
         // ? A short page, not an empty one: the client needs something to resume from.
@@ -249,7 +251,7 @@ class LogManagerTest {
         manager.maxReadBytes = 10
         writeLog("server.log", "x".repeat(50) + "\nshort\n")
 
-        val json = assertNotNull(manager.read("server.log", 0, 10, 0))
+        val json = assertNotNull(manager.read("server.log", 0, 10, 0, 0L))
 
         assertEquals(emptyList(), parseLines(json))
         assertEquals(2, number(json, "total"))
@@ -272,19 +274,19 @@ class LogManagerTest {
         writeLog("server.log", "\u4e00".repeat(330) + "\n")
 
         manager.maxReadBytes = 1000
-        val capped = assertNotNull(manager.read("server.log", 0, 10, 0))
+        val capped = assertNotNull(manager.read("server.log", 0, 10, 0, 0L))
         assertEquals(emptyList(), parseLines(capped))
         assertTrue(capped.toByteArray(Charsets.UTF_8).size <= 1000)
 
         manager.maxReadBytes = 2000
-        assertEquals(1, parseLines(assertNotNull(manager.read("server.log", 0, 10, 0))).size)
+        assertEquals(1, parseLines(assertNotNull(manager.read("server.log", 0, 10, 0, 0L))).size)
     }
 
     @Test
     fun `read reports the current total and size`() {
         writeLog("server.log", "one\ntwo\n")
 
-        val json = assertNotNull(manager.read("server.log", 0, 1, 0))
+        val json = assertNotNull(manager.read("server.log", 0, 1, 0, 0L))
         assertEquals(2, number(json, "total"))
         assertEquals(8, number(json, "size"))
         assertEquals(0, number(json, "from"))
@@ -294,7 +296,7 @@ class LogManagerTest {
     fun `read escapes control characters in line content`() {
         writeLog("server.log", "a\"b\\c\td\n")
 
-        assertEquals("""{"from":0,"lines":["a\"b\\c\td"],"total":1,"size":8}""", manager.read("server.log", 0, 5, 0))
+        assertEquals("""{"from":0,"lines":["a\"b\\c\td"],"total":1,"size":8}""", manager.read("server.log", 0, 5, 0, 0L))
     }
 
     //
@@ -312,7 +314,7 @@ class LogManagerTest {
                 entry("WARN", "slow"),
         )
 
-        val json = assertNotNull(manager.info("server.log", 0))
+        val json = assertNotNull(manager.info("server.log", 0, 0L))
 
         assertEquals(5, number(json, "lines"))
         assertEquals(1, number(json, "info"))
@@ -325,7 +327,7 @@ class LogManagerTest {
     fun `a continuation with no entry above it stays unknown`() {
         writeLog("server.log", "\tat com.enonic.Foo.bar(Foo.java:1)\n" + entry("INFO", "started"))
 
-        val json = assertNotNull(manager.info("server.log", 0))
+        val json = assertNotNull(manager.info("server.log", 0, 0L))
 
         assertEquals(1, number(json, "unknown"))
         assertEquals(1, number(json, "info"))
@@ -341,7 +343,7 @@ class LogManagerTest {
                 "not a timestamp ERROR c.e.x.Test - nope\n",
         )
 
-        val json = assertNotNull(manager.info("server.log", 0))
+        val json = assertNotNull(manager.info("server.log", 0, 0L))
 
         assertEquals(4, number(json, "info"))
         assertEquals(0, number(json, "error"))
@@ -358,7 +360,7 @@ class LogManagerTest {
 
         writeLog("server.log", builder.toString())
 
-        val lines = parseLines(assertNotNull(manager.read("server.log", 0, 10, mask(LEVEL_ERROR))))
+        val lines = parseLines(assertNotNull(manager.read("server.log", 0, 10, mask(LEVEL_ERROR), 0L)))
 
         assertEquals(1, lines.size)
         assertTrue(lines[0].endsWith("straddled"), lines[0])
@@ -368,13 +370,13 @@ class LogManagerTest {
     fun `a trailing line becomes an entry once the rest of its head arrives`() {
         val file = writeLog("server.log", entry("INFO", "first") + "08:00:01.000 ERROR c.e.x.Test")
 
-        val partial = assertNotNull(manager.info("server.log", 0))
+        val partial = assertNotNull(manager.info("server.log", 0, 0L))
         assertEquals(0, number(partial, "error"))
         assertEquals(2, number(partial, "info"))
 
         append(file, " - boom\n")
 
-        val whole = assertNotNull(manager.info("server.log", 0))
+        val whole = assertNotNull(manager.info("server.log", 0, 0L))
         assertEquals(1, number(whole, "error"))
         assertEquals(1, number(whole, "info"))
     }
@@ -383,7 +385,7 @@ class LogManagerTest {
     fun `a mask admitting every level takes the unfiltered path`() {
         writeLog("server.log", entry("INFO", "a") + entry("ERROR", "b"))
 
-        val json = assertNotNull(manager.read("server.log", 0, 10, LEVEL_MASK_ALL))
+        val json = assertNotNull(manager.read("server.log", 0, 10, LEVEL_MASK_ALL, 0L))
 
         assertFalse(json.contains("\"numbers\""), json)
         assertEquals(2, number(json, "total"))
@@ -399,7 +401,7 @@ class LogManagerTest {
                 entry("DEBUG", "tick"),
         )
 
-        val json = assertNotNull(manager.read("server.log", 0, 10, mask(LEVEL_ERROR)))
+        val json = assertNotNull(manager.read("server.log", 0, 10, mask(LEVEL_ERROR), 0L))
         val lines = parseLines(json)
 
         assertEquals(listOf(1, 2), parseNumbers(json))
@@ -415,7 +417,7 @@ class LogManagerTest {
         for (i in 0 until 10) builder.append(entry("INFO", "i$i")).append(entry("ERROR", "e$i"))
         writeLog("server.log", builder.toString())
 
-        val json = assertNotNull(manager.read("server.log", 1, 2, mask(LEVEL_ERROR)))
+        val json = assertNotNull(manager.read("server.log", 1, 2, mask(LEVEL_ERROR), 0L))
 
         assertEquals(listOf(3, 5), parseNumbers(json))
         assertEquals(1, number(json, "from"))
@@ -432,7 +434,7 @@ class LogManagerTest {
         writeLog("server.log", builder.toString())
 
         manager.maxReadBytes = 200
-        val json = assertNotNull(manager.read("server.log", 0, 10, mask(LEVEL_ERROR)))
+        val json = assertNotNull(manager.read("server.log", 0, 10, mask(LEVEL_ERROR), 0L))
         val lines = parseLines(json)
 
         assertTrue(lines.size in 1..4, "expected a truncated page, got ${lines.size}")
@@ -473,7 +475,7 @@ class LogManagerTest {
         append(file, " continued\n")
 
         assertEquals(listOf(1), filteredNumbers("server.log", errors))
-        assertEquals(2, number(assertNotNull(manager.info("server.log", 0)), "lines"))
+        assertEquals(2, number(assertNotNull(manager.info("server.log", 0, 0L)), "lines"))
     }
 
     @Test
@@ -481,21 +483,21 @@ class LogManagerTest {
         writeLog("server.log", entry("ERROR", "a") + entry("ERROR", "b"))
         val errors = mask(LEVEL_ERROR)
 
-        assertEquals(2, number(assertNotNull(manager.read("server.log", 0, 10, errors)), "total"))
+        assertEquals(2, number(assertNotNull(manager.read("server.log", 0, 10, errors, 0L)), "total"))
 
         writeLog("server.log", entry("INFO", "c"))
 
-        assertEquals(0, number(assertNotNull(manager.read("server.log", 0, 10, errors)), "total"))
+        assertEquals(0, number(assertNotNull(manager.read("server.log", 0, 10, errors, 0L)), "total"))
     }
 
     @Test
     fun `info reports the filtered count only while a filter is active`() {
         writeLog("server.log", entry("INFO", "a") + entry("ERROR", "b") + "\tat Foo.bar\n")
 
-        val unfiltered = assertNotNull(manager.info("server.log", 0))
+        val unfiltered = assertNotNull(manager.info("server.log", 0, 0L))
         assertFalse(unfiltered.contains("\"filtered\""), unfiltered)
 
-        val filtered = assertNotNull(manager.info("server.log", mask(LEVEL_ERROR)))
+        val filtered = assertNotNull(manager.info("server.log", mask(LEVEL_ERROR), 0L))
         assertEquals(3, number(filtered, "lines"))
         assertEquals(2, number(filtered, "filtered"))
     }
@@ -512,9 +514,9 @@ class LogManagerTest {
         )
         val errors = mask(LEVEL_ERROR)
 
-        assertEquals("""{"position":0,"visible":true}""", manager.locate("server.log", errors, 1))
-        assertEquals("""{"position":1,"visible":true}""", manager.locate("server.log", errors, 2))
-        assertEquals("""{"position":2,"visible":true}""", manager.locate("server.log", errors, 3))
+        assertEquals("""{"position":0,"visible":true}""", manager.locate("server.log", errors, 1, 0L))
+        assertEquals("""{"position":1,"visible":true}""", manager.locate("server.log", errors, 2, 0L))
+        assertEquals("""{"position":2,"visible":true}""", manager.locate("server.log", errors, 3, 0L))
     }
 
     @Test
@@ -525,10 +527,10 @@ class LogManagerTest {
         )
         val errors = mask(LEVEL_ERROR)
 
-        assertEquals("""{"position":0,"visible":false}""", manager.locate("server.log", errors, 2))
-        assertEquals("""{"position":0,"visible":false}""", manager.locate("server.log", errors, 3))
+        assertEquals("""{"position":0,"visible":false}""", manager.locate("server.log", errors, 2, 0L))
+        assertEquals("""{"position":0,"visible":false}""", manager.locate("server.log", errors, 3, 0L))
         // ? Nothing visible above line 0, so the head of the view is the only answer.
-        assertEquals("""{"position":0,"visible":false}""", manager.locate("server.log", errors, 0))
+        assertEquals("""{"position":0,"visible":false}""", manager.locate("server.log", errors, 0, 0L))
     }
 
     @Test
@@ -537,7 +539,7 @@ class LogManagerTest {
 
         assertEquals(
             """{"position":0,"visible":false}""",
-            manager.locate("server.log", mask(LEVEL_ERROR), 4),
+            manager.locate("server.log", mask(LEVEL_ERROR), 4, 0L),
         )
     }
 
@@ -545,11 +547,11 @@ class LogManagerTest {
     fun `locate clamps to the file when no filter is active`() {
         writeLog("server.log", entry("INFO", "a") + entry("ERROR", "b"))
 
-        assertEquals("""{"position":1,"visible":true}""", manager.locate("server.log", 0, 1))
-        assertEquals("""{"position":1,"visible":true}""", manager.locate("server.log", 0, 99))
-        assertEquals("""{"position":0,"visible":true}""", manager.locate("server.log", 0, -5))
-        assertNull(manager.locate("missing.log", 0, 0))
-        assertNull(manager.locate(null, 0, 0))
+        assertEquals("""{"position":1,"visible":true}""", manager.locate("server.log", 0, 1, 0L))
+        assertEquals("""{"position":1,"visible":true}""", manager.locate("server.log", 0, 99, 0L))
+        assertEquals("""{"position":0,"visible":true}""", manager.locate("server.log", 0, -5, 0L))
+        assertNull(manager.locate("missing.log", 0, 0, 0L))
+        assertNull(manager.locate(null, 0, 0, 0L))
     }
 
     //
@@ -559,57 +561,57 @@ class LogManagerTest {
     @Test
     fun `appending to an indexed file extends the index`() {
         val file = writeLog("server.log", "one\ntwo\n")
-        assertEquals(2, number(assertNotNull(manager.info("server.log", 0)), "lines"))
+        assertEquals(2, number(assertNotNull(manager.info("server.log", 0, 0L)), "lines"))
 
         append(file, "three\nfour\n")
 
-        assertEquals(4, number(assertNotNull(manager.info("server.log", 0)), "lines"))
+        assertEquals(4, number(assertNotNull(manager.info("server.log", 0, 0L)), "lines"))
         assertEquals(listOf("three", "four"), readLines("server.log", 2, 10))
     }
 
     @Test
     fun `appending to a partial last line completes it instead of adding one`() {
         val file = writeLog("server.log", "one\npar")
-        assertEquals(2, number(assertNotNull(manager.info("server.log", 0)), "lines"))
+        assertEquals(2, number(assertNotNull(manager.info("server.log", 0, 0L)), "lines"))
 
         append(file, "tial\nthree\n")
 
-        assertEquals(3, number(assertNotNull(manager.info("server.log", 0)), "lines"))
+        assertEquals(3, number(assertNotNull(manager.info("server.log", 0, 0L)), "lines"))
         assertEquals(listOf("one", "partial", "three"), readLines("server.log", 0, 10))
     }
 
     @Test
     fun `truncating a file rebuilds the index`() {
         val file = writeLog("server.log", "one\ntwo\nthree\n")
-        assertEquals(3, number(assertNotNull(manager.info("server.log", 0)), "lines"))
+        assertEquals(3, number(assertNotNull(manager.info("server.log", 0, 0L)), "lines"))
 
         Files.write(file, "only\n".toByteArray())
 
-        assertEquals(1, number(assertNotNull(manager.info("server.log", 0)), "lines"))
+        assertEquals(1, number(assertNotNull(manager.info("server.log", 0, 0L)), "lines"))
         assertEquals(listOf("only"), readLines("server.log", 0, 10))
     }
 
     @Test
     fun `rewriting a file with the same size but a newer timestamp rebuilds the index`() {
         val file = writeLog("server.log", "one\ntwo\n", modifiedMillis = 1_000_000)
-        assertEquals(2, number(assertNotNull(manager.info("server.log", 0)), "lines"))
+        assertEquals(2, number(assertNotNull(manager.info("server.log", 0, 0L)), "lines"))
 
         writeLog("server.log", "1\n2\n3\n4\n", modifiedMillis = 2_000_000)
         assertEquals(8, Files.size(file))
 
-        assertEquals(4, number(assertNotNull(manager.info("server.log", 0)), "lines"))
+        assertEquals(4, number(assertNotNull(manager.info("server.log", 0, 0L)), "lines"))
     }
 
     @Test
     fun `replacing a file with a different one rebuilds the index even when size and time match`() {
         val target = writeLog("server.log", "one\ntwo\n", modifiedMillis = 1_000_000)
-        assertEquals(2, number(assertNotNull(manager.info("server.log", 0)), "lines"))
+        assertEquals(2, number(assertNotNull(manager.info("server.log", 0, 0L)), "lines"))
 
         val replacement = writeLog("staged.txt", "1\n2\n3\n4\n", modifiedMillis = 1_000_000)
         Files.move(replacement, target, StandardCopyOption.REPLACE_EXISTING)
         Files.setLastModifiedTime(target, FileTime.fromMillis(1_000_000))
 
-        assertEquals(4, number(assertNotNull(manager.info("server.log", 0)), "lines"))
+        assertEquals(4, number(assertNotNull(manager.info("server.log", 0, 0L)), "lines"))
         assertEquals(listOf("1", "2", "3", "4"), readLines("server.log", 0, 10))
     }
 
@@ -617,7 +619,7 @@ class LogManagerTest {
     fun `the index cache keeps at most four files`() {
         for (i in 0 until 7) {
             writeLog("file-$i.log", "line\n")
-            assertNotNull(manager.info("file-$i.log", 0))
+            assertNotNull(manager.info("file-$i.log", 0, 0L))
         }
 
         assertEquals(4, LogIndexCache.size())
@@ -763,13 +765,14 @@ class LogManagerTest {
                 0,
                 true,
                 30_000,
+                0L,
             )
         }
         // ! Started only once the search is parked inside its matcher. Racing the two from the
         // ! start lets the read win on merit, and the test passes even while the monitor is held.
         assertTrue(matching.await(5, TimeUnit.SECONDS), "search never reached the matcher")
         val reader = thread {
-            if (index.readJson(0, 1, 1L shl 20, 0) != null) read.countDown()
+            if (index.readJson(0, 1, 1L shl 20, 0, 0L) != null) read.countDown()
         }
 
         try {
@@ -848,6 +851,7 @@ class LogManagerTest {
                 0,
                 true,
                 30_000,
+                0L,
             )
         }
 
@@ -1088,7 +1092,7 @@ class LogManagerTest {
 
         // ? A zero-length slice still folds the block it is holding, so the scan advances by one
         // ? block per call — which is exactly the loop the client runs.
-        val first = assertNotNull(manager.matches("server.log", "line-", false, false))
+        val first = assertNotNull(manager.matches("server.log", "line-", false, false, 0L))
         assertTrue(first.contains(""""complete":false"""), first)
         assertTrue(number(first, "scanned") > 0, first)
         assertTrue(number(first, "scanned") < 6000, first)
@@ -1107,8 +1111,8 @@ class LogManagerTest {
         writeLog("server.log", log)
         manager.matchSliceMillis = 0
 
-        val first = assertNotNull(manager.matches("server.log", "line-", false, false))
-        val second = assertNotNull(manager.matches("server.log", "line-", false, false))
+        val first = assertNotNull(manager.matches("server.log", "line-", false, false, 0L))
+        val second = assertNotNull(manager.matches("server.log", "line-", false, false, 0L))
 
         assertTrue(number(second, "scanned") > number(first, "scanned"), second)
         assertTrue(number(second, "total") > number(first, "total"), second)
@@ -1130,9 +1134,9 @@ class LogManagerTest {
         manager.matchSliceMillis = 0
 
         // ? One slice each, interleaved — the shape two readers counting the same file produce.
-        val alphaFirst = assertNotNull(manager.matches("server.log", "alpha-", false, false))
-        manager.matches("server.log", "beta-", false, false)
-        val alphaSecond = assertNotNull(manager.matches("server.log", "alpha-", false, false))
+        val alphaFirst = assertNotNull(manager.matches("server.log", "alpha-", false, false, 0L))
+        manager.matches("server.log", "beta-", false, false, 0L)
+        val alphaSecond = assertNotNull(manager.matches("server.log", "alpha-", false, false, 0L))
 
         // ! Resumed, not restarted: an MRU of one would have reset this to the first block again,
         // ! and neither reader would ever reach a complete count.
@@ -1158,7 +1162,7 @@ class LogManagerTest {
             for (query in queries) {
                 if (query in finished) continue
 
-                val json = manager.matches("server.log", query, false, false) ?: continue
+                val json = manager.matches("server.log", query, false, false, 0L) ?: continue
                 if (!json.contains(""""status":"ok"""")) continue
 
                 val scanned = number(json, "scanned")
@@ -1186,11 +1190,11 @@ class LogManagerTest {
 
         // ? One slice each, so none of them finishes and none can be evicted.
         for (index in 0 until MAX_MATCH_SCANS) {
-            val json = assertNotNull(manager.matches("server.log", "alpha-$index", false, false))
+            val json = assertNotNull(manager.matches("server.log", "alpha-$index", false, false, 0L))
             assertTrue(json.contains(""""status":"ok""""), json)
         }
 
-        val refused = assertNotNull(manager.matches("server.log", "alpha-overflow", false, false))
+        val refused = assertNotNull(manager.matches("server.log", "alpha-overflow", false, false, 0L))
         assertTrue(refused.contains(""""status":"busy""""), refused)
 
         // ! The refusal must not have cost an existing scan its place.
@@ -1204,8 +1208,8 @@ class LogManagerTest {
         manager.matchSliceMillis = 0
 
         repeat(4) {
-            manager.matches("server.log", "alpha", false, false)
-            manager.matches("server.log", "beta", false, false)
+            manager.matches("server.log", "alpha", false, false, 0L)
+            manager.matches("server.log", "beta", false, false, 0L)
         }
 
         val alpha = countMatches("server.log", "alpha")
@@ -1287,18 +1291,18 @@ class LogManagerTest {
 
     @Test
     fun `matches returns null for an unknown file`() {
-        assertNull(manager.matches("missing.log", "x", false, false))
-        assertNull(manager.matches("../server.log", "x", false, false))
+        assertNull(manager.matches("missing.log", "x", false, false, 0L))
+        assertNull(manager.matches("../server.log", "x", false, false, 0L))
     }
 
     @Test
     fun `matches rejects an empty query and an invalid regex`() {
         writeLog("server.log", entry("INFO", "alpha"))
 
-        assertFailsWith<IllegalArgumentException> { manager.matches("server.log", "", false, false) }
-        assertFailsWith<IllegalArgumentException> { manager.matches("server.log", null, false, false) }
+        assertFailsWith<IllegalArgumentException> { manager.matches("server.log", "", false, false, 0L) }
+        assertFailsWith<IllegalArgumentException> { manager.matches("server.log", null, false, false, 0L) }
         assertFailsWith<IllegalArgumentException> {
-            manager.matches("server.log", "[unclosed", true, false)
+            manager.matches("server.log", "[unclosed", true, false, 0L)
         }
     }
 
@@ -1350,7 +1354,7 @@ class LogManagerTest {
         writeLog("server.log", log)
 
         // ? Nothing has counted anything yet, so the hit has no position to report.
-        val json = assertNotNull(manager.search("server.log", "line-5999", 0, true, false, false, 0))
+        val json = assertNotNull(manager.search("server.log", "line-5999", 0, true, false, false, 0, 0L))
         assertEquals(5999, number(json, "line"))
         assertTrue(json.contains(""""ordinal":null"""), json)
     }
@@ -1360,7 +1364,7 @@ class LogManagerTest {
         writeLog("server.log", entry("INFO", "alpha"))
         countMatches("server.log", "alpha")
 
-        val json = assertNotNull(manager.search("server.log", "alpha", 1, true, false, false, 0))
+        val json = assertNotNull(manager.search("server.log", "alpha", 1, true, false, false, 0, 0L))
 
         assertTrue(json.contains(""""line":null"""), json)
         assertTrue(json.contains(""""ordinal":null"""), json)
@@ -1431,14 +1435,14 @@ class LogManagerTest {
             ".",
             "",
         )) {
-            assertNull(manager.info(name, 0), "info accepted '$name'")
-            assertNull(manager.read(name, 0, 10, 0), "read accepted '$name'")
-            assertNull(manager.download(name), "download accepted '$name'")
+            assertNull(manager.info(name, 0, 0L), "info accepted '$name'")
+            assertNull(manager.read(name, 0, 10, 0, 0L), "read accepted '$name'")
+            assertNull(manager.download(name, 0L), "download accepted '$name'")
         }
 
-        assertNull(manager.info(null, 0))
-        assertNull(manager.read(null, 0, 10, 0))
-        assertNull(manager.download(null))
+        assertNull(manager.info(null, 0, 0L))
+        assertNull(manager.read(null, 0, 10, 0, 0L))
+        assertNull(manager.download(null, 0L))
     }
 
     //
@@ -1449,9 +1453,334 @@ class LogManagerTest {
     fun `download exposes the raw file bytes`() {
         writeLog("server.log", "one\ntwo\n")
 
-        val source = assertNotNull(manager.download("server.log"))
+        val source = assertNotNull(manager.download("server.log", 0L))
         assertEquals("one\ntwo\n", String(source.read(), Charsets.UTF_8))
-        assertNull(manager.download("missing.log"))
+        assertNull(manager.download("missing.log", 0L))
+    }
+
+    @Test
+    fun `download serves only the window when one is in effect`() {
+        writeLog(
+            "server.log",
+            at("08:00:00.000", "INFO", "first") +
+                at("09:00:00.000", "INFO", "second") +
+                at("09:30:00.000", "INFO", "third"),
+        )
+
+        val source = assertNotNull(manager.download("server.log", 1L))
+        assertEquals(
+            at("09:00:00.000", "INFO", "second") + at("09:30:00.000", "INFO", "third"),
+            String(source.read(), Charsets.UTF_8),
+        )
+    }
+
+    @Test
+    fun `download ignores a start past the end of the file`() {
+        writeLog("server.log", at("08:00:00.000", "INFO", "only"))
+
+        val source = assertNotNull(manager.download("server.log", 99L))
+        assertEquals("", String(source.read(), Charsets.UTF_8))
+    }
+
+    //
+    // * window
+    //
+
+    @Test
+    fun `timeText renders every digit of a millisecond-of-day`() {
+        assertEquals("00:00:00.000", timeText(0))
+        assertEquals("12:34:56.789", timeText(45_296_789))
+        assertEquals("23:59:59.999", timeText(86_399_999))
+        assertEquals("09:08:07.006", timeText(32_887_006))
+    }
+
+    @Test
+    fun `window clamps a nonsense span rather than refusing it`() {
+        writeLog("server.log", fourEntries())
+
+        // ? The API rejects these before the bean sees them, but the bean is a public XP surface
+        // ? of its own and a caller reaching it directly must not get an arbitrary cut.
+        assertEquals(manager.window("server.log", 1), manager.window("server.log", 0))
+        assertEquals(manager.window("server.log", 1), manager.window("server.log", -50))
+        assertEquals(WHOLE_FILE, manager.window("server.log", 10_000_000))
+    }
+
+    @Test
+    fun `window reaches past a stack trace longer than any lookback`() {
+        // ? Shaped so the first probe of the binary search lands deep inside the trace, thousands
+        // ? of lines below the entry that owns it — which is the only place a bounded walk back
+        // ? differs from an unbounded one.
+        val older = (0..99).joinToString("") { at("08:0${it / 60}:${(it % 60).toString().padStart(2, '0')}.000", "INFO", "old-$it") }
+        val frames = (1..9000).joinToString("") { "\tat com.example.Deep.run(Deep.java:$it)\n" }
+        writeLog(
+            "server.log",
+            older + at("09:00:00.000", "ERROR", "boom") + frames + at("09:10:00.000", "INFO", "after"),
+        )
+
+        // ! The ERROR opens the window, so the cut lands on it. A walk that gave up partway reads
+        // ! its frames as older than the cutoff and reports the entry *below* the whole trace,
+        // ! dropping the error the reader opened the window to see.
+        assertEquals("""{"line":100,"time":"09:00:00.000"}""", manager.window("server.log", 30))
+    }
+
+    @Test
+    fun `window cuts nothing on a file whose times do not ascend`() {
+        // ? Written across midnight: the closing entry is earlier in the day than the opening
+        // ? one, so nothing in the file orders the two halves and a binary search is meaningless.
+        writeLog(
+            "server.log",
+            at("22:00:00.000", "INFO", "yesterday") +
+                at("22:30:00.000", "INFO", "yesterday still") +
+                at("00:10:00.000", "INFO", "today") +
+                at("01:15:00.000", "INFO", "today later"),
+        )
+
+        assertEquals(WHOLE_FILE, manager.window("server.log", 15))
+    }
+
+    @Test
+    fun `window cuts at the first entry inside the span, measured from the last entry`() {
+        writeLog(
+            "server.log",
+            at("08:00:00.000", "INFO", "a") +
+                at("08:10:00.000", "INFO", "b") +
+                at("08:30:00.000", "INFO", "c") +
+                at("09:00:00.000", "INFO", "d"),
+        )
+
+        assertEquals(
+            """{"line":2,"time":"08:30:00.000"}""",
+            manager.window("server.log", 35),
+        )
+    }
+
+    @Test
+    fun `window cuts on an entry head, never into the stack trace under it`() {
+        writeLog(
+            "server.log",
+            at("08:00:00.000", "ERROR", "old") +
+                "\tat com.example.Old.run(Old.java:1)\n" +
+                "\tat com.example.Old.go(Old.java:2)\n" +
+                at("09:00:00.000", "ERROR", "new") +
+                "\tat com.example.New.run(New.java:1)\n" +
+                "\tat com.example.New.go(New.java:2)\n",
+        )
+
+        // ? The anchor is the trailing frame, which inherits 09:00 from the entry it continues.
+        assertEquals(
+            """{"line":3,"time":"09:00:00.000"}""",
+            manager.window("server.log", 30),
+        )
+    }
+
+    @Test
+    fun `window cuts nothing when the span covers the whole file`() {
+        writeLog(
+            "server.log",
+            at("08:00:00.000", "INFO", "a") + at("08:10:00.000", "INFO", "b"),
+        )
+
+        assertEquals(WHOLE_FILE, manager.window("server.log", 600))
+    }
+
+    @Test
+    fun `window cuts nothing when it would reach back past midnight`() {
+        writeLog(
+            "server.log",
+            at("00:10:00.000", "INFO", "a") + at("00:20:00.000", "INFO", "b"),
+        )
+
+        assertEquals(WHOLE_FILE, manager.window("server.log", 60))
+    }
+
+    @Test
+    fun `window cuts nothing when the file declares no entry to anchor to`() {
+        writeLog("server.log", "plain text\nmore plain text\n")
+
+        assertEquals(WHOLE_FILE, manager.window("server.log", 30))
+    }
+
+    @Test
+    fun `window reports nothing for an empty or missing file`() {
+        writeLog("server.log", "")
+
+        assertEquals(WHOLE_FILE, manager.window("server.log", 30))
+        assertNull(manager.window("missing.log", 30))
+    }
+
+    @Test
+    fun `read serves the window and numbers its lines physically`() {
+        writeLog("server.log", fourEntries())
+
+        val json = assertNotNull(manager.read("server.log", 0, 100, 0, 2L))
+
+        assertEquals(listOf("c", "d"), parseLines(json).map { it.substringAfterLast("- ") })
+        assertEquals(listOf(2, 3), parseNumbers(json))
+        assertEquals(2, number(json, "total"))
+    }
+
+    @Test
+    fun `read pages inside the window rather than from the start of the file`() {
+        writeLog("server.log", fourEntries())
+
+        val json = assertNotNull(manager.read("server.log", 1, 100, 0, 2L))
+
+        assertEquals(listOf("d"), parseLines(json).map { it.substringAfterLast("- ") })
+        assertEquals(listOf(3), parseNumbers(json))
+    }
+
+    @Test
+    fun `read emits no numbers when nothing narrows the view`() {
+        writeLog("server.log", fourEntries())
+
+        assertEquals(emptyList(), parseNumbers(assertNotNull(manager.read("server.log", 0, 100, 0, 0L))))
+    }
+
+    @Test
+    fun `info counts the lines the window leaves`() {
+        writeLog("server.log", fourEntries())
+
+        val json = assertNotNull(manager.info("server.log", 0, 2L))
+
+        assertEquals(4, number(json, "lines"))
+        assertEquals(2, number(json, "filtered"))
+    }
+
+    @Test
+    fun `window and level filter narrow the same view together`() {
+        writeLog(
+            "server.log",
+            at("08:00:00.000", "INFO", "a") +
+                at("08:10:00.000", "ERROR", "b") +
+                at("08:20:00.000", "INFO", "c") +
+                at("08:30:00.000", "ERROR", "d"),
+        )
+        val errors = mask(LEVEL_ERROR)
+
+        assertEquals(2, number(assertNotNull(manager.info("server.log", errors, 0L)), "filtered"))
+
+        val json = assertNotNull(manager.read("server.log", 0, 100, errors, 2L))
+        assertEquals(listOf(3), parseNumbers(json))
+        assertEquals(1, number(json, "total"))
+        assertEquals(1, number(assertNotNull(manager.info("server.log", errors, 2L)), "filtered"))
+    }
+
+    @Test
+    fun `locate rebases a line onto the window and reports one above it as hidden`() {
+        writeLog("server.log", fourEntries())
+
+        assertEquals("""{"position":1,"visible":true}""", manager.locate("server.log", 0, 3, 2L))
+        assertEquals("""{"position":0,"visible":true}""", manager.locate("server.log", 0, 2, 2L))
+        assertEquals("""{"position":0,"visible":false}""", manager.locate("server.log", 0, 0, 2L))
+    }
+
+    @Test
+    fun `locate rebases onto a window and a level filter at once`() {
+        writeLog(
+            "server.log",
+            at("08:00:00.000", "ERROR", "a") +
+                at("08:10:00.000", "INFO", "b") +
+                at("08:20:00.000", "ERROR", "c") +
+                at("08:30:00.000", "ERROR", "d"),
+        )
+        val errors = mask(LEVEL_ERROR)
+
+        assertEquals("""{"position":0,"visible":true}""", manager.locate("server.log", errors, 2, 2L))
+        assertEquals("""{"position":1,"visible":true}""", manager.locate("server.log", errors, 3, 2L))
+        // ? Line 0 is an ERROR the mask admits, so only the window is keeping it off screen.
+        assertEquals("""{"position":0,"visible":false}""", manager.locate("server.log", errors, 0, 2L))
+    }
+
+    @Test
+    fun `search finds nothing above the window`() {
+        writeLog(
+            "server.log",
+            at("08:00:00.000", "INFO", "needle") +
+                at("08:10:00.000", "INFO", "b") +
+                at("08:20:00.000", "INFO", "c"),
+        )
+
+        val json = assertNotNull(
+            manager.search("server.log", "needle", 2, false, false, false, 0, 1L),
+        )
+        assertTrue(json.contains("\"line\":null"), json)
+
+        val whole = assertNotNull(
+            manager.search("server.log", "needle", 2, false, false, false, 0, 0L),
+        )
+        assertEquals(0, number(whole, "line"))
+    }
+
+    @Test
+    fun `an indexed search finds nothing above the window either`() {
+        writeLog(
+            "server.log",
+            at("08:00:00.000", "INFO", "needle") +
+                at("08:10:00.000", "INFO", "b") +
+                at("08:20:00.000", "INFO", "needle"),
+        )
+        completeCount("needle")
+
+        val windowed = assertNotNull(
+            manager.search("server.log", "needle", 2, false, false, false, 0, 1L),
+        )
+        assertEquals(2, number(windowed, "line"))
+
+        val backward = assertNotNull(
+            manager.search("server.log", "needle", 1, false, false, false, 0, 1L),
+        )
+        assertTrue(backward.contains("\"line\":null"), backward)
+    }
+
+    @Test
+    fun `match counts report only the hits inside the window`() {
+        writeLog(
+            "server.log",
+            at("08:00:00.000", "INFO", "needle") +
+                at("08:10:00.000", "ERROR", "needle") +
+                at("08:20:00.000", "ERROR", "needle"),
+        )
+        completeCount("needle")
+
+        val whole = assertNotNull(manager.matches("server.log", "needle", false, false, 0L))
+        assertEquals(3, number(whole, "total"))
+
+        val windowed = assertNotNull(manager.matches("server.log", "needle", false, false, 2L))
+        assertEquals(1, number(windowed, "total"))
+        assertEquals(listOf(0, 0, 0, 0, 0, 1), parseLevelCounts(windowed))
+        // ! The scan itself is never narrowed, so a client polling on these still converges.
+        assertEquals(3, number(windowed, "scanned"))
+        assertEquals(3, number(windowed, "lines"))
+    }
+
+    @Test
+    fun `a match ordinal counts from the start of the window`() {
+        writeLog(
+            "server.log",
+            at("08:00:00.000", "INFO", "needle") +
+                at("08:10:00.000", "INFO", "needle") +
+                at("08:20:00.000", "INFO", "needle"),
+        )
+        completeCount("needle")
+
+        val whole = assertNotNull(
+            manager.search("server.log", "needle", 2, true, false, false, 0, 0L),
+        )
+        assertEquals(2, number(whole, "ordinal"))
+
+        val windowed = assertNotNull(
+            manager.search("server.log", "needle", 2, true, false, false, 0, 1L),
+        )
+        assertEquals(1, number(windowed, "ordinal"))
+    }
+
+    @Test
+    fun `a start past the end of the file leaves an empty view`() {
+        writeLog("server.log", fourEntries())
+
+        assertEquals(0, number(assertNotNull(manager.info("server.log", 0, 99L)), "filtered"))
+        assertEquals(emptyList(), parseLines(assertNotNull(manager.read("server.log", 0, 100, 0, 99L))))
+        assertEquals("""{"position":0,"visible":false}""", manager.locate("server.log", 0, 0, 99L))
     }
 
     //
@@ -1472,7 +1801,7 @@ class LogManagerTest {
     }
 
     private fun readLines(name: String, from: Long, count: Int): List<String> {
-        val json = assertNotNull(manager.read(name, from, count, 0))
+        val json = assertNotNull(manager.read(name, from, count, 0, 0L))
         return parseLines(json)
     }
 
@@ -1480,11 +1809,35 @@ class LogManagerTest {
     private fun entry(level: String, message: String): String =
         "08:00:00.000 ${level.padEnd(5)} c.e.x.Test - $message\n"
 
+    private fun at(time: String, level: String, message: String): String =
+        "$time ${level.padEnd(5)} c.e.x.Test - $message\n"
+
+    private fun fourEntries(): String =
+        at("08:00:00.000", "INFO", "a") +
+            at("08:10:00.000", "INFO", "b") +
+            at("08:20:00.000", "INFO", "c") +
+            at("08:30:00.000", "INFO", "d")
+
+    /** Runs the count for [query] to completion, which is what puts searches on the indexed path. */
+    private fun completeCount(query: String) {
+        repeat(MAX_MATCH_SCANS * 8) {
+            val json = assertNotNull(manager.matches("server.log", query, false, false, 0L))
+            if (json.contains("\"complete\":true")) return
+        }
+        throw AssertionError("count for '$query' never completed")
+    }
+
+    private fun parseLevelCounts(json: String): List<Int> {
+        val marker = "\"levels\":["
+        val start = json.indexOf(marker) + marker.length
+        return json.substring(start, json.indexOf(']', start)).split(',').map { it.toInt() }
+    }
+
     private fun mask(vararg levels: Byte): Int =
         levels.fold(0) { acc, level -> acc or (1 shl level.toInt()) }
 
     private fun filteredNumbers(name: String, mask: Int): List<Int> =
-        parseNumbers(assertNotNull(manager.read(name, 0, 100, mask)))
+        parseNumbers(assertNotNull(manager.read(name, 0, 100, mask, 0L)))
 
     private fun parseNumbers(json: String): List<Int> {
         val marker = "],\"numbers\":["
@@ -1517,7 +1870,7 @@ class LogManagerTest {
         caseSensitive: Boolean,
         mask: Int,
     ): Long {
-        val json = manager.search(name, query, from, forward, regex, caseSensitive, mask)
+        val json = manager.search(name, query, from, forward, regex, caseSensitive, mask, 0L)
             ?: return LOG_NOT_FOUND
         if (json.contains(""""status":"aborted"""")) return LOG_SEARCH_ABORTED
         if (json.contains(""""status":"stale"""")) return LOG_SEARCH_STALE
@@ -1526,7 +1879,7 @@ class LogManagerTest {
 
     /** The `ordinal` a search for [query] reports when it lands on [line]. */
     private fun ordinalOf(name: String, query: String, line: Long, mask: Int): Long {
-        val json = assertNotNull(manager.search(name, query, line, true, false, false, mask))
+        val json = assertNotNull(manager.search(name, query, line, true, false, false, mask, 0L))
         assertEquals(line, number(json, "line"))
         return number(json, "ordinal")
     }
@@ -1538,10 +1891,10 @@ class LogManagerTest {
         regex: Boolean = false,
         caseSensitive: Boolean = false,
     ): String {
-        var json = manager.matches(name, query, regex, caseSensitive).orEmpty()
+        var json = manager.matches(name, query, regex, caseSensitive, 0L).orEmpty()
         var guard = 0
         while (json.contains(""""complete":false""") && guard++ < 100) {
-            json = manager.matches(name, query, regex, caseSensitive).orEmpty()
+            json = manager.matches(name, query, regex, caseSensitive, 0L).orEmpty()
         }
         return json
     }
