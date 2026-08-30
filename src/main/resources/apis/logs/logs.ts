@@ -28,14 +28,14 @@ export type LogInfo = {
   modified: string;
   lines: number;
   levels: LogLevelCounts;
-  /** Lines the requested levels admit; absent when no filter is active. */
+  /** Lines the view holds under the level filter and the window; absent when neither narrows it. */
   filtered?: number;
 };
 
 export type LogLines = {
   from: number;
   lines: string[];
-  /** Physical line number of each entry in `lines`; absent when no filter is active. */
+  /** Physical line number of each entry in `lines`; absent when the view is the whole file. */
   numbers?: number[];
   total: number;
   size: number;
@@ -44,6 +44,12 @@ export type LogLines = {
 export type LogLocation = {
   position: number;
   visible: boolean;
+};
+
+/** Where a time window begins. `time` is `null` when nothing was cut. */
+export type LogWindow = {
+  line: number;
+  time: string | null;
 };
 
 /**
@@ -84,6 +90,10 @@ const MIN_COUNT = 1;
 const MAX_COUNT = 1000;
 const MAX_QUERY_LENGTH = 500;
 const MAX_LEVELS_LENGTH = 64;
+
+// ! Must stay in step with `MAX_WINDOW_MINUTES` in `LogManager.kt`, which clamps to it anyway;
+// ! rejecting here is what turns a nonsense window into a message rather than a silent clamp.
+const MAX_WINDOW_MINUTES = 7 * 24 * 60;
 
 // ! Bit positions must match the level codes in `LogManager.kt`.
 const LEVEL_BITS: Record<string, number | undefined> = {
@@ -150,28 +160,43 @@ function listFiles(): Response {
   return jsonResponse({ files });
 }
 
-function readInfo(file: string, mask: number): Response {
-  const json = logManager.info(file, mask);
+function resolveWindow(req: Request, file: string): Response {
+  const minutes = parseNumber(getParam(req, 'minutes'), 0);
+  if (minutes < 1 || minutes > MAX_WINDOW_MINUTES) {
+    return errorResponse(
+      400,
+      `minutes must be between 1 and ${MAX_WINDOW_MINUTES}`,
+      'VALIDATION_ERROR',
+    );
+  }
+
+  const json = logManager.window(file, minutes);
+  if (json == null) return notFound(file);
+  return jsonResponse(JSON.parse(json) as LogWindow);
+}
+
+function readInfo(file: string, mask: number, start: number): Response {
+  const json = logManager.info(file, mask, start);
   if (json == null) return notFound(file);
   return jsonResponse(JSON.parse(json) as LogInfo);
 }
 
-function readLines(req: Request, file: string, mask: number): Response {
+function readLines(req: Request, file: string, mask: number, start: number): Response {
   const from = Math.max(0, parseNumber(getParam(req, 'from'), 0));
   const count = clamp(parseNumber(getParam(req, 'count'), DEFAULT_COUNT), MIN_COUNT, MAX_COUNT);
 
-  const json = logManager.read(file, from, count, mask);
+  const json = logManager.read(file, from, count, mask, start);
   if (json == null) return notFound(file);
   return jsonResponse(JSON.parse(json) as LogLines);
 }
 
-function locateLine(req: Request, file: string, mask: number): Response {
+function locateLine(req: Request, file: string, mask: number, start: number): Response {
   const line = getParam(req, 'line');
   if (line == null || line.length === 0) {
     return errorResponse(400, 'line is required', 'VALIDATION_ERROR');
   }
 
-  const json = logManager.locate(file, mask, Math.max(0, parseNumber(line, 0)));
+  const json = logManager.locate(file, mask, Math.max(0, parseNumber(line, 0)), start);
   if (json == null) return notFound(file);
   return jsonResponse(JSON.parse(json) as LogLocation);
 }
@@ -223,7 +248,7 @@ function scanStatus(status: string): Response | null {
   return null;
 }
 
-function searchLines(req: Request, file: string, mask: number): Response {
+function searchLines(req: Request, file: string, mask: number, start: number): Response {
   const query = requireQuery(req);
   if (typeof query !== 'string') return query;
 
@@ -246,6 +271,7 @@ function searchLines(req: Request, file: string, mask: number): Response {
       regex,
       caseSensitive,
       mask,
+      start,
     );
   } catch (e) {
     return scanFailure(e);
@@ -257,7 +283,7 @@ function searchLines(req: Request, file: string, mask: number): Response {
   return scanStatus(status) ?? jsonResponse<LogSearchResult>(result);
 }
 
-function countMatches(req: Request, file: string): Response {
+function countMatches(req: Request, file: string, start: number): Response {
   const query = requireQuery(req);
   if (typeof query !== 'string') return query;
 
@@ -266,7 +292,7 @@ function countMatches(req: Request, file: string): Response {
 
   let json: string | null;
   try {
-    json = logManager.matches(file, query, regex, caseSensitive);
+    json = logManager.matches(file, query, regex, caseSensitive, start);
   } catch (e) {
     return scanFailure(e);
   }
@@ -277,8 +303,18 @@ function countMatches(req: Request, file: string): Response {
   return scanStatus(status) ?? jsonResponse<LogMatchCount>(result);
 }
 
-function downloadFile(file: string): Response {
-  const stream = logManager.download(file);
+/**
+ * A windowed download is a different file from the one it was cut out of, so it is named for the
+ * line it starts on — in the 1-based numbering the viewer's gutter shows. Derived from the parsed
+ * number rather than from any parameter text, which is what keeps the header uninjectable.
+ */
+function downloadName(file: string, start: number): string {
+  if (start <= 0) return file;
+  return `${file.slice(0, -'.log'.length)}.from-${start + 1}.log`;
+}
+
+function downloadFile(file: string, start: number): Response {
+  const stream = logManager.download(file, start);
   if (stream == null) return notFound(file);
 
   return {
@@ -286,7 +322,7 @@ function downloadFile(file: string): Response {
     contentType: 'text/plain; charset=utf-8',
     body: stream,
     headers: {
-      'Content-Disposition': `attachment; filename="${file}"`,
+      'Content-Disposition': `attachment; filename="${downloadName(file, start)}"`,
     },
   };
 }
@@ -322,13 +358,16 @@ export function get(req: Request): Response {
     );
   }
 
+  const start = Math.max(0, parseNumber(getParam(req, 'start'), 0));
+
   try {
-    if (action == null) return readLines(req, file, mask);
-    if (action === 'info') return readInfo(file, mask);
-    if (action === 'search') return searchLines(req, file, mask);
-    if (action === 'matches') return countMatches(req, file);
-    if (action === 'locate') return locateLine(req, file, mask);
-    if (action === 'download') return downloadFile(file);
+    if (action == null) return readLines(req, file, mask, start);
+    if (action === 'window') return resolveWindow(req, file);
+    if (action === 'info') return readInfo(file, mask, start);
+    if (action === 'search') return searchLines(req, file, mask, start);
+    if (action === 'matches') return countMatches(req, file, start);
+    if (action === 'locate') return locateLine(req, file, mask, start);
+    if (action === 'download') return downloadFile(file, start);
     return errorResponse(400, `Unknown action '${action}'`, 'VALIDATION_ERROR');
   } catch (e) {
     return errorResponse(500, String(e), 'INTERNAL_ERROR');

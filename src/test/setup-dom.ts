@@ -49,6 +49,17 @@ if (typeof window !== 'undefined') {
     }
   };
 
+  // Radix Select drives its trigger through Pointer Events and scrolls the active option into
+  // view. jsdom implements neither, so opening one throws before a test can pick anything.
+  if (typeof Element.prototype.hasPointerCapture !== 'function') {
+    Element.prototype.hasPointerCapture = () => false;
+    Element.prototype.setPointerCapture = () => {};
+    Element.prototype.releasePointerCapture = () => {};
+  }
+  if (typeof Element.prototype.scrollIntoView !== 'function') {
+    Element.prototype.scrollIntoView = () => {};
+  }
+
   // jsdom 28 uses Node.js built-in localStorage which lacks standard methods
   if (typeof localStorage === 'undefined' || typeof localStorage.getItem !== 'function') {
     const store = new Map<string, string>();

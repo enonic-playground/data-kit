@@ -64,6 +64,17 @@ const LOG_LINES = [
 
 const ROTATED_FILE = 'server.2026-08-26.0.log';
 
+// ? Where the fixture's window lands: on the ERROR entry, so a cut drops the INFO line above it
+// ? and keeps the entry with its stack frame.
+const CUT_LINE = 1;
+const CUT_TIME = '10:23:46.001';
+
+/** What each span resolves to against the fixture. Only 15 minutes reaches past the first line. */
+function windowFor(minutes: number): { line: number; time: string | null } {
+  if (minutes <= 15) return { line: CUT_LINE, time: CUT_TIME };
+  return { line: 0, time: null };
+}
+
 const LOG_FILES = [
   {
     name: 'server.log',
@@ -97,11 +108,25 @@ function requestedLevels(params: Params): string[] | null {
   return names.length === LINE_LEVELS.length + 2 ? null : names;
 }
 
+/** First physical line the time window admits. */
+function windowStart(params: Params): number {
+  const raw = Number.parseInt(params.start ?? '0', 10);
+  return Number.isFinite(raw) ? raw : 0;
+}
+
+/** Whether either of the two things that narrow a view is in effect. */
+function narrowed(params: Params): boolean {
+  return requestedLevels(params) != null || windowStart(params) > 0;
+}
+
 /** Physical line numbers the request admits, in order. */
 function visibleLines(params: Params): number[] {
   const names = requestedLevels(params);
-  if (names == null) return LOG_LINES.map((_, index) => index);
-  return LINE_LEVELS.flatMap((level, index) => (names.includes(level) ? [index] : []));
+  const admitted =
+    names == null
+      ? LOG_LINES.map((_, index) => index)
+      : LINE_LEVELS.flatMap((level, index) => (names.includes(level) ? [index] : []));
+  return admitted.filter((index) => index >= windowStart(params));
 }
 
 // ! Level codes, not positions in LINE_LEVELS — the wire format indexes `levels` by the code in
@@ -116,8 +141,8 @@ function allMatches(query: string): number[] {
 
 /** The whole-file count fields both scanning actions carry. The fixture is small enough to
  *  finish in one slice, so `complete` is always true. */
-function matchProgress(query: string): Record<string, unknown> {
-  const matches = allMatches(query);
+function matchProgress(query: string, start = 0): Record<string, unknown> {
+  const matches = allMatches(query).filter((index) => index >= start);
   const levels = [0, 0, 0, 0, 0, 0];
   for (const index of matches) levels[LEVEL_CODES[LINE_LEVELS[index]]] += 1;
   return {
@@ -138,7 +163,7 @@ function respond(params: Params): unknown {
       lines: LOG_LINES.length,
       levels: LEVEL_COUNTS,
     };
-    if (requestedLevels(params) != null) info.filtered = visibleLines(params).length;
+    if (narrowed(params)) info.filtered = visibleLines(params).length;
     return info;
   }
   if (params.action === 'locate') {
@@ -151,8 +176,13 @@ function respond(params: Params): unknown {
       visible: false,
     };
   }
+  if (params.action === 'window') {
+    // ? Each preset cuts to a different line, so a test can tell which one was actually asked
+    // ? for — a mock answering every span alike would pass a hardcoded or mis-mapped preset.
+    return windowFor(Number.parseInt(params.minutes ?? '0', 10));
+  }
   if (params.action === 'matches') {
-    return matchProgress(params.query ?? '');
+    return matchProgress(params.query ?? '', windowStart(params));
   }
   if (params.action === 'search') {
     const from = Number.parseInt(params.from ?? '0', 10);
@@ -169,12 +199,12 @@ function respond(params: Params): unknown {
       found == null
         ? null
         : allMatches(query).filter((index) => index < found && visible.includes(index)).length;
-    return { ...matchProgress(query), line: found ?? null, ordinal };
+    return { ...matchProgress(query, windowStart(params)), line: found ?? null, ordinal };
   }
   if (params.file != null) {
     const visible = visibleLines(params);
     const lines = visible.map((index) => LOG_LINES[index]);
-    if (requestedLevels(params) == null) {
+    if (!narrowed(params)) {
       return { from: 0, lines, total: lines.length, size: 2048 };
     }
     return { from: 0, lines, numbers: visible, total: visible.length, size: 2048 };
@@ -284,6 +314,20 @@ function matchCalls(): Params[] {
     .mocked(apiFetch)
     .mock.calls.map((call) => (call[1] as { params?: Params })?.params ?? {})
     .filter((params) => params.action === 'matches');
+}
+
+/** Opens the time-window menu and picks one of its items. */
+async function cutTo(user: UserEvent, item: string): Promise<void> {
+  await user.click(within(getLogsPage()).getByRole('button', { name: 'Time window' }));
+  await user.click(await screen.findByRole('menuitem', { name: item }));
+}
+
+/** Params of every window request made so far, oldest first. */
+function windowCalls(): Params[] {
+  return vi
+    .mocked(apiFetch)
+    .mock.calls.map(([, options]) => (options as { params?: Params } | undefined)?.params ?? {})
+    .filter((params) => params.action === 'window');
 }
 
 function getLogsPage(): HTMLElement {
@@ -1207,7 +1251,7 @@ describe('LogsPage', () => {
     await user.click(page.getByRole('button', { name: 'Go' }));
 
     await waitFor(() => {
-      expect(page.getByText('Line 1 is hidden by the filter')).toBeInTheDocument();
+      expect(page.getByText('Line 1 is not in the current view')).toBeInTheDocument();
     });
   });
 
@@ -1251,7 +1295,7 @@ describe('LogsPage', () => {
     await user.click(page.getByRole('button', { name: 'Go' }));
 
     await waitFor(() => {
-      expect(page.getByText('Line 1 is hidden by the filter')).toBeInTheDocument();
+      expect(page.getByText('Line 1 is not in the current view')).toBeInTheDocument();
     });
 
     await user.click(within(getLogsPage()).getByRole('button', { name: 'Log levels' }));
@@ -1260,7 +1304,7 @@ describe('LogsPage', () => {
     await waitFor(() => {
       expect(screen.getByText('3 lines')).toBeInTheDocument();
     });
-    expect(page.queryByText('Line 1 is hidden by the filter')).not.toBeInTheDocument();
+    expect(page.queryByText('Line 1 is not in the current view')).not.toBeInTheDocument();
   });
 
   it('should keep the reading position across a burst of level toggles', async () => {
@@ -1524,5 +1568,221 @@ describe('LogsPage', () => {
     await waitFor(() => {
       expect(screen.getByText('No log files')).toBeInTheDocument();
     });
+  });
+
+  it('should cut the view to a time window and label the trigger with the cut', async () => {
+    const { user } = renderRoute({ initialLocation: '/logs' });
+
+    await waitFor(() => {
+      expect(screen.getByText('3 lines')).toBeInTheDocument();
+    });
+    expect(screen.getByText(/Started dispatcher/)).toBeInTheDocument();
+
+    await cutTo(user, 'Last 15 minutes');
+
+    await waitFor(() => {
+      expect(screen.getByText('2 of 3 lines')).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/Started dispatcher/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Failed to run script/)).toBeInTheDocument();
+    expect(within(getLogsPage()).getByRole('button', { name: 'Time window' })).toHaveTextContent(
+      'Since 10:23',
+    );
+  });
+
+  it('should keep the gutter on physical line numbers under a window', async () => {
+    const { user } = renderRoute({ initialLocation: '/logs' });
+
+    await waitFor(() => {
+      expect(screen.getByText('3 lines')).toBeInTheDocument();
+    });
+
+    await cutTo(user, 'Last 15 minutes');
+
+    await waitFor(() => {
+      expect(screen.getByText('2 of 3 lines')).toBeInTheDocument();
+    });
+    const rows = getLogsPage().querySelectorAll('[data-component="LogRow"]');
+    expect(rows[0]).toHaveAttribute('data-line', '2');
+    expect(rows[1]).toHaveAttribute('data-line', '3');
+  });
+
+  it('should restore the whole file when the window is cleared', async () => {
+    const { user } = renderRoute({ initialLocation: '/logs' });
+
+    await waitFor(() => {
+      expect(screen.getByText('3 lines')).toBeInTheDocument();
+    });
+
+    await cutTo(user, 'Last 15 minutes');
+    await waitFor(() => {
+      expect(screen.getByText('2 of 3 lines')).toBeInTheDocument();
+    });
+
+    await cutTo(user, 'Full file');
+
+    await waitFor(() => {
+      expect(screen.getByText('3 lines')).toBeInTheDocument();
+    });
+    expect(screen.getByText(/Started dispatcher/)).toBeInTheDocument();
+    expect(within(getLogsPage()).getByRole('button', { name: 'Time window' })).toHaveTextContent(
+      'Full file',
+    );
+  });
+
+  it('should point the download at the window once one is cut', async () => {
+    const { user } = renderRoute({ initialLocation: '/logs' });
+
+    await waitFor(() => {
+      expect(screen.getByText('3 lines')).toBeInTheDocument();
+    });
+
+    const page = within(getLogsPage());
+    expect(page.getByRole('link', { name: 'Download log file' })).toHaveAttribute(
+      'href',
+      '/api/logs?file=server.log&action=download',
+    );
+
+    await cutTo(user, 'Last 15 minutes');
+
+    await waitFor(() => {
+      expect(page.getByRole('link', { name: 'Download from the cut' })).toHaveAttribute(
+        'href',
+        '/api/logs?file=server.log&action=download&start=1',
+      );
+    });
+  });
+
+  it('should send the span the reader picked, and cut nothing for one that covers the file', async () => {
+    const { user } = renderRoute({ initialLocation: '/logs' });
+
+    await waitFor(() => {
+      expect(screen.getByText('3 lines')).toBeInTheDocument();
+    });
+
+    await cutTo(user, 'Last 15 minutes');
+    await waitFor(() => {
+      expect(screen.getByText('2 of 3 lines')).toBeInTheDocument();
+    });
+    expect(windowCalls().map((params) => params.minutes)).toEqual(['15']);
+
+    // ? A span wider than the file resolves to no cut, which is a real answer rather than a
+    // ? failure — the reader is told, and the view goes back to the whole file.
+    await cutTo(user, 'Last 6 hours');
+    await waitFor(() => {
+      expect(screen.getByText('3 lines')).toBeInTheDocument();
+    });
+    expect(windowCalls().map((params) => params.minutes)).toEqual(['15', '360']);
+    expect(within(getLogsPage()).getByRole('button', { name: 'Time window' })).toHaveTextContent(
+      'Full file',
+    );
+  });
+
+  it('should say so when a go-to-line lands above the cut', async () => {
+    const { user } = renderRoute({ initialLocation: '/logs' });
+
+    await waitFor(() => {
+      expect(screen.getByText('3 lines')).toBeInTheDocument();
+    });
+
+    await cutTo(user, 'Last 15 minutes');
+    await waitFor(() => {
+      expect(screen.getByText('2 of 3 lines')).toBeInTheDocument();
+    });
+
+    const page = within(getLogsPage());
+    await user.type(page.getByLabelText('Go to line'), '1');
+    await user.click(page.getByRole('button', { name: 'Go' }));
+
+    // ! Line 1 is above the cut, so the jump cannot honour it. Retargeting to the first line of
+    // ! the window without a word would report success for a line the view no longer holds.
+    await waitFor(() => {
+      expect(page.getByText('Line 1 is not in the current view')).toBeInTheDocument();
+    });
+  });
+
+  it('should drop the window when the file rotates under it', async () => {
+    let lines = [...LOG_LINES];
+    vi.mocked(apiFetch).mockImplementation(((
+      _apiUrl: string,
+      options?: { params?: Params },
+    ): Promise<unknown> => {
+      const params = options?.params ?? {};
+      if (params.file == null && params.action == null)
+        return Promise.resolve({ files: LOG_FILES });
+      if (params.action === 'window') {
+        return Promise.resolve(windowFor(Number.parseInt(params.minutes ?? '0', 10)));
+      }
+      if (params.action === 'info') {
+        return Promise.resolve({
+          name: params.file,
+          size: lines.length * 64,
+          modified: '2026-08-27T10:23:46Z',
+          lines: lines.length,
+          levels: LEVEL_COUNTS,
+          ...(windowStart(params) > 0
+            ? { filtered: Math.max(0, lines.length - windowStart(params)) }
+            : {}),
+        });
+      }
+      const visible = lines.map((_, index) => index).filter((i) => i >= windowStart(params));
+      return Promise.resolve({
+        from: 0,
+        lines: visible.map((index) => lines[index]),
+        ...(windowStart(params) > 0 ? { numbers: visible } : {}),
+        total: visible.length,
+        size: lines.length * 64,
+      });
+    }) as unknown as typeof apiFetch);
+
+    const { user } = renderRoute({ initialLocation: '/logs' });
+
+    await waitFor(() => {
+      expect(screen.getByText('3 lines')).toBeInTheDocument();
+    });
+
+    await cutTo(user, 'Last 15 minutes');
+    await waitFor(() => {
+      expect(screen.getByText('2 of 3 lines')).toBeInTheDocument();
+    });
+
+    // ! Rotation replaces the contents under the same name, so nothing about the selection
+    // ! changes — but the held line now points into a file that is gone. Left in place it
+    // ! renders an empty view with no hint of why.
+    lines = ['10:24:01.000 INFO  com.enonic.xp.Startup - Fresh file'];
+
+    await waitFor(
+      () => {
+        expect(screen.getByText('1 lines')).toBeInTheDocument();
+      },
+      { timeout: 4000 },
+    );
+    expect(within(getLogsPage()).getByRole('button', { name: 'Time window' })).toHaveTextContent(
+      'Full file',
+    );
+    expect(screen.getByText(/Fresh file/)).toBeInTheDocument();
+  });
+
+  it('should drop the window when another file is opened', async () => {
+    const { user } = renderRoute({ initialLocation: '/logs' });
+
+    await waitFor(() => {
+      expect(screen.getByText('3 lines')).toBeInTheDocument();
+    });
+
+    await cutTo(user, 'Last 15 minutes');
+    await waitFor(() => {
+      expect(screen.getByText('2 of 3 lines')).toBeInTheDocument();
+    });
+
+    await user.click(within(getLogsPage()).getByRole('combobox', { name: 'Select log file' }));
+    await user.click(await screen.findByRole('option', { name: new RegExp(ROTATED_FILE) }));
+
+    await waitFor(() => {
+      expect(screen.getByText('3 lines')).toBeInTheDocument();
+    });
+    expect(within(getLogsPage()).getByRole('button', { name: 'Time window' })).toHaveTextContent(
+      'Full file',
+    );
   });
 });

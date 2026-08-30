@@ -95,6 +95,15 @@ private const val NINE = '9'.code.toByte()
 // ? array of a filtered response cannot push it past the cap.
 private const val NUMBER_COST = 12L
 
+private const val NO_TIME = -1
+private const val MILLIS_PER_MINUTE = 60_000L
+private const val MAX_WINDOW_MINUTES = 7 * 24 * 60
+
+
+// ? What a window that cuts nothing reports: no line was skipped, so there is no cut time to
+// ? label it with.
+private const val WINDOW_WHOLE_FILE = """{"line":0,"time":null}"""
+
 private const val NEWLINE = '\n'.code.toByte()
 private const val CARRIAGE_RETURN = '\r'.code.toByte()
 
@@ -200,33 +209,49 @@ class LogManager {
     }
 
     /**
-     * File metadata plus a per-level line count. When [mask] selects a strict subset of the
-     * levels it also carries `filtered`, the number of lines that view holds.
+     * Physical line the last [minutes] of the file begin at, as `{"line":L,"time":T}`, where `T`
+     * is that line's `HH:mm:ss.SSS`. Both `0` and `null` when the whole file is inside the
+     * window, which is also the answer for one that reaches back past midnight — a log line
+     * carries no date, so nothing orders two lines across that boundary.
+     *
+     * The result is a line number the caller then holds and sends back as `start`. Resolving it
+     * once is what keeps the view stable: a window recomputed per request would drop lines off
+     * its front as the file grew, and every position the client had cached would shift under it.
      */
-    fun info(name: String?, mask: Int): String? {
+    fun window(name: String?, minutes: Int): String? {
         val file = resolveLogFile(name) ?: return null
-        return LogIndexCache.get(file).infoJson(file.fileName.toString(), mask)
+        return LogIndexCache.get(file).windowJson(minutes.coerceIn(1, MAX_WINDOW_MINUTES))
+    }
+
+    /**
+     * File metadata plus a per-level line count. When [mask] selects a strict subset of the
+     * levels, or [start] cuts the head off the file, it also carries `filtered` — the number of
+     * lines the resulting view holds.
+     */
+    fun info(name: String?, mask: Int, start: Long): String? {
+        val file = resolveLogFile(name) ?: return null
+        return LogIndexCache.get(file).infoJson(file.fileName.toString(), mask, start)
     }
 
     /**
      * A page of lines. [from] and the reported total count physical lines when [mask] admits
-     * every level, and positions in the filtered view otherwise — in which case the response
-     * also carries the physical line number of each line it returns.
+     * every level and [start] is `0`, and positions in the narrowed view otherwise — in which
+     * case the response also carries the physical line number of each line it returns.
      */
-    fun read(name: String?, from: Long, count: Int, mask: Int): String? {
+    fun read(name: String?, from: Long, count: Int, mask: Int, start: Long): String? {
         val file = resolveLogFile(name) ?: return null
-        return LogIndexCache.get(file).readJson(from, count, maxReadBytes, mask)
+        return LogIndexCache.get(file).readJson(from, count, maxReadBytes, mask, start)
     }
 
     /**
-     * Where physical line [line] sits in the filtered view, as `{"position":P,"visible":B}`. A
-     * line the filter hides reports the nearest visible position instead, so a search hit
-     * outside the filter still puts the viewport somewhere sensible. `null` when the file name
-     * is invalid or the file is missing.
+     * Where physical line [line] sits in the narrowed view, as `{"position":P,"visible":B}`. A
+     * line the filter hides, or one above [start], reports the nearest visible position instead,
+     * so a search hit outside the view still puts the viewport somewhere sensible. `null` when
+     * the file name is invalid or the file is missing.
      */
-    fun locate(name: String?, mask: Int, line: Long): String? {
+    fun locate(name: String?, mask: Int, line: Long, start: Long): String? {
         val file = resolveLogFile(name) ?: return null
-        return LogIndexCache.get(file).locateJson(mask, line)
+        return LogIndexCache.get(file).locateJson(mask, line, start)
     }
 
     /**
@@ -238,7 +263,8 @@ class LogManager {
      * rewritten under it. Throws [IllegalArgumentException] for an empty query or an invalid
      * regular expression.
      *
-     * A match is only ever a line [mask] admits, so the caller can always put the hit on screen.
+     * A match is only ever a line [mask] admits and [start] reaches, so the caller can always put
+     * the hit on screen.
      */
     fun search(
         name: String?,
@@ -248,6 +274,7 @@ class LogManager {
         regex: Boolean,
         caseSensitive: Boolean,
         mask: Int,
+        start: Long,
     ): String? {
         val matcher = lineMatcher(query, regex, caseSensitive, matchBudgetMillis, maxRepetitionProduct)
         val key = matchKeyOf(query.orEmpty(), regex, caseSensitive)
@@ -256,17 +283,17 @@ class LogManager {
 
         // ? A complete match index answers from memory, so stepping through hits costs a binary
         // ? search rather than a scan of the file. That is what the count pays for.
-        index.searchIndexed(key, mask, from, forward)?.let { return it }
+        index.searchIndexed(key, mask, from, forward, start)?.let { return it }
 
         val line = guarded(searchPool, searchBudgetMillis, file) {
-            index.search(matcher, mask, from, forward, searchBudgetMillis)
+            index.search(matcher, mask, from, forward, searchBudgetMillis, start)
         }
 
         if (line == LOG_NOT_FOUND) return null
         if (line == LOG_SEARCH_STALE) return STALE_JSON
         if (line == LOG_SEARCH_BUSY) return BUSY_JSON
         if (line == LOG_SEARCH_ABORTED) return ABORTED_JSON
-        return index.searchJson(key, mask, line)
+        return index.searchJson(key, mask, line, start)
     }
 
     /**
@@ -280,9 +307,16 @@ class LogManager {
      *
      * No level mask reaches this method: `levels` carries the per-level split of every match, so
      * the caller derives the visible and hidden counts from whichever filter is active without
-     * the scan being thrown away when it changes.
+     * the scan being thrown away when it changes. [start] is applied the same way — matches are
+     * held as physical line numbers, so a window narrows what is reported, never what is scanned.
      */
-    fun matches(name: String?, query: String?, regex: Boolean, caseSensitive: Boolean): String? {
+    fun matches(
+        name: String?,
+        query: String?,
+        regex: Boolean,
+        caseSensitive: Boolean,
+        start: Long,
+    ): String? {
         val matcher = lineMatcher(query, regex, caseSensitive, matchBudgetMillis, maxRepetitionProduct)
         val key = matchKeyOf(query.orEmpty(), regex, caseSensitive)
         val file = resolveLogFile(name) ?: return null
@@ -296,7 +330,7 @@ class LogManager {
         if (outcome == LOG_SEARCH_STALE) return STALE_JSON
         if (outcome == LOG_SEARCH_BUSY) return BUSY_JSON
         if (outcome == LOG_SEARCH_ABORTED) return ABORTED_JSON
-        return index.matchesJson(key)
+        return index.matchesJson(key, start)
     }
 
     /**
@@ -335,9 +369,24 @@ class LogManager {
         }
     }
 
-    fun download(name: String?): ByteSource? {
+    /** The file, or the slice of it from physical line [start] on when a window is in effect. */
+    fun download(name: String?, start: Long): ByteSource? {
         val file = resolveLogFile(name) ?: return null
-        return GuavaFiles.asByteSource(file.toFile())
+        val source = GuavaFiles.asByteSource(file.toFile())
+        if (start <= 0) return source
+
+        // ! `-1` is a file that went away under us, not a window starting at byte zero. Falling
+        // ! through to `source` there would answer a cut with the whole log.
+        val offset = LogIndexCache.get(file).windowOffset(start)
+        if (offset < 0) return null
+        if (offset == 0L) return source
+
+        // ? Bounded by the size read now rather than by the file's end: a live file grows during
+        // ? the download, and the window the reader asked for stops where they saw it stop.
+        // ! Clamped, never widened back to the whole file. A start past the end means an empty
+        // ! window, and answering that with the entire log is the one thing a cut must not do.
+        val length = (Files.size(file) - offset).coerceAtLeast(0L)
+        return source.slice(offset, length)
     }
 
     private fun resolveLogFile(name: String?): Path? {
@@ -710,6 +759,42 @@ private fun classifyHead(head: ByteArray, length: Int): Byte {
 }
 
 /**
+ * Milliseconds into the day the head of an entry declares, or [NO_TIME] when [head] is not an
+ * entry head. Built on [classifyHead] so a window and the level index can never disagree about
+ * which lines are entries.
+ */
+private fun entryMillis(head: ByteArray, length: Int): Int {
+    if (classifyHead(head, length) == LEVEL_UNKNOWN) return NO_TIME
+    val hours = digitAt(head, 0) * 10 + digitAt(head, 1)
+    val minutes = digitAt(head, 3) * 10 + digitAt(head, 4)
+    val seconds = digitAt(head, 6) * 10 + digitAt(head, 7)
+    val millis = digitAt(head, 9) * 100 + digitAt(head, 10) * 10 + digitAt(head, 11)
+    return ((hours * 60 + minutes) * 60 + seconds) * 1000 + millis
+}
+
+private fun digitAt(head: ByteArray, at: Int): Int = head[at] - ZERO
+
+/** `HH:mm:ss.SSS` for a millisecond-of-day, the same prefix XP's pattern writes. */
+internal fun timeText(value: Int): String {
+    val out = CharArray(TIME_LENGTH)
+    out[0] = digitChar(value / 36_000_000)
+    out[1] = digitChar(value / 3_600_000 % 10)
+    out[2] = ':'
+    out[3] = digitChar(value / 600_000 % 6)
+    out[4] = digitChar(value / 60_000 % 10)
+    out[5] = ':'
+    out[6] = digitChar(value / 10_000 % 6)
+    out[7] = digitChar(value / 1000 % 10)
+    out[8] = '.'
+    out[9] = digitChar(value / 100 % 10)
+    out[10] = digitChar(value / 10 % 10)
+    out[11] = digitChar(value % 10)
+    return String(out)
+}
+
+private fun digitChar(value: Int): Char = '0' + value
+
+/**
  * Threads a pool of [base] may hold once [stranded] of its scans have been abandoned. One
  * replacement each, so a runaway never costs a later scan its capacity, up to [max].
  */
@@ -764,14 +849,148 @@ internal class LogLineIndex(private val path: Path) {
     // ! what makes every folded entry final.
     private val matchScans = ArrayDeque<MatchScan>()
 
+    /**
+     * Physical line the last [minutes] of this file begin at, with the time it carries, as
+     * `{"line":L,"time":"HH:mm:ss.SSS"}`. [WINDOW_WHOLE_FILE] when nothing is cut.
+     *
+     * Anchored to the file's last entry rather than to the clock, because a log line carries no
+     * date: a rotated file's last 15 minutes are the 15 before it stopped being written, and an
+     * idle server's are still the 15 around whatever it last said.
+     */
     @Synchronized
-    fun infoJson(name: String, mask: Int): String? {
+    fun windowJson(minutes: Int): String? {
+        refresh() ?: return null
+        if (lineCount == 0) return WINDOW_WHOLE_FILE
+
+        try {
+            FileChannel.open(path, StandardOpenOption.READ).use { channel ->
+                val probe = ByteArray(HEAD_CAPACITY)
+                val anchor = effectiveMillis(channel, probe, lineCount - 1)
+                if (anchor == NO_TIME) return WINDOW_WHOLE_FILE
+
+                // ! A window reaching back past midnight cannot be resolved: the date that would
+                // ! order two lines across the boundary is not in the file. Cut nothing instead.
+                val span = minutes * MILLIS_PER_MINUTE
+                if (span >= anchor) return WINDOW_WHOLE_FILE
+
+                // ! Same reason, the other way round: a file *written* across midnight holds
+                // ! times that fall rather than rise, and the search below is a binary one. An
+                // ! opening entry later in the day than the closing one is that file, and the
+                // ! honest answer is to cut nothing rather than to cut in an arbitrary place.
+                val first = firstEntryMillis(channel, probe)
+                if (first == NO_TIME || first > anchor) return WINDOW_WHOLE_FILE
+
+                val line = firstLineAtOrAfter(channel, probe, (anchor - span).toInt())
+                if (line <= 0) return WINDOW_WHOLE_FILE
+
+                val millis = effectiveMillis(channel, probe, line)
+                val time = if (millis == NO_TIME) "null" else jsonString(timeText(millis))
+                return "{\"line\":$line,\"time\":$time}"
+            }
+        } catch (e: IOException) {
+            throw RuntimeException("Failed to read log '${path.fileName}': ${e.message}", e)
+        }
+    }
+
+    /** Byte the window at [start] begins on, for a download that serves only that slice. */
+    @Synchronized
+    fun windowOffset(start: Long): Long {
+        refresh() ?: return -1L
+        val floor = windowFloor(start)
+        return if (floor >= lineCount) scannedBytes else offsets[floor]
+    }
+
+    /**
+     * First line whose entry time is at or after [cutoff]. A binary search: log lines are written
+     * in time order, so the times this index sits on ascend with it.
+     *
+     * What it lands on is always an entry head — a continuation carries the time of the entry
+     * above it, which is earlier in the file and so would have been found first.
+     */
+    private fun firstLineAtOrAfter(channel: FileChannel, probe: ByteArray, cutoff: Int): Int {
+        var low = 0
+        var high = lineCount
+        while (low < high) {
+            val mid = (low + high) ushr 1
+            val millis = effectiveMillis(channel, probe, mid)
+            if (millis == NO_TIME || millis < cutoff) low = mid + 1 else high = mid
+        }
+        return low
+    }
+
+    /**
+     * Entry time in effect at [line] — the one it declares, or the one of the entry it continues.
+     * [NO_TIME] only when no entry head sits above it at all.
+     *
+     * The walk is deliberately unbounded. Capping it would return [NO_TIME] for the tail of a
+     * long stack trace, which [firstLineAtOrAfter] reads as "older than the cutoff" — putting a
+     * false in the middle of the sorted array its binary search assumes. Unbounded, [NO_TIME]
+     * can only ever be a prefix.
+     */
+    private fun effectiveMillis(channel: FileChannel, probe: ByteArray, line: Int): Int {
+        for (at in line downTo 0) {
+            val millis = entryMillis(probe, readHead(channel, at, probe))
+            if (millis != NO_TIME) return millis
+        }
+        return NO_TIME
+    }
+
+    /** Time of the file's first entry, which is what says whether its times ascend at all. */
+    private fun firstEntryMillis(channel: FileChannel, probe: ByteArray): Int {
+        for (at in 0 until lineCount) {
+            val millis = entryMillis(probe, readHead(channel, at, probe))
+            if (millis != NO_TIME) return millis
+        }
+        return NO_TIME
+    }
+
+    /** Head of [line] into [probe], at most [HEAD_CAPACITY] bytes; returns how many landed. */
+    private fun readHead(channel: FileChannel, line: Int, probe: ByteArray): Int {
+        val from = offsets[line]
+        val length = minOf(lineEnd(line) - from, HEAD_CAPACITY.toLong()).coerceAtLeast(0L).toInt()
+        if (length == 0) return 0
+
+        val buffer = ByteBuffer.wrap(probe, 0, length)
+        var pos = from
+        while (buffer.hasRemaining()) {
+            val read = channel.read(buffer, pos)
+            if (read <= 0) break
+            pos += read
+        }
+        return length - buffer.remaining()
+    }
+
+    /** [start] clamped to a line this file has. */
+    private fun windowFloor(start: Long): Int = start.coerceIn(0L, lineCount.toLong()).toInt()
+
+    /**
+     * First position in [filtered] at or after physical line [floor]. The window is applied here
+     * rather than folded into [filtered] itself: that array only ever grows at its end, which is
+     * what lets it be extended instead of rebuilt as the file grows.
+     */
+    private fun filteredFloor(floor: Int): Int {
+        if (floor <= 0) return 0
+
+        var low = 0
+        var high = filteredCount
+        while (low < high) {
+            val mid = (low + high) ushr 1
+            if (filtered[mid] < floor) low = mid + 1 else high = mid
+        }
+        return low
+    }
+
+    @Synchronized
+    fun infoJson(name: String, mask: Int, start: Long): String? {
         val attrs = refresh() ?: return null
 
         // ? Counted per call rather than kept incrementally: the trailing line is reclassified
         // ? as it grows, and undoing its old contribution costs more state than the pass costs.
+        // ! Counted from the window, not the file: these are the numbers beside the level menu,
+        // ! and a reader toggling ERROR on a cut view must not be promised lines it will not show.
+        val floor = windowFloor(start)
         val counts = IntArray(LEVEL_COUNT)
-        for (line in 0 until lineCount) counts[levels[line].toInt()]++
+        for (line in floor until lineCount) counts[levels[line].toInt()]++
 
         return buildString {
             append("{\"name\":")
@@ -790,30 +1009,38 @@ internal class LogLineIndex(private val path: Path) {
                 append(counts[code])
             }
             append('}')
+            // ? `filtered` is the size of the view, whichever of the two narrows it — the client
+            // ? addresses rows in that view and needs no way to tell the causes apart.
             if (isFiltering(mask)) {
                 filteredIndex(mask)
                 append(",\"filtered\":")
-                append(filteredCount)
+                append(filteredCount - filteredFloor(floor))
+            } else if (floor > 0) {
+                append(",\"filtered\":")
+                append(lineCount - floor)
             }
             append('}')
         }
     }
 
     @Synchronized
-    fun locateJson(mask: Int, lineRequested: Long): String? {
+    fun locateJson(mask: Int, lineRequested: Long, start: Long): String? {
         refresh() ?: return null
 
         val line = lineRequested.coerceAtLeast(0)
+        val floor = windowFloor(start)
 
         if (!isFiltering(mask)) {
-            val position = minOf(line, maxOf(0, lineCount - 1).toLong())
-            return "{\"position\":$position,\"visible\":${lineCount > 0}}"
+            if (lineCount <= floor) return "{\"position\":0,\"visible\":false}"
+            val position = line.coerceIn(floor.toLong(), (lineCount - 1).toLong()) - floor
+            return "{\"position\":$position,\"visible\":${line >= floor}}"
         }
 
         filteredIndex(mask)
-        if (filteredCount == 0) return "{\"position\":0,\"visible\":false}"
+        val base = filteredFloor(floor)
+        if (filteredCount <= base) return "{\"position\":0,\"visible\":false}"
 
-        var low = 0
+        var low = base
         var high = filteredCount
         while (low < high) {
             val mid = (low + high) ushr 1
@@ -821,36 +1048,49 @@ internal class LogLineIndex(private val path: Path) {
         }
 
         if (low < filteredCount && filtered[low].toLong() == line) {
-            return "{\"position\":$low,\"visible\":true}"
+            return "{\"position\":${low - base},\"visible\":true}"
         }
 
         // ? A hidden line is usually a stack frame of the entry above it, so fall back to that
         // ? entry rather than to the next visible line below.
-        val nearest = if (low > 0) low - 1 else 0
-        return "{\"position\":$nearest,\"visible\":false}"
+        val nearest = if (low > base) low - 1 else base
+        return "{\"position\":${nearest - base},\"visible\":false}"
     }
 
     @Synchronized
-    fun readJson(fromRequested: Long, countRequested: Int, maxBytes: Long, mask: Int): String? {
+    fun readJson(
+        fromRequested: Long,
+        countRequested: Int,
+        maxBytes: Long,
+        mask: Int,
+        start: Long,
+    ): String? {
         val attrs = refresh() ?: return null
 
         val from = fromRequested.coerceAtLeast(0)
         val count = countRequested.coerceIn(MIN_READ_COUNT, MAX_READ_COUNT)
+        val floor = windowFloor(start)
 
         if (!isFiltering(mask)) {
-            val fromLine = if (from >= lineCount) lineCount else from.toInt()
+            val total = lineCount - floor
+            val fromLine = floor + minOf(from, total.toLong()).toInt()
             val countedEnd = minOf(lineCount.toLong(), fromLine.toLong() + count).toInt()
-            val lines = readLines(fromLine, budgetedEnd(fromLine, countedEnd, maxBytes))
-            return linesJson(from, lines, null, lineCount, attrs.size(), maxBytes)
+            val end = budgetedEnd(fromLine, countedEnd, maxBytes)
+            // ? A window makes the row index stop being the line number, so the numbers travel
+            // ? with the lines exactly as they do under a level filter.
+            val numbers = if (floor == 0) null else IntArray(end - fromLine) { fromLine + it }
+            return linesJson(from, readLines(fromLine, end), numbers, total, attrs.size(), maxBytes)
         }
 
         filteredIndex(mask)
-        val start = if (from >= filteredCount) filteredCount else from.toInt()
-        val end = minOf(filteredCount.toLong(), start.toLong() + count).toInt()
-        val numbers = IntArray(end - start) { filtered[start + it] }
+        val base = filteredFloor(floor)
+        val total = filteredCount - base
+        val first = base + minOf(from, total.toLong()).toInt()
+        val end = minOf(filteredCount.toLong(), first.toLong() + count).toInt()
+        val numbers = IntArray(end - first) { filtered[first + it] }
         val lines = readRuns(numbers, maxBytes)
 
-        return linesJson(from, lines, numbers, filteredCount, attrs.size(), maxBytes)
+        return linesJson(from, lines, numbers, total, attrs.size(), maxBytes)
     }
 
     /**
@@ -978,6 +1218,7 @@ internal class LogLineIndex(private val path: Path) {
         fromRequested: Long,
         forward: Boolean,
         budgetMillis: Long,
+        start: Long,
     ): Long {
         val scope = searchScope() ?: return LOG_NOT_FOUND
         if (scope.total == 0) return LOG_NO_MATCH
@@ -985,15 +1226,26 @@ internal class LogLineIndex(private val path: Path) {
         val from = fromRequested.coerceAtLeast(0)
         if (forward && from >= scope.total) return LOG_NO_MATCH
 
+        // ? Clamped against the scope rather than `lineCount`, which this method cannot read:
+        // ? matching runs outside the monitor, and the scope is what it was handed instead.
+        val floor = start.coerceIn(0L, scope.total.toLong()).toInt()
+
         val deadlineNanos = System.nanoTime() + budgetMillis * 1_000_000L
-        var cursor = if (forward) from.toInt() else minOf(from, (scope.total - 1).toLong()).toInt()
+        var cursor = if (forward) {
+            maxOf(from, floor.toLong()).toInt()
+        } else {
+            minOf(from, (scope.total - 1).toLong()).toInt()
+        }
         val filtering = isFiltering(mask)
 
-        while (cursor in 0 until scope.total) {
+        while (cursor in floor until scope.total) {
             val block = searchBlock(cursor, forward, scope) ?: return LOG_SEARCH_STALE
             val order = if (forward) block.lines.indices else block.lines.indices.reversed()
             for (index in order) {
                 if (System.nanoTime() - deadlineNanos >= 0) return LOG_SEARCH_ABORTED
+                // ! A backward block starts wherever its byte budget reaches, which is often
+                // ! below the window. Bound the lines, not just the cursor that picked them.
+                if (block.start + index < floor) continue
                 if (filtering && mask and (1 shl block.levels[index].toInt()) == 0) continue
                 if (matches(block.lines[index])) {
                     // ! Matched outside the monitor against lines read a moment ago. Without this
@@ -1137,9 +1389,9 @@ internal class LogLineIndex(private val path: Path) {
 
     /** How far the count for [key] has got, as the response body the API hands the client. */
     @Synchronized
-    fun matchesJson(key: String): String = buildString {
+    fun matchesJson(key: String, start: Long): String = buildString {
         append("{\"status\":\"ok\"")
-        appendMatchProgress(key)
+        appendMatchProgress(key, windowFloor(start))
         append('}')
     }
 
@@ -1148,15 +1400,17 @@ internal class LogLineIndex(private val path: Path) {
      * there is no hit, in which case the ordinal is left out with it.
      */
     @Synchronized
-    fun searchJson(key: String, mask: Int, line: Long): String = buildString {
+    fun searchJson(key: String, mask: Int, line: Long, start: Long): String = buildString {
+        val floor = windowFloor(start)
+
         append("{\"status\":\"ok\",\"line\":")
         if (line < 0) append("null") else append(line)
 
         append(",\"ordinal\":")
-        val ordinal = if (line < 0) -1 else ordinalOf(key, mask, line.toInt())
+        val ordinal = if (line < 0) -1 else ordinalOf(key, mask, line.toInt(), floor)
         if (ordinal < 0) append("null") else append(ordinal)
 
-        appendMatchProgress(key)
+        appendMatchProgress(key, floor)
         append('}')
     }
 
@@ -1170,7 +1424,13 @@ internal class LogLineIndex(private val path: Path) {
      * report a match as absent.
      */
     @Synchronized
-    fun searchIndexed(key: String, mask: Int, fromRequested: Long, forward: Boolean): String? {
+    fun searchIndexed(
+        key: String,
+        mask: Int,
+        fromRequested: Long,
+        forward: Boolean,
+        start: Long,
+    ): String? {
         refresh() ?: return null
 
         val scan = matchScans.firstOrNull { it.key == key } ?: return null
@@ -1180,12 +1440,17 @@ internal class LogLineIndex(private val path: Path) {
         // ! `Int.MIN_VALUE` and report a backward search as no match. The scanning path clamps
         // ! the same way, so both answer a large `from` alike.
         val from = fromRequested.coerceIn(0L, lineCount.toLong()).toInt()
+        val floor = windowFloor(start)
         val filtering = isFiltering(mask)
         var line = LOG_NO_MATCH
 
-        var index = if (forward) scan.lowerBound(from) else scan.lowerBound(from + 1) - 1
+        // ? The window is a floor on physical lines, so it is a floor on the match index too —
+        // ? `lines` ascends, which is the order `lowerBound` is already searching.
+        val first = scan.lowerBound(floor)
+        var index =
+            if (forward) scan.lowerBound(maxOf(from, floor)) else scan.lowerBound(from + 1) - 1
         val step = if (forward) 1 else -1
-        while (index in 0 until scan.count) {
+        while (index in first until scan.count) {
             val match = scan.lines[index]
             if (!filtering || mask and (1 shl levels[match].toInt()) != 0) {
                 line = match.toLong()
@@ -1194,7 +1459,7 @@ internal class LogLineIndex(private val path: Path) {
             index += step
         }
 
-        return searchJson(key, mask, line)
+        return searchJson(key, mask, line, start)
     }
 
     /**
@@ -1204,13 +1469,13 @@ internal class LogLineIndex(private val path: Path) {
      * A walk rather than a binary search because the mask hides an arbitrary subset: the count of
      * admitted matches before a line is not a function of that line's index.
      */
-    private fun ordinalOf(key: String, mask: Int, line: Int): Int {
+    private fun ordinalOf(key: String, mask: Int, line: Int, floor: Int): Int {
         val scan = matchScans.firstOrNull { it.key == key } ?: return -1
         if (line >= scan.scanned) return -1
 
         val filtering = isFiltering(mask)
         var ordinal = 0
-        for (index in 0 until scan.count) {
+        for (index in scan.lowerBound(floor) until scan.count) {
             val match = scan.lines[index]
             if (match >= line) break
             if (!filtering || mask and (1 shl levels[match].toInt()) != 0) ordinal++
@@ -1224,18 +1489,21 @@ internal class LogLineIndex(private val path: Path) {
      * found so far, from which the caller derives what its own filter shows and hides — the mask
      * never reaches this class, so a filter change costs no rescan.
      */
-    private fun StringBuilder.appendMatchProgress(key: String) {
+    private fun StringBuilder.appendMatchProgress(key: String, floor: Int) {
         // ? Counted per call, like the per-level line counts in `infoJson`. Every folded match
         // ? sits on a terminated line, so its level is settled and the pass cannot disagree with
         // ? what was counted when it was found.
+        // ! `scanned` and `complete` stay whole-file: they describe the scan, which the window
+        // ! never narrows, and a client that polls on them would otherwise stop short.
         val scan = matchScans.firstOrNull { it.key == key }
         val counts = IntArray(LEVEL_COUNT)
+        val first = scan?.lowerBound(floor) ?: 0
         if (scan != null) {
-            for (index in 0 until scan.count) counts[levels[scan.lines[index]].toInt()]++
+            for (index in first until scan.count) counts[levels[scan.lines[index]].toInt()]++
         }
 
         append(",\"total\":")
-        append(scan?.count ?: 0)
+        append(if (scan == null) 0 else scan.count - first)
         append(",\"levels\":[")
         for (code in 0 until LEVEL_COUNT) {
             if (code > 0) append(',')

@@ -25,6 +25,9 @@ const MAX_READ_BYTES = 100 * 1024 * 1024;
 const MATCH_SLICE_MS = 750;
 const MAX_MATCH_SCANS = 4;
 const MAX_CACHED_INDEXES = 4;
+const MAX_WINDOW_MINUTES = 7 * 24 * 60;
+const MILLIS_PER_MINUTE = 60_000;
+const NO_TIME = -1;
 const HEAD_CAPACITY = 512;
 
 // ? Classification decodes the line head and reuses the client's own pattern rather than
@@ -75,6 +78,12 @@ type LogLines = {
   numbers?: number[];
   total: number;
   size: number;
+};
+
+// Where a time window begins. Both 0 and null when the whole file is inside it.
+type LogWindow = {
+  line: number;
+  time: string | null;
 };
 
 type LogLocation = {
@@ -182,6 +191,26 @@ function classifyLine(index: LineIndex, advanceCarry: boolean): void {
 
 function isFiltering(mask: number): boolean {
   return mask > 0 && (mask & LEVEL_MASK_ALL) !== LEVEL_MASK_ALL;
+}
+
+// `start` clamped to a line this file has.
+function windowFloor(index: LineIndex, start: number): number {
+  return Math.min(Math.max(0, start), index.count);
+}
+
+// First position in `filtered` at or after physical line `floor`. Applied here rather than
+// folded into `filtered`, which only ever grows at its end.
+function filteredFloor(index: LineIndex, floor: number): number {
+  if (floor <= 0) return 0;
+
+  let low = 0;
+  let high = index.filteredCount;
+  while (low < high) {
+    const mid = (low + high) >>> 1;
+    if (index.filtered[mid] < floor) low = mid + 1;
+    else high = mid;
+  }
+  return low;
 }
 
 function filteredIndex(index: LineIndex, mask: number): void {
@@ -333,6 +362,90 @@ function blockStart(index: LineIndex, end: number): number {
   return end - lines + 1;
 }
 
+// Milliseconds into the day an entry head declares, or NO_TIME when the line is a continuation.
+// Built on ENTRY_PREFIX so the window and the level index cannot disagree about what an entry is.
+function entryMillis(line: string): number {
+  const match = ENTRY_PREFIX.exec(line);
+  if (match == null) return NO_TIME;
+
+  const time = match[1];
+  return (
+    Number(time.slice(0, 2)) * 3_600_000 +
+    Number(time.slice(3, 5)) * 60_000 +
+    Number(time.slice(6, 8)) * 1000 +
+    Number(time.slice(9, 12))
+  );
+}
+
+function timeText(value: number): string {
+  const pad = (part: number, width: number): string => String(part).padStart(width, '0');
+  const hours = pad(Math.floor(value / 3_600_000), 2);
+  const minutes = pad(Math.floor(value / 60_000) % 60, 2);
+  const seconds = pad(Math.floor(value / 1000) % 60, 2);
+  return `${hours}:${minutes}:${seconds}.${pad(value % 1000, 3)}`;
+}
+
+// Entry time in effect at `line` — its own, or that of the entry it continues. NO_TIME only
+// when no entry head sits above it at all: capping the walk would return NO_TIME for the tail
+// of a long stack trace, which resolveWindow reads as "older than the cutoff", putting a false
+// in the middle of the sorted array its binary search assumes.
+function effectiveMillis(file: string, index: LineIndex, line: number): number {
+  for (let at = line; at >= 0; at -= 1) {
+    const [text] = readLines(file, index, at, 1);
+    if (text == null) return NO_TIME;
+    const millis = entryMillis(text);
+    if (millis !== NO_TIME) return millis;
+  }
+  return NO_TIME;
+}
+
+// Time of the file's first entry, which is what says whether its times ascend at all.
+function firstEntryMillis(file: string, index: LineIndex): number {
+  for (let at = 0; at < index.count; at += 1) {
+    const [text] = readLines(file, index, at, 1);
+    if (text == null) return NO_TIME;
+    const millis = entryMillis(text);
+    if (millis !== NO_TIME) return millis;
+  }
+  return NO_TIME;
+}
+
+// Physical line the last `minutes` of the file begin at, anchored to its last entry rather than
+// to the clock: a log line carries no date, so nothing orders two of them across midnight.
+//
+// The line it lands on is always an entry head — a continuation carries the time of the entry
+// above it, which is earlier in the file and so would have been found first.
+function resolveWindow(file: string, index: LineIndex, minutes: number): LogWindow {
+  if (index.count === 0) return { line: 0, time: null };
+
+  const anchor = effectiveMillis(file, index, index.count - 1);
+  if (anchor === NO_TIME) return { line: 0, time: null };
+
+  const span = minutes * MILLIS_PER_MINUTE;
+  if (span >= anchor) return { line: 0, time: null };
+
+  // A file written across midnight holds times that fall rather than rise, and the search below
+  // is a binary one. An opening entry later in the day than the closing one is that file; with
+  // no date in a log line to order the halves by, the honest answer is to cut nothing.
+  const first = firstEntryMillis(file, index);
+  if (first === NO_TIME || first > anchor) return { line: 0, time: null };
+
+  const cutoff = anchor - span;
+  let low = 0;
+  let high = index.count;
+  while (low < high) {
+    const mid = (low + high) >>> 1;
+    const millis = effectiveMillis(file, index, mid);
+    if (millis === NO_TIME || millis < cutoff) low = mid + 1;
+    else high = mid;
+  }
+
+  if (low <= 0) return { line: 0, time: null };
+
+  const millis = effectiveMillis(file, index, low);
+  return { line: low, time: millis === NO_TIME ? null : timeText(millis) };
+}
+
 type Matcher = (line: string) => boolean;
 
 // ? JS RegExp, not java.util.regex: a harness-only mismatch on exotic patterns (\p{...}, \h, ...)
@@ -353,15 +466,16 @@ function searchIndex(
   from: number,
   forward: boolean,
   mask: number,
+  floor: number,
 ): number | null {
   if (index.count === 0) return null;
 
   const filtering = isFiltering(mask);
   const admits = (line: number): boolean =>
-    !filtering || (mask & (1 << index.levels[line])) !== 0;
+    line >= floor && (!filtering || (mask & (1 << index.levels[line])) !== 0);
 
   if (forward) {
-    let cursor = Math.max(0, from);
+    let cursor = Math.max(floor, from);
     while (cursor < index.count) {
       const lines = readLines(file, index, cursor, blockLines(index, cursor));
       if (lines.length === 0) break;
@@ -374,7 +488,7 @@ function searchIndex(
   }
 
   let end = Math.min(from, index.count - 1);
-  while (end >= 0) {
+  while (end >= floor) {
     const start = blockStart(index, end);
     const lines = readLines(file, index, start, end - start + 1);
     if (lines.length === 0) break;
@@ -460,15 +574,19 @@ function matchSlice(file: string, index: LineIndex, matcher: Matcher, key: strin
   return true;
 }
 
-function matchProgress(index: LineIndex, key: string): LogMatchCount {
+// `scanned` and `complete` stay whole-file: they describe the scan, which a window never
+// narrows, and a client polling on them would otherwise stop short.
+function matchProgress(index: LineIndex, key: string, floor: number): LogMatchCount {
   const levels = [0, 0, 0, 0, 0, 0];
   const scan = findScan(index, key);
+  let first = 0;
   if (scan != null) {
-    for (let i = 0; i < scan.count; i += 1) levels[index.levels[scan.lines[i]]] += 1;
+    while (first < scan.count && scan.lines[first] < floor) first += 1;
+    for (let i = first; i < scan.count; i += 1) levels[index.levels[scan.lines[i]]] += 1;
   }
 
   return {
-    total: scan?.count ?? 0,
+    total: scan == null ? 0 : scan.count - first,
     levels,
     scanned: scan?.scanned ?? 0,
     lines: index.count,
@@ -478,7 +596,13 @@ function matchProgress(index: LineIndex, key: string): LogMatchCount {
 
 // Zero-based position of `line` among the matches `mask` admits, or null when the scan has not
 // reached it. A walk rather than a binary search: the mask hides an arbitrary subset.
-function ordinalOf(index: LineIndex, key: string, mask: number, line: number): number | null {
+function ordinalOf(
+  index: LineIndex,
+  key: string,
+  mask: number,
+  line: number,
+  floor: number,
+): number | null {
   const scan = findScan(index, key);
   if (scan == null || line >= scan.scanned) return null;
 
@@ -486,6 +610,7 @@ function ordinalOf(index: LineIndex, key: string, mask: number, line: number): n
   let ordinal = 0;
   for (let i = 0; i < scan.count; i += 1) {
     const match = scan.lines[i];
+    if (match < floor) continue;
     if (match >= line) break;
     if (!filtering || (mask & (1 << index.levels[match])) !== 0) ordinal += 1;
   }
@@ -608,7 +733,7 @@ function toInt(value: string | null, fallback: number): number {
   return Number.isFinite(parsed) ? Math.trunc(parsed) : fallback;
 }
 
-function handleInfo(res: ServerResponse, resolved: Resolved, mask: number): void {
+function handleInfo(res: ServerResponse, resolved: Resolved, mask: number, start: number): void {
   const index = getIndex(resolved.file, resolved.size, resolved.mtimeMs);
   const info: LogInfo = {
     name: resolved.name,
@@ -617,11 +742,27 @@ function handleInfo(res: ServerResponse, resolved: Resolved, mask: number): void
     lines: index.count,
     levels: levelCounts(index),
   };
+
+  // `filtered` is the size of the view, whichever of the two narrows it.
+  const floor = windowFloor(index, start);
   if (isFiltering(mask)) {
     filteredIndex(index, mask);
-    info.filtered = index.filteredCount;
+    info.filtered = index.filteredCount - filteredFloor(index, floor);
+  } else if (floor > 0) {
+    info.filtered = index.count - floor;
   }
   sendData(res, info);
+}
+
+function handleWindow(res: ServerResponse, resolved: Resolved, params: URLSearchParams): void {
+  const minutes = toInt(params.get('minutes'), 0);
+  if (minutes < 1 || minutes > MAX_WINDOW_MINUTES) {
+    sendError(res, 400, `minutes must be between 1 and ${MAX_WINDOW_MINUTES}`, 'VALIDATION_ERROR');
+    return;
+  }
+
+  const index = getIndex(resolved.file, resolved.size, resolved.mtimeMs);
+  sendData(res, resolveWindow(resolved.file, index, minutes));
 }
 
 // Mirrors the server's read cap: 1000 lines of 200 KB would otherwise materialize 200 MB.
@@ -670,39 +811,45 @@ function handleRead(
   resolved: Resolved,
   params: URLSearchParams,
   mask: number,
+  start: number,
 ): void {
   const from = Math.max(0, toInt(params.get('from'), 0));
   const count = Math.min(MAX_COUNT, Math.max(1, toInt(params.get('count'), DEFAULT_COUNT)));
   const index = getIndex(resolved.file, resolved.size, resolved.mtimeMs);
+  const floor = windowFloor(index, start);
 
   if (!isFiltering(mask)) {
+    const total = index.count - floor;
+    const fromLine = floor + Math.min(from, total);
+    const taken = budgetedCount(index, fromLine, count, MAX_READ_BYTES);
     const lines: LogLines = {
       from,
-      lines: readLines(
-        resolved.file,
-        index,
-        from,
-        budgetedCount(index, from, count, MAX_READ_BYTES),
-      ),
-      total: index.count,
+      lines: readLines(resolved.file, index, fromLine, taken),
+      total,
       size: resolved.size,
     };
+    // A window makes the row index stop being the line number, so the numbers travel with the
+    // lines exactly as they do under a level filter.
+    if (floor > 0) {
+      lines.numbers = Array.from({ length: taken }, (_, i) => fromLine + i);
+    }
     sendData(res, lines);
     return;
   }
 
   filteredIndex(index, mask);
-  const start = Math.min(from, index.filteredCount);
-  const end = Math.min(start + count, index.filteredCount);
+  const base = filteredFloor(index, floor);
+  const first = base + Math.min(from, index.filteredCount - base);
+  const end = Math.min(first + count, index.filteredCount);
   const numbers: number[] = [];
-  for (let i = start; i < end; i += 1) numbers.push(index.filtered[i]);
+  for (let i = first; i < end; i += 1) numbers.push(index.filtered[i]);
 
   const read = readRuns(resolved.file, index, numbers);
   const lines: LogLines = {
     from,
     lines: read,
     numbers: numbers.slice(0, read.length),
-    total: index.filteredCount,
+    total: index.filteredCount - base,
     size: resolved.size,
   };
   sendData(res, lines);
@@ -713,6 +860,7 @@ function handleLocate(
   resolved: Resolved,
   params: URLSearchParams,
   mask: number,
+  start: number,
 ): void {
   const raw = params.get('line');
   if (raw == null || raw === '') {
@@ -722,23 +870,29 @@ function handleLocate(
 
   const line = Math.max(0, toInt(raw, 0));
   const index = getIndex(resolved.file, resolved.size, resolved.mtimeMs);
+  const floor = windowFloor(index, start);
 
   if (!isFiltering(mask)) {
+    if (index.count <= floor) {
+      sendData(res, { position: 0, visible: false } satisfies LogLocation);
+      return;
+    }
     const location: LogLocation = {
-      position: Math.min(line, Math.max(0, index.count - 1)),
-      visible: index.count > 0,
+      position: Math.min(Math.max(line, floor), index.count - 1) - floor,
+      visible: line >= floor,
     };
     sendData(res, location);
     return;
   }
 
   filteredIndex(index, mask);
-  if (index.filteredCount === 0) {
+  const base = filteredFloor(index, floor);
+  if (index.filteredCount <= base) {
     sendData(res, { position: 0, visible: false } satisfies LogLocation);
     return;
   }
 
-  let low = 0;
+  let low = base;
   let high = index.filteredCount;
   while (low < high) {
     const mid = (low + high) >>> 1;
@@ -747,12 +901,13 @@ function handleLocate(
   }
 
   if (low < index.filteredCount && index.filtered[low] === line) {
-    sendData(res, { position: low, visible: true } satisfies LogLocation);
+    sendData(res, { position: low - base, visible: true } satisfies LogLocation);
     return;
   }
 
   // A hidden line is usually a stack frame of the entry above it.
-  sendData(res, { position: low > 0 ? low - 1 : 0, visible: false } satisfies LogLocation);
+  const nearest = low > base ? low - 1 : base;
+  sendData(res, { position: nearest - base, visible: false } satisfies LogLocation);
 }
 
 function parseLevels(value: string | null): number {
@@ -801,6 +956,7 @@ function handleSearch(
   resolved: Resolved,
   params: URLSearchParams,
   mask: number,
+  start: number,
 ): void {
   const scan = requireScan(res, params);
   if (scan == null) return;
@@ -814,17 +970,23 @@ function handleSearch(
   const forward = direction === 'forward';
   const index = getIndex(resolved.file, resolved.size, resolved.mtimeMs);
   const from = Math.max(0, toInt(params.get('from'), 0));
+  const floor = windowFloor(index, start);
 
-  const line = searchIndex(resolved.file, index, scan.matcher, from, forward, mask);
+  const line = searchIndex(resolved.file, index, scan.matcher, from, forward, mask, floor);
 
   sendData(res, {
-    ...matchProgress(index, scan.indexKey),
+    ...matchProgress(index, scan.indexKey, floor),
     line,
-    ordinal: line == null ? null : ordinalOf(index, scan.indexKey, mask, line),
+    ordinal: line == null ? null : ordinalOf(index, scan.indexKey, mask, line, floor),
   } satisfies LogSearchResult);
 }
 
-function handleMatches(res: ServerResponse, resolved: Resolved, params: URLSearchParams): void {
+function handleMatches(
+  res: ServerResponse,
+  resolved: Resolved,
+  params: URLSearchParams,
+  start: number,
+): void {
   const scan = requireScan(res, params);
   if (scan == null) return;
 
@@ -834,15 +996,37 @@ function handleMatches(res: ServerResponse, resolved: Resolved, params: URLSearc
     return;
   }
 
-  sendData(res, matchProgress(index, scan.indexKey));
+  sendData(res, matchProgress(index, scan.indexKey, windowFloor(index, start)));
 }
 
-function handleDownload(res: ServerResponse, resolved: Resolved): void {
+// A windowed download is a different file from the one it was cut out of, so it is named for
+// the line it starts on, in the 1-based numbering the viewer's gutter shows.
+function downloadName(name: string, start: number): string {
+  if (start <= 0) return name;
+  return `${name.slice(0, -'.log'.length)}.from-${start + 1}.log`;
+}
+
+function handleDownload(res: ServerResponse, resolved: Resolved, start: number): void {
+  const index = getIndex(resolved.file, resolved.size, resolved.mtimeMs);
+  const floor = windowFloor(index, start);
+  const offset = floor >= index.count ? resolved.size : index.offsets[floor];
+  const length = Math.max(0, resolved.size - offset);
+
   res.statusCode = 200;
   res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-  res.setHeader('Content-Length', resolved.size);
-  res.setHeader('Content-Disposition', `attachment; filename="${resolved.name}"`);
-  createReadStream(resolved.file).pipe(res);
+  res.setHeader('Content-Length', length);
+  // Named from the raw `start`, as the server does — it has no line index to clamp against.
+  res.setHeader(
+    'Content-Disposition',
+    `attachment; filename="${downloadName(resolved.name, start)}"`,
+  );
+  // Bounded at both ends: a live file grows during the download, and Content-Length above is
+  // already committed to the size read now.
+  if (length === 0) {
+    res.end();
+    return;
+  }
+  createReadStream(resolved.file, { start: offset, end: offset + length - 1 }).pipe(res);
 }
 
 function handleLogs(res: ServerResponse, params: URLSearchParams): void {
@@ -869,28 +1053,34 @@ function handleLogs(res: ServerResponse, params: URLSearchParams): void {
     return;
   }
 
+  const start = Math.max(0, toInt(params.get('start'), 0));
+
   if (action == null) {
-    handleRead(res, resolved, params, mask);
+    handleRead(res, resolved, params, mask, start);
+    return;
+  }
+  if (action === 'window') {
+    handleWindow(res, resolved, params);
     return;
   }
   if (action === 'info') {
-    handleInfo(res, resolved, mask);
+    handleInfo(res, resolved, mask, start);
     return;
   }
   if (action === 'search') {
-    handleSearch(res, resolved, params, mask);
+    handleSearch(res, resolved, params, mask, start);
     return;
   }
   if (action === 'matches') {
-    handleMatches(res, resolved, params);
+    handleMatches(res, resolved, params, start);
     return;
   }
   if (action === 'locate') {
-    handleLocate(res, resolved, params, mask);
+    handleLocate(res, resolved, params, mask, start);
     return;
   }
   if (action === 'download') {
-    handleDownload(res, resolved);
+    handleDownload(res, resolved, start);
     return;
   }
 

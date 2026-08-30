@@ -1,11 +1,13 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute, type ErrorComponentProps } from '@tanstack/react-router';
+import { type TFunction } from 'i18next';
 import {
   ArrowDownToLine,
   ArrowUpToLine,
   CaseSensitive,
   ChevronDown,
   ChevronUp,
+  Clock,
   Download,
   Filter,
   Play,
@@ -24,7 +26,6 @@ import {
   useRef,
   useState,
 } from 'react';
-import { type TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { z } from 'zod';
 
@@ -33,6 +34,8 @@ import type {
   LogLevel,
   LogLevelCounts,
   LogSearchDirection,
+  LogWindow,
+  LogWindowMinutes,
   MatchSplit,
   SearchCriteria,
 } from '../lib/api/logs';
@@ -60,9 +63,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../components/ui/select';
+import { toast } from '../components/ui/sonner';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../components/ui/tooltip';
 import {
   LOG_LEVELS,
+  LOG_WINDOWS,
+  fetchLogWindow,
   levelsParam,
   locateLogLine,
   logDownloadUrl,
@@ -83,8 +89,22 @@ const IDLE_POLL_MS = 5000;
 
 const GOTO_PATTERN = /^\d+$/;
 
+// ? Line 0 with no time is what the API reports when a window cuts nothing, so the "whole file"
+// ? state and a window that turned out to cover it are the same value rather than two.
+const NO_CUT: LogWindow = { line: 0, time: null };
+
+// ? The label wants the hour and minute the cut landed on, not the seconds the log records.
+const CUT_LABEL_LENGTH = 5;
+
 // ? Beyond two names the trigger reads as a list rather than a label; show a count instead.
 const MAX_NAMED_LEVELS = 2;
+
+const WINDOW_LABEL_KEYS: Record<LogWindowMinutes, string> = {
+  15: 'logs.window.minutes15',
+  30: 'logs.window.minutes30',
+  60: 'logs.window.hours1',
+  360: 'logs.window.hours6',
+};
 
 const LEVEL_COUNT_KEYS: Record<LogLevel, keyof LogLevelCounts> = {
   TRACE: 'trace',
@@ -227,6 +247,9 @@ const LogsPage = (): ReactElement => {
   const cursorRef = useRef<SearchCursor | null>(null);
   const searchAbortRef = useRef<AbortController | null>(null);
   const locateAbortRef = useRef<AbortController | null>(null);
+  const cutAbortRef = useRef<AbortController | null>(null);
+  // ? Last file size seen, to tell an append from the rotation that invalidates a cut.
+  const sizeSeenRef = useRef<number | null>(null);
   const searchingRef = useRef(false);
   // ? Physical line to return to once a filter change has re-indexed the view.
   const anchorRef = useRef<number | null>(null);
@@ -250,11 +273,21 @@ const LogsPage = (): ReactElement => {
   const [searching, setSearching] = useState(false);
   const [gotoValue, setGotoValue] = useState('');
   const [levels, setLevels] = useState<LogLevel[]>([...LOG_LEVELS]);
+  // ? A cut, not a rolling window: the line is resolved once against the file's last entry and
+  // ? then held, so the view grows at its end as the file does instead of sliding off its front.
+  const [cut, setCut] = useState<LogWindow>(NO_CUT);
 
   const levelsKey = levelsParam(levels) ?? '';
   const filtering = levelsKey !== '';
   const levelsRef = useRef(levels);
   levelsRef.current = levels;
+
+  const start = cut.line;
+  // ? What a change of view has to invalidate: both narrow the rows, and a position means
+  // ? something different on either side of either one.
+  const viewKey = `${levelsKey}\u0000${start}`;
+  const startRef = useRef(start);
+  startRef.current = start;
 
   const { data: files = [] } = useQuery(logFilesQueryOptions(IDLE_POLL_MS));
 
@@ -282,12 +315,12 @@ const LogsPage = (): ReactElement => {
   else if (following) infoPoll = FOLLOW_POLL_MS;
 
   const { data: info, error: infoError } = useQuery(
-    logInfoQueryOptions(selected, levels, infoPoll),
+    logInfoQueryOptions(selected, levels, start, infoPoll),
   );
 
   // ? Keyed without the levels, mirroring the server: the scan counts physical lines, and a
   // ? filter is a sum over the per-level split it returns. Toggling a level then costs nothing.
-  const { data: matches } = useQuery(logMatchesQueryOptions(selected, counted));
+  const { data: matches } = useQuery(logMatchesQueryOptions(selected, counted, start));
 
   const split = useMemo(
     () => (matches == null ? null : matchSplit(matches.levels, levels)),
@@ -353,11 +386,14 @@ const LogsPage = (): ReactElement => {
 
       originRef.current = line;
 
+      // ? Without a filter a position is the line minus the cut, which the client can do
+      // ? itself — the round trip is only needed when the filter decides what a row holds.
       if (!filtering) {
         locateAbortRef.current?.abort();
         locateAbortRef.current = null;
-        cursorRef.current = { line, position: line, inclusive };
-        viewerRef.current?.scrollToLine(line, align);
+        const position = Math.max(0, line - startRef.current);
+        cursorRef.current = { line, position, inclusive };
+        viewerRef.current?.scrollToLine(position, align);
         return;
       }
 
@@ -366,7 +402,7 @@ const LogsPage = (): ReactElement => {
       // ? stepping off `line` rather than restarting from the viewport.
       cursorRef.current = { line, position: null, inclusive };
 
-      locateLogLine(selected, line, levelsRef.current, controller.signal)
+      locateLogLine(selected, line, levelsRef.current, startRef.current, controller.signal)
         .then((location) => {
           if (controller.signal.aborted) return;
           // ? Only a jump that claimed nothing can become a "hidden" verdict. A search hit is
@@ -416,14 +452,14 @@ const LogsPage = (): ReactElement => {
       // ? them warrants a remembered origin: rows on screen whose numbers have not arrived. No
       // ? rows at all means there is no reader position to preserve.
       const forward = direction === 'forward';
-      const edge = forward ? 0 : lineTotal - 1;
+      const edge = forward ? start : lineTotal - 1;
       const viewport = forward ? range?.first : range?.last;
       const unnumbered = rows != null ? originRef.current : null;
       const fromViewport = viewport ?? unnumbered ?? edge;
       const step = forward ? 1 : -1;
       const from = anchor != null ? anchor.line + (anchor.inclusive ? 0 : step) : fromViewport;
 
-      if (from < 0 || from >= lineTotal) {
+      if (from < start || from >= lineTotal) {
         setVerdict({ kind: 'noMatch' });
         return;
       }
@@ -439,6 +475,7 @@ const LogsPage = (): ReactElement => {
         from,
         direction,
         levels: levelsRef.current,
+        start,
         regex: useRegex,
         caseSensitive,
         signal: controller.signal,
@@ -470,7 +507,17 @@ const LogsPage = (): ReactElement => {
           setSearching(false);
         });
     },
-    [caseSensitive, lineTotal, query, revealLine, selected, t, useRegex, visiblePhysicalRange],
+    [
+      caseSensitive,
+      lineTotal,
+      query,
+      revealLine,
+      selected,
+      start,
+      t,
+      useRegex,
+      visiblePhysicalRange,
+    ],
   );
 
   const handleSearchKeyDown = useCallback(
@@ -488,13 +535,17 @@ const LogsPage = (): ReactElement => {
 
   const handleGoto = useCallback(() => {
     if (!GOTO_PATTERN.test(gotoValue) || lineTotal === 0) return;
-    const line = Math.max(0, Math.min(Number.parseInt(gotoValue, 10) - 1, lineTotal - 1));
+    const requested = Math.min(Math.max(0, Number.parseInt(gotoValue, 10) - 1), lineTotal - 1);
+    const line = Math.max(start, requested);
     clearSearchVerdict();
     setFollow(false);
+    // ? The window is the one thing that hides a line without the filter having an opinion, so
+    // ? it is the one case `revealLine` cannot discover from a locate it never sends.
+    if (requested < start) setVerdict({ kind: 'hidden', line: requested });
     // ? The jump centres the line, so the viewport reaches back above it and forward below it;
     // ? the next search has to resume from the line itself, hence the inclusive cursor.
     revealLine(line, 'center', true);
-  }, [clearSearchVerdict, gotoValue, lineTotal, revealLine]);
+  }, [clearSearchVerdict, gotoValue, lineTotal, revealLine, start]);
 
   // ? Captured before a filter change: once the view re-indexes, the row the reader was on is
   // ? gone and only its physical line number can find the way back.
@@ -526,6 +577,44 @@ const LogsPage = (): ReactElement => {
     setLevels([...LOG_LEVELS]);
   }, [captureAnchor]);
 
+  /**
+   * Resolves a preset into the line it cuts at and holds that. Re-picking the preset already in
+   * effect is how the cut is moved to now — there is no other way to ask for it, and after any
+   * time has passed it is a different line.
+   */
+  const handleCut = useCallback(
+    (minutes: number) => {
+      if (selected == null) return;
+
+      cutAbortRef.current?.abort();
+      const controller = new AbortController();
+      cutAbortRef.current = controller;
+
+      fetchLogWindow(selected, minutes, controller.signal)
+        .then((next) => {
+          if (controller.signal.aborted) return;
+          if (next.line === 0) toast.info(t('logs.toast.windowCoversFile'));
+          // ? Only for a cut that actually moves. The anchor is consumed by the effect watching
+          // ? the view, so capturing one when nothing changed leaves it pending until a later
+          // ? growth poll spends it, yanking the viewport back to where the reader used to be.
+          if (next.line === startRef.current) return;
+          captureAnchor();
+          setCut(next);
+        })
+        .catch(() => {
+          // ? Best effort: a window that could not be resolved leaves the view as it was.
+        });
+    },
+    [captureAnchor, selected, t],
+  );
+
+  const handleClearCut = useCallback(() => {
+    cutAbortRef.current?.abort();
+    cutAbortRef.current = null;
+    captureAnchor();
+    setCut(NO_CUT);
+  }, [captureAnchor]);
+
   const handleTop = useCallback(() => {
     clearSearchVerdict();
     setFollow(false);
@@ -554,9 +643,13 @@ const LogsPage = (): ReactElement => {
     originRef.current = null;
     setFollow(true);
     setVerdict({ kind: 'none' });
+    // ? A cut is a line number of the file it was taken from, so it cannot survive into another.
+    cutAbortRef.current?.abort();
+    setCut(NO_CUT);
     return () => {
       searchAbortRef.current?.abort();
       locateAbortRef.current?.abort();
+      cutAbortRef.current?.abort();
     };
   }, [selected]);
 
@@ -570,7 +663,7 @@ const LogsPage = (): ReactElement => {
     locateAbortRef.current = null;
     searchAbortRef.current?.abort();
     setVerdict({ kind: 'none' });
-  }, [levelsKey]);
+  }, [viewKey]);
 
   // ? Runs once the re-indexed count has landed, which is the first moment a position in the
   // ? new view means anything. `total` is the trigger for exactly that reason.
@@ -584,7 +677,7 @@ const LogsPage = (): ReactElement => {
 
     const controller = startLocate();
 
-    locateLogLine(selected, anchor, levelsRef.current, controller.signal)
+    locateLogLine(selected, anchor, levelsRef.current, startRef.current, controller.signal)
       .then((location) => {
         if (controller.signal.aborted) return;
         setFollow(false);
@@ -593,7 +686,18 @@ const LogsPage = (): ReactElement => {
       .catch(() => {
         // ? Best effort: a lost anchor leaves the view usable, just repositioned.
       });
-  }, [levelsKey, selected, startLocate, total]);
+  }, [selected, startLocate, total, viewKey]);
+
+  // ! Rotation replaces a file's contents without changing its name, so `selected` never moves
+  // ! and the effect above never fires — but the held line now points into a log that is gone.
+  // ! Left alone it renders an empty view the reader has no way to read as stale.
+  useEffect(() => {
+    const size = info?.size;
+    if (size == null) return;
+    const previous = sizeSeenRef.current;
+    sizeSeenRef.current = size;
+    if (previous != null && size < previous) setCut(NO_CUT);
+  }, [info?.size]);
 
   // ? A match cursor holds a hit of the previous criteria, so it cannot be
   // ? stepped off once the criteria change; a goto cursor is criteria-agnostic
@@ -656,12 +760,22 @@ const LogsPage = (): ReactElement => {
     filterLabel = selectedLevels.join(', ');
   }
 
-  const lineStatus = filtering
-    ? t('logs.status.linesFiltered', {
-        filtered: total.toLocaleString(),
-        total: lineTotal.toLocaleString(),
-      })
-    : t('logs.status.lines', { total: lineTotal.toLocaleString() });
+  const downloadLabel = start > 0 ? t('logs.action.downloadCut') : t('logs.action.download');
+
+  let cutLabel = t('logs.window.all');
+  if (cut.time != null) {
+    cutLabel = t('logs.window.since', { time: cut.time.slice(0, CUT_LABEL_LENGTH) });
+  }
+
+  // ? The status counts the rows on screen against the file's own total, so it answers to both
+  // ? things that narrow the view — `filtering` alone speaks only for the level menu.
+  const lineStatus =
+    filtering || start > 0
+      ? t('logs.status.linesFiltered', {
+          filtered: total.toLocaleString(),
+          total: lineTotal.toLocaleString(),
+        })
+      : t('logs.status.lines', { total: lineTotal.toLocaleString() });
 
   let viewer: ReactNode;
   if (selected == null) {
@@ -691,6 +805,7 @@ const LogsPage = (): ReactElement => {
         className="min-h-0 flex-1"
         file={selected}
         levels={levels}
+        start={start}
         total={total}
         size={info?.size ?? 0}
         wrap={wrap}
@@ -729,15 +844,17 @@ const LogsPage = (): ReactElement => {
             <TooltipTrigger asChild>
               <Button variant="ghost" size="icon" asChild>
                 <a
-                  href={selected == null ? undefined : logDownloadUrl(selected)}
-                  aria-label={t('logs.action.download')}
-                  download={selected}
+                  href={selected == null ? undefined : logDownloadUrl(selected, start)}
+                  aria-label={downloadLabel}
+                  // ? Empty rather than the file name: a windowed download is a different file,
+                  // ? and the server has already named it in `Content-Disposition`.
+                  download=""
                 >
                   <Download className="size-4" />
                 </a>
               </Button>
             </TooltipTrigger>
-            <TooltipContent>{t('logs.action.download')}</TooltipContent>
+            <TooltipContent>{downloadLabel}</TooltipContent>
           </Tooltip>
 
           <DropdownMenu>
@@ -762,7 +879,9 @@ const LogsPage = (): ReactElement => {
                   onSelect={(event) => event.preventDefault()}
                   onCheckedChange={() => handleToggleLevel(level)}
                 >
-                  <span className={cn('font-mono text-xs', LEVEL_TOKEN_CLASS[level], LEVEL_EMPHASIS)}>
+                  <span
+                    className={cn('font-mono text-xs', LEVEL_TOKEN_CLASS[level], LEVEL_EMPHASIS)}
+                  >
                     {level}
                   </span>
                   <span className="text-muted-foreground ml-auto text-xs tabular-nums">
@@ -773,6 +892,33 @@ const LogsPage = (): ReactElement => {
               <DropdownMenuSeparator />
               <DropdownMenuItem disabled={!filtering} onSelect={handleClearLevels}>
                 {t('logs.filter.clear')}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                size="sm"
+                variant={start > 0 ? 'primary' : 'ghost'}
+                disabled={selected == null}
+                aria-label={t('logs.window.label')}
+              >
+                <Clock className="size-4" />
+                {cutLabel}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-56">
+              <DropdownMenuLabel>{t('logs.window.label')}</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {LOG_WINDOWS.map((minutes) => (
+                <DropdownMenuItem key={minutes} onSelect={() => handleCut(minutes)}>
+                  {t(WINDOW_LABEL_KEYS[minutes])}
+                </DropdownMenuItem>
+              ))}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem disabled={start === 0} onSelect={handleClearCut}>
+                {t('logs.window.all')}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

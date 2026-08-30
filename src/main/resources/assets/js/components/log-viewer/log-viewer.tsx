@@ -77,6 +77,8 @@ export type LogViewerProps = {
   file: string;
   /** Levels the view admits. Selecting all of them, or none, is no filter at all. */
   levels: readonly LogLevel[];
+  /** First physical line of the time window. `0` is the whole file. */
+  start: number;
   total: number;
   size: number;
   wrap: boolean;
@@ -273,6 +275,7 @@ export const LogViewer = ({
   ref,
   file,
   levels,
+  start,
   total,
   size,
   wrap,
@@ -284,6 +287,7 @@ export const LogViewer = ({
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef(file);
   const levelsRef = useRef(levels);
+  const startRef = useRef(start);
   const totalRef = useRef(total);
   const sizeRef = useRef(size);
   const atBottomChangeRef = useRef(onAtBottomChange);
@@ -298,6 +302,7 @@ export const LogViewer = ({
 
   fileRef.current = file;
   levelsRef.current = levels;
+  startRef.current = start;
   totalRef.current = total;
   sizeRef.current = size;
   atBottomChangeRef.current = onAtBottomChange;
@@ -306,7 +311,7 @@ export const LogViewer = ({
     () =>
       createLineCache({
         fetchChunk: ({ from, count, signal }) =>
-          fetchLogLines(fileRef.current, from, count, levelsRef.current, signal),
+          fetchLogLines(fileRef.current, from, count, levelsRef.current, startRef.current, signal),
       }),
     [],
   );
@@ -314,7 +319,11 @@ export const LogViewer = ({
   // ? Two selections that filter the same way are the same view, so the canonical parameter is
   // ? what invalidates — not the array identity, which changes on every render.
   const levelsKey = levelsParam(levels) ?? '';
-  const filtering = levelsKey !== '';
+  // ? A window narrows the view the same way a filter does, so it invalidates alongside one.
+  const viewKey = `${levelsKey}\u0000${start}`;
+  // ? Either one makes the row index stop being the line number, which is when the response
+  // ? starts carrying the numbers themselves.
+  const numbered = levelsKey !== '' || start > 0;
 
   // ? Every effect that reads cached content lists `version`: it is the only
   // ? signal that chunks landed, were dropped by a reload, or became retryable.
@@ -381,8 +390,8 @@ export const LogViewer = ({
   }, [snapToEnd]);
 
   const getPhysicalLine = useCallback(
-    (index: number): number | undefined => (filtering ? cache.getLineNumber(index) : index),
-    [cache, filtering],
+    (index: number): number | undefined => (numbered ? cache.getLineNumber(index) : index),
+    [cache, numbered],
   );
 
   const getVisibleRange = useCallback((): { first: number; last: number } | null => {
@@ -426,7 +435,7 @@ export const LogViewer = ({
 
   const fetchSelectionLines = useCallback(
     (from: number, count: number, signal: AbortSignal): Promise<string[]> =>
-      fetchLogLines(fileRef.current, from, count, levelsRef.current, signal).then(
+      fetchLogLines(fileRef.current, from, count, levelsRef.current, startRef.current, signal).then(
         (result) => result.lines,
       ),
     [],
@@ -436,7 +445,7 @@ export const LogViewer = ({
     rowsRef,
     getLine: cache.getLine,
     fetchLines: fetchSelectionLines,
-    resetKey: `${file}\u0000${levelsKey}\u0000${generation}`,
+    resetKey: `${file}\u0000${viewKey}\u0000${generation}`,
   });
 
   useImperativeHandle(
@@ -498,7 +507,7 @@ export const LogViewer = ({
     cache.setTotal(totalRef.current, sizeRef.current);
     setMinWidth(0);
     virtualizerRef.current.measure();
-  }, [cache, levelsKey]);
+  }, [cache, viewKey]);
 
   useEffect(() => {
     cache.setTotal(total, size);

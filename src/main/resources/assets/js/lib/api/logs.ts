@@ -39,24 +39,42 @@ export type LogInfo = {
   modified: string;
   lines: number;
   levels: LogLevelCounts;
-  /** Lines the active filter admits; absent when no filter is active. */
+  /** Lines the view holds under the level filter and the window; absent when neither narrows it. */
   filtered?: number;
 };
 
 export type LogLines = {
   from: number;
   lines: string[];
-  /** Physical line number of each entry in `lines`; absent when no filter is active. */
+  /** Physical line number of each entry in `lines`; absent when the view is the whole file. */
   numbers?: number[];
   total: number;
   size: number;
 };
 
-/** Where a physical line sits in the filtered view, or the nearest visible line to it. */
+/** Where a physical line sits in the narrowed view, or the nearest visible line to it. */
 export type LogLocation = {
   position: number;
   visible: boolean;
 };
+
+/**
+ * Where a time window begins, resolved once against the file's last entry. `time` is the
+ * `HH:mm:ss.SSS` of `line`, and both are absent of any cut when the whole file is inside the
+ * window — `line` is then `0` and `time` is `null`.
+ */
+export type LogWindow = {
+  line: number;
+  time: string | null;
+};
+
+/**
+ * Minutes each preset cuts back from the file's last entry. The cut is resolved once and then
+ * held as a line number, so the view grows at its end as the file does rather than sliding.
+ */
+export const LOG_WINDOWS = [15, 30, 60, 360] as const;
+
+export type LogWindowMinutes = (typeof LOG_WINDOWS)[number];
 
 export type LogSearchDirection = 'forward' | 'backward';
 
@@ -92,6 +110,8 @@ export type LogSearchParams = {
   direction: LogSearchDirection;
   /** Scopes the search: a match is only ever a line these levels admit. */
   levels: readonly LogLevel[];
+  /** Scopes it further: no match is ever above the window's first physical line. */
+  start: number;
   regex?: boolean;
   caseSensitive?: boolean;
   signal?: AbortSignal;
@@ -109,6 +129,7 @@ const EMPTY_CRITERIA: SearchCriteria = { query: '', regex: false, caseSensitive:
 export type LogMatchParams = {
   file: string;
   query: string;
+  start: number;
   regex?: boolean;
   caseSensitive?: boolean;
   signal?: AbortSignal;
@@ -148,12 +169,15 @@ export function matchSplit(counts: number[], levels: readonly LogLevel[]): Match
   return { visible, hidden: total - visible };
 }
 
-function withLevels(
+/** The two parameters that narrow a view, added only when they narrow one. */
+function withView(
   params: Record<string, string>,
   levels: readonly LogLevel[],
+  start: number,
 ): Record<string, string> {
   const value = levelsParam(levels);
   if (value != null) params.levels = value;
+  if (start > 0) params.start = String(start);
   return params;
 }
 
@@ -165,11 +189,12 @@ export function fetchLogFiles(signal?: AbortSignal): Promise<LogFile[]> {
 export function fetchLogInfo(
   file: string,
   levels: readonly LogLevel[],
+  start: number,
   signal?: AbortSignal,
 ): Promise<LogInfo> {
   const { apiUris } = getConfig();
   return apiFetch<LogInfo>(apiUris.logs, {
-    params: withLevels({ file, action: 'info' }, levels),
+    params: withView({ file, action: 'info' }, levels, start),
     signal,
   });
 }
@@ -179,11 +204,12 @@ export function fetchLogLines(
   from: number,
   count: number,
   levels: readonly LogLevel[],
+  start: number,
   signal?: AbortSignal,
 ): Promise<LogLines> {
   const { apiUris } = getConfig();
   return apiFetch<LogLines>(apiUris.logs, {
-    params: withLevels({ file, from: String(from), count: String(count) }, levels),
+    params: withView({ file, from: String(from), count: String(count) }, levels, start),
     signal,
   });
 }
@@ -192,11 +218,25 @@ export function locateLogLine(
   file: string,
   line: number,
   levels: readonly LogLevel[],
+  start: number,
   signal?: AbortSignal,
 ): Promise<LogLocation> {
   const { apiUris } = getConfig();
   return apiFetch<LogLocation>(apiUris.logs, {
-    params: withLevels({ file, action: 'locate', line: String(line) }, levels),
+    params: withView({ file, action: 'locate', line: String(line) }, levels, start),
+    signal,
+  });
+}
+
+/** Resolves a preset against the file's last entry. The line it returns is held, not re-asked. */
+export function fetchLogWindow(
+  file: string,
+  minutes: number,
+  signal?: AbortSignal,
+): Promise<LogWindow> {
+  const { apiUris } = getConfig();
+  return apiFetch<LogWindow>(apiUris.logs, {
+    params: { file, action: 'window', minutes: String(minutes) },
     signal,
   });
 }
@@ -207,13 +247,14 @@ export function searchLog({
   from,
   direction,
   levels,
+  start,
   regex = false,
   caseSensitive = false,
   signal,
 }: LogSearchParams): Promise<LogSearchResult> {
   const { apiUris } = getConfig();
   return apiFetch<LogSearchResult>(apiUris.logs, {
-    params: withLevels(
+    params: withView(
       {
         file,
         action: 'search',
@@ -224,6 +265,7 @@ export function searchLog({
         caseSensitive: String(caseSensitive),
       },
       levels,
+      start,
     ),
     signal,
   });
@@ -232,26 +274,29 @@ export function searchLog({
 export function fetchLogMatches({
   file,
   query,
+  start,
   regex = false,
   caseSensitive = false,
   signal,
 }: LogMatchParams): Promise<LogMatchCount> {
   const { apiUris } = getConfig();
-  return apiFetch<LogMatchCount>(apiUris.logs, {
-    params: {
-      file,
-      action: 'matches',
-      query,
-      regex: String(regex),
-      caseSensitive: String(caseSensitive),
-    },
-    signal,
-  });
+  const params: Record<string, string> = {
+    file,
+    action: 'matches',
+    query,
+    regex: String(regex),
+    caseSensitive: String(caseSensitive),
+  };
+  if (start > 0) params.start = String(start);
+
+  return apiFetch<LogMatchCount>(apiUris.logs, { params, signal });
 }
 
-export function logDownloadUrl(file: string): string {
+export function logDownloadUrl(file: string, start: number): string {
   const { apiUris } = getConfig();
-  return buildUrl(apiUris.logs, { file, action: 'download' });
+  const params: Record<string, string> = { file, action: 'download' };
+  if (start > 0) params.start = String(start);
+  return buildUrl(apiUris.logs, params);
 }
 
 export function logFilesQueryOptions(refetchInterval?: number) {
@@ -270,13 +315,20 @@ export function logFilesQueryOptions(refetchInterval?: number) {
  * The key holds no levels, mirroring the server: a filter is applied to the finished counts, so
  * toggling one must not discard a scan in progress.
  */
-export function logMatchesQueryOptions(file: string | undefined, criteria: SearchCriteria | null) {
+export function logMatchesQueryOptions(
+  file: string | undefined,
+  criteria: SearchCriteria | null,
+  start: number,
+) {
   const name = file ?? '';
   const { query, regex, caseSensitive } = criteria ?? EMPTY_CRITERIA;
 
   return queryOptions({
-    queryKey: ['logs', 'matches', name, query, regex, caseSensitive],
-    queryFn: ({ signal }) => fetchLogMatches({ file: name, query, regex, caseSensitive, signal }),
+    // ? The window is in the key where the levels are not: it narrows the counts that come back,
+    // ? so two windows are two answers. The scan behind them is shared and survives either way.
+    queryKey: ['logs', 'matches', name, query, regex, caseSensitive, start],
+    queryFn: ({ signal }) =>
+      fetchLogMatches({ file: name, query, start, regex, caseSensitive, signal }),
     enabled: name !== '' && query !== '',
     // ? The request loop is the scheduler: each call extends the scan by one slice, and a
     // ? slice is bounded server side, so this is never an unbounded hold on the file.
@@ -294,6 +346,7 @@ export function logMatchesQueryOptions(file: string | undefined, criteria: Searc
 export function logInfoQueryOptions(
   file: string | undefined,
   levels: readonly LogLevel[],
+  start: number,
   // ? `false` for a rotated file: its size, counts and timestamps are frozen, so there is
   // ? nothing for a poll to discover. Refresh and refetch-on-focus still re-read it.
   refetchInterval?: number | false,
@@ -302,8 +355,8 @@ export function logInfoQueryOptions(
   return queryOptions({
     // ? Keyed by the canonical parameter, not the array: two selections that filter the same
     // ? way must not hold two cache entries.
-    queryKey: ['logs', 'info', name, levelsParam(levels) ?? ''],
-    queryFn: ({ signal }) => fetchLogInfo(name, levels, signal),
+    queryKey: ['logs', 'info', name, levelsParam(levels) ?? '', start],
+    queryFn: ({ signal }) => fetchLogInfo(name, levels, start, signal),
     enabled: name !== '',
     refetchInterval,
     retry: false,
