@@ -44,7 +44,9 @@ function mockOkResponse(body: unknown) {
 }
 
 beforeEach(() => {
-  vi.clearAllMocks();
+  // Reset, not clear: `clearAllMocks` keeps queued return values, so a `mockReturnValue`
+  // set inside one describe decides the auth path for every test that runs after it.
+  vi.resetAllMocks();
   (globalThis as Record<string, unknown>).app = { config: { ...MOCK_CONFIG } };
 });
 
