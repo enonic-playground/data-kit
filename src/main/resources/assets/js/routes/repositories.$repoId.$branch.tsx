@@ -24,7 +24,7 @@ import {
   Send,
   Trash2,
 } from 'lucide-react';
-import { Fragment, type ReactElement, useState } from 'react';
+import { Fragment, type ReactElement, type ReactNode, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { z } from 'zod';
 
@@ -123,6 +123,7 @@ type BreadcrumbToolbarProps = {
   branch: string;
   path: string;
   onNavigate: (path: string) => void;
+  children?: ReactNode;
 };
 
 const BREADCRUMB_TOOLBAR_NAME = 'BreadcrumbToolbar';
@@ -136,6 +137,7 @@ const BreadcrumbToolbar = ({
   branch,
   path,
   onNavigate,
+  children,
 }: BreadcrumbToolbarProps): ReactElement => {
   const { t } = useTranslation();
   const segments = path === '/' ? [] : path.split('/').filter(Boolean);
@@ -144,40 +146,43 @@ const BreadcrumbToolbar = ({
   return (
     <div
       data-component={BREADCRUMB_TOOLBAR_NAME}
-      className="border-border bg-card flex h-10 shrink-0 items-center gap-1.5 overflow-x-auto border-b px-4"
+      className="border-border bg-card flex h-10 shrink-0 items-center gap-2 border-b px-4"
     >
-      <Link to="/repositories" className={crumbClasses}>
-        {t('nav.repositories')}
-      </Link>
-      <ChevronRight className={separatorClasses} />
-      <Link to="/repositories/$repoId" params={{ repoId }} className={crumbClasses}>
-        {repoId}
-      </Link>
-      <ChevronRight className={separatorClasses} />
-      <button
-        type="button"
-        className={isRootPath ? crumbActiveClasses : crumbClasses}
-        onClick={() => onNavigate('/')}
-      >
-        {branch}
-      </button>
-      {segments.map((segment, index) => {
-        const segmentPath = `/${segments.slice(0, index + 1).join('/')}`;
-        const isLast = index === segments.length - 1;
+      <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto">
+        <Link to="/repositories" className={crumbClasses}>
+          {t('nav.repositories')}
+        </Link>
+        <ChevronRight className={separatorClasses} />
+        <Link to="/repositories/$repoId" params={{ repoId }} className={crumbClasses}>
+          {repoId}
+        </Link>
+        <ChevronRight className={separatorClasses} />
+        <button
+          type="button"
+          className={isRootPath ? crumbActiveClasses : crumbClasses}
+          onClick={() => onNavigate('/')}
+        >
+          {branch}
+        </button>
+        {segments.map((segment, index) => {
+          const segmentPath = `/${segments.slice(0, index + 1).join('/')}`;
+          const isLast = index === segments.length - 1;
 
-        return (
-          <Fragment key={segmentPath}>
-            <ChevronRight className={separatorClasses} />
-            <button
-              type="button"
-              className={isLast ? crumbActiveClasses : crumbClasses}
-              onClick={() => onNavigate(segmentPath)}
-            >
-              {segment}
-            </button>
-          </Fragment>
-        );
-      })}
+          return (
+            <Fragment key={segmentPath}>
+              <ChevronRight className={separatorClasses} />
+              <button
+                type="button"
+                className={isLast ? crumbActiveClasses : crumbClasses}
+                onClick={() => onNavigate(segmentPath)}
+              >
+                {segment}
+              </button>
+            </Fragment>
+          );
+        })}
+      </div>
+      {children ? <div className="flex shrink-0 items-center gap-2">{children}</div> : null}
     </div>
   );
 };
@@ -1041,11 +1046,7 @@ const NodeBrowserPage = (): ReactElement => {
 
   return (
     <div data-component={NODE_BROWSER_PAGE_NAME} className="flex h-full flex-col">
-      <BreadcrumbToolbar repoId={repoId} branch={branch} path={path} onNavigate={navigateToPath} />
-
-      {/* Action toolbar */}
-      <div className="flex items-center gap-2 px-4 py-2">
-        <div className="flex-1" />
+      <BreadcrumbToolbar repoId={repoId} branch={branch} path={path} onNavigate={navigateToPath}>
         <CreateNodeDialog repoId={repoId} branch={branch} parentPath={path} />
         <Separator orientation="vertical" className="h-5" />
         <div className="flex items-center gap-0.5">
@@ -1070,7 +1071,7 @@ const NodeBrowserPage = (): ReactElement => {
             <LayoutGrid className="size-4" />
           </Button>
         </div>
-      </div>
+      </BreadcrumbToolbar>
 
       <div className="flex flex-1 overflow-hidden">
         {/* Node list */}
