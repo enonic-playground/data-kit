@@ -64,11 +64,15 @@ const NodeGridCell = ({
   return (
     <button
       type="button"
-      aria-pressed={isSelected}
+      // A folder navigates rather than selects, so it carries no pressed state.
+      aria-pressed={node.hasChildren ? undefined : isSelected}
       className="flex w-30 flex-col gap-1 text-left"
-      onClick={() => onSelect(node._id)}
-      onDoubleClick={() => {
-        if (node.hasChildren) onNavigate(node._path);
+      onClick={() => {
+        if (node.hasChildren) {
+          onNavigate(node._path);
+          return;
+        }
+        onSelect(node._id);
       }}
     >
       <span

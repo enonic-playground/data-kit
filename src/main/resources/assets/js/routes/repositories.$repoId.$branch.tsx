@@ -24,12 +24,13 @@ import {
   Send,
   Trash2,
 } from 'lucide-react';
-import { Fragment, type ReactElement, type ReactNode, useState } from 'react';
+import { Fragment, type ReactElement, type ReactNode, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { z } from 'zod';
 
-import { NodeDetailPanel } from '../components/node-detail-panel';
+import { NodeDetailView } from '../components/node-detail-view';
 import { NodeGrid } from '../components/node-grid';
+import { NodeSiblingRail } from '../components/node-sibling-rail';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Checkbox } from '../components/ui/checkbox';
@@ -74,6 +75,7 @@ import {
 import { branchesQueryOptions } from '../lib/api/branches';
 import {
   type NodeEntry,
+  nodeDetailQueryOptions,
   nodesQueryOptions,
   useCreateNode,
   useDeleteNode,
@@ -85,6 +87,7 @@ import {
 import { cn } from '../lib/utils';
 
 const NODE_BROWSER_PAGE_NAME = 'NodeBrowserPage';
+const NODE_BROWSE_LIST_NAME = 'NodeBrowseList';
 
 const DEFAULT_COUNT = 25;
 
@@ -114,6 +117,39 @@ function getParentPath(path: string): string {
   return segments.length === 0 ? '/' : `/${segments.join('/')}`;
 }
 
+/** Anything that owns the arrow keys itself — native controls plus every Radix overlay. */
+const KEYBOARD_SURFACE_SELECTOR = [
+  'input',
+  'textarea',
+  'select',
+  '[contenteditable="true"]',
+  '[role="dialog"]',
+  // Radix AlertDialog reports `alertdialog`, and the Versions tab's revert confirm is one.
+  '[role="alertdialog"]',
+  '[role="menu"]',
+  '[role="listbox"]',
+  '[role="combobox"]',
+  '[data-radix-popper-content-wrapper]',
+].join(', ');
+
+const RAIL_OPEN_STORAGE_KEY = 'datakit:node-rail-open';
+
+function readRailOpen(): boolean {
+  try {
+    return window.localStorage.getItem(RAIL_OPEN_STORAGE_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+function writeRailOpen(open: boolean): void {
+  try {
+    window.localStorage.setItem(RAIL_OPEN_STORAGE_KEY, String(open));
+  } catch {
+    // ignore quota / disabled storage
+  }
+}
+
 //
 // * BreadcrumbToolbar
 //
@@ -122,6 +158,7 @@ type BreadcrumbToolbarProps = {
   repoId: string;
   branch: string;
   path: string;
+  nodeName?: string;
   onNavigate: (path: string) => void;
   children?: ReactNode;
 };
@@ -136,12 +173,14 @@ const BreadcrumbToolbar = ({
   repoId,
   branch,
   path,
+  nodeName,
   onNavigate,
   children,
 }: BreadcrumbToolbarProps): ReactElement => {
   const { t } = useTranslation();
   const segments = path === '/' ? [] : path.split('/').filter(Boolean);
-  const isRootPath = segments.length === 0;
+  // The node, when one is selected, is the leaf — so no path segment is the active crumb.
+  const isRootPath = segments.length === 0 && nodeName == null;
 
   return (
     <div
@@ -166,7 +205,7 @@ const BreadcrumbToolbar = ({
         </button>
         {segments.map((segment, index) => {
           const segmentPath = `/${segments.slice(0, index + 1).join('/')}`;
-          const isLast = index === segments.length - 1;
+          const isLast = index === segments.length - 1 && nodeName == null;
 
           return (
             <Fragment key={segmentPath}>
@@ -181,6 +220,12 @@ const BreadcrumbToolbar = ({
             </Fragment>
           );
         })}
+        {nodeName != null && (
+          <>
+            <ChevronRight className={separatorClasses} />
+            <span className={crumbActiveClasses}>{nodeName}</span>
+          </>
+        )}
       </div>
       {children ? <div className="flex shrink-0 items-center gap-2">{children}</div> : null}
     </div>
@@ -859,9 +904,16 @@ const NodeBrowserPage = (): ReactElement => {
   const { repoId, branch } = Route.useParams();
   const { path, start, count, nodeId, view: viewMode } = Route.useSearch();
   const navigate = useNavigate({ from: Route.fullPath });
+  const [railOpen, setRailOpen] = useState(readRailOpen);
 
   const setViewMode = (view: 'list' | 'grid') => {
     navigate({ search: (prev: Record<string, unknown>) => ({ ...prev, view }) });
+  };
+
+  const toggleRail = () => {
+    const next = !railOpen;
+    setRailOpen(next);
+    writeRailOpen(next);
   };
 
   const { data } = useSuspenseQuery(
@@ -874,6 +926,55 @@ const NodeBrowserPage = (): ReactElement => {
       images: viewMode === 'grid',
     }),
   );
+
+  // Shares a query key with the detail view, so this hits the cache rather than refetching.
+  const { data: selectedNode } = useQuery({
+    ...nodeDetailQueryOptions({ repoId, branch, key: nodeId ?? '' }),
+    enabled: nodeId != null,
+  });
+
+  // A Reference click sets `nodeId` without touching `path`, so the node can sit under a
+  // different parent — leaving the breadcrumb and the rail describing the wrong place.
+  useEffect(() => {
+    if (nodeId == null || selectedNode == null) return;
+    const parentPath = getParentPath(selectedNode._path);
+    if (parentPath === path) return;
+
+    navigate({
+      replace: true,
+      search: { path: parentPath, start: 0, count, view: viewMode, nodeId },
+    });
+  }, [nodeId, selectedNode, path, count, viewMode, navigate]);
+
+  useEffect(() => {
+    if (nodeId == null) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+      if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+      // Held keys repeat ~30/s, and each step pushes a history entry.
+      if (e.repeat) return;
+      // Radix preventDefaults for its own roving focus but never stopPropagation, so an
+      // arrow inside a menu or dialog still reaches window and would swap the node under it.
+      if (e.defaultPrevented) return;
+      const target = e.target as HTMLElement | null;
+      if (target?.closest(KEYBOARD_SURFACE_SELECTOR) != null) return;
+
+      const index = data.nodes.findIndex((node) => node._id === nodeId);
+      if (index < 0) return;
+      // At either end the key is left to the browser, so the rail still scrolls.
+      const next = data.nodes[index + (e.key === 'ArrowDown' ? 1 : -1)];
+      if (next == null) return;
+
+      e.preventDefault();
+      navigate({ search: (prev: Record<string, unknown>) => ({ ...prev, nodeId: next._id }) });
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [nodeId, data.nodes, navigate]);
 
   const navigateToPath = (newPath: string) => {
     navigate({
@@ -1046,103 +1147,129 @@ const NodeBrowserPage = (): ReactElement => {
 
   return (
     <div data-component={NODE_BROWSER_PAGE_NAME} className="flex h-full flex-col">
-      <BreadcrumbToolbar repoId={repoId} branch={branch} path={path} onNavigate={navigateToPath}>
+      <BreadcrumbToolbar
+        repoId={repoId}
+        branch={branch}
+        path={path}
+        nodeName={nodeId != null ? selectedNode?._name : undefined}
+        onNavigate={navigateToPath}
+      >
         <CreateNodeDialog repoId={repoId} branch={branch} parentPath={path} />
-        <Separator orientation="vertical" className="h-5" />
-        <div className="flex items-center gap-0.5">
-          <Button
-            variant="ghost"
-            size="icon"
-            className={cn(viewMode === 'list' && 'bg-accent')}
-            aria-label={t('node.view.list')}
-            aria-pressed={viewMode === 'list'}
-            onClick={() => setViewMode('list')}
-          >
-            <LayoutList className="size-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className={cn(viewMode === 'grid' && 'bg-accent')}
-            aria-label={t('node.view.grid')}
-            aria-pressed={viewMode === 'grid'}
-            onClick={() => setViewMode('grid')}
-          >
-            <LayoutGrid className="size-4" />
-          </Button>
-        </div>
+        {/* The view mode governs the browse list, which is not on screen under a node. */}
+        {nodeId == null && (
+          <>
+            <Separator orientation="vertical" className="h-5" />
+            <div className="flex items-center gap-0.5">
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cn(viewMode === 'list' && 'bg-accent')}
+                aria-label={t('node.view.list')}
+                aria-pressed={viewMode === 'list'}
+                onClick={() => setViewMode('list')}
+              >
+                <LayoutList className="size-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cn(viewMode === 'grid' && 'bg-accent')}
+                aria-label={t('node.view.grid')}
+                aria-pressed={viewMode === 'grid'}
+                onClick={() => setViewMode('grid')}
+              >
+                <LayoutGrid className="size-4" />
+              </Button>
+            </div>
+          </>
+        )}
       </BreadcrumbToolbar>
 
       <div className="flex flex-1 overflow-hidden">
-        {/* Node list */}
-        <div className="flex flex-1 flex-col overflow-auto">
-          {viewMode === 'grid' ? gridView : listView}
-          {data.nodes.length === 0 ? (
-            <div className="flex flex-1 items-center justify-center">
-              <EmptyState
-                icon={FolderOpen}
-                title={t('node.empty.title')}
-                description={t('node.empty.description')}
-              />
-            </div>
-          ) : (
-            data.total > 0 && (
-              <div
-                className={cn(
-                  'flex shrink-0 items-center justify-between px-4 py-3',
-                  'border-border border-t',
-                )}
-              >
-                <span className="text-muted-foreground font-mono text-xs">
-                  {t('common.pagination.range', { start: start + 1, end, total: data.total })}
-                </span>
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    disabled={!hasPrev}
-                    onClick={() =>
-                      navigate({
-                        search: {
-                          path,
-                          start: Math.max(0, start - count),
-                          count,
-                          view: viewMode,
-                        },
-                      })
-                    }
-                  >
-                    <ChevronLeft className="size-4" />
-                    {t('common.pagination.previous')}
-                  </Button>
-                  <Button
-                    size="sm"
-                    disabled={!hasNext}
-                    onClick={() =>
-                      navigate({
-                        search: {
-                          path,
-                          start: start + count,
-                          count,
-                          view: viewMode,
-                        },
-                      })
-                    }
-                  >
-                    {t('common.pagination.next')}
-                    <ChevronRight className="size-4" />
-                  </Button>
-                </div>
+        {nodeId != null && railOpen && (
+          <NodeSiblingRail
+            nodes={data.nodes}
+            selectedNodeId={nodeId}
+            onSelect={openNodeDetail}
+            onNavigate={navigateToPath}
+            // `path` is already the node's parent, so leaving the node *is* going up.
+            onNavigateUp={closeNodeDetail}
+          />
+        )}
+        {/* Hidden rather than unmounted so returning from a node restores the list's scroll
+            position; `inert` keeps the offscreen rows out of the tab order and a11y tree. */}
+        <div
+          data-component={NODE_BROWSE_LIST_NAME}
+          inert={nodeId != null}
+          className={cn('flex-1 flex-col overflow-auto', nodeId != null ? 'hidden' : 'flex')}
+        >
+            {viewMode === 'grid' ? gridView : listView}
+            {data.nodes.length === 0 ? (
+              <div className="flex flex-1 items-center justify-center">
+                <EmptyState
+                  icon={FolderOpen}
+                  title={t('node.empty.title')}
+                  description={t('node.empty.description')}
+                />
               </div>
-            )
-          )}
+            ) : (
+              data.total > 0 && (
+                <div
+                  className={cn(
+                    'flex shrink-0 items-center justify-between px-4 py-3',
+                    'border-border border-t',
+                  )}
+                >
+                  <span className="text-muted-foreground font-mono text-xs">
+                    {t('common.pagination.range', { start: start + 1, end, total: data.total })}
+                  </span>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      disabled={!hasPrev}
+                      onClick={() =>
+                        navigate({
+                          search: {
+                            path,
+                            start: Math.max(0, start - count),
+                            count,
+                            view: viewMode,
+                          },
+                        })
+                      }
+                    >
+                      <ChevronLeft className="size-4" />
+                      {t('common.pagination.previous')}
+                    </Button>
+                    <Button
+                      size="sm"
+                      disabled={!hasNext}
+                      onClick={() =>
+                        navigate({
+                          search: {
+                            path,
+                            start: start + count,
+                            count,
+                            view: viewMode,
+                          },
+                        })
+                      }
+                    >
+                      {t('common.pagination.next')}
+                      <ChevronRight className="size-4" />
+                    </Button>
+                  </div>
+                </div>
+              )
+            )}
         </div>
-
-        {/* Inline preview panel */}
         {nodeId != null && (
-          <NodeDetailPanel
+          <NodeDetailView
             nodeId={nodeId}
             repoId={repoId}
             branch={branch}
+            railOpen={railOpen}
+            onToggleRail={toggleRail}
             onClose={closeNodeDetail}
             onNodeMutated={closeNodeDetail}
             onNavigateToNode={openNodeDetail}
