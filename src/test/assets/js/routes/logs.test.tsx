@@ -524,7 +524,7 @@ describe('LogsPage', () => {
     expect(page.queryByText('No match')).not.toBeInTheDocument();
   });
 
-  it('should report no match instead of re-reporting the last line', async () => {
+  it('should hold the last match instead of reporting no match', async () => {
     const { user } = renderRoute({ initialLocation: '/logs' });
 
     await waitFor(() => {
@@ -536,17 +536,38 @@ describe('LogsPage', () => {
     await user.click(page.getByLabelText('Next match'));
 
     await waitFor(() => {
-      expect(searchCalls()).toHaveLength(1);
+      expect(page.getByText('1 of 1')).toBeInTheDocument();
     });
 
     await user.click(page.getByLabelText('Next match'));
 
-    await waitFor(() => {
-      expect(page.getByText('No match')).toBeInTheDocument();
-    });
-
+    expect(page.getByText('1 of 1')).toBeInTheDocument();
+    expect(page.queryByText('No match')).not.toBeInTheDocument();
     // ? The cursor sits on the last line, so there is nothing left to ask for.
     expect(searchCalls().map((params) => params.from)).toEqual(['0']);
+  });
+
+  it('should hold the first match when stepping backward past it', async () => {
+    const { user } = renderRoute({ initialLocation: '/logs' });
+
+    await waitFor(() => {
+      expect(screen.getByText(/Started dispatcher/)).toBeInTheDocument();
+    });
+
+    const page = within(getLogsPage());
+    await user.type(page.getByLabelText('Search in log file'), 'Started dispatcher');
+    await user.click(page.getByLabelText('Next match'));
+
+    await waitFor(() => {
+      expect(page.getByText('1 of 1')).toBeInTheDocument();
+    });
+
+    await user.click(page.getByLabelText('Previous match'));
+
+    expect(page.getByText('1 of 1')).toBeInTheDocument();
+    expect(page.queryByText('No match')).not.toBeInTheDocument();
+    // ? Stepping off line 0 lands above the file, so no request is worth sending.
+    expect(searchCalls()).toHaveLength(1);
   });
 
   it('should include the first line after scrolling to the start', async () => {
@@ -589,9 +610,9 @@ describe('LogsPage', () => {
 
     await user.click(page.getByLabelText('Next match'));
 
-    await waitFor(() => {
-      expect(page.getByText('No match')).toBeInTheDocument();
-    });
+    // ? Stepping past the last match holds on it rather than emptying the badge.
+    expect(page.getByText('1 of 1')).toBeInTheDocument();
+    expect(searchCalls()).toHaveLength(1);
   });
 
   it('should drop the previous cursor when the query changes', async () => {
@@ -1400,17 +1421,20 @@ describe('LogsPage', () => {
       expect(searchCalls()).toHaveLength(1);
     });
 
+    const located = locateCalls().length;
+
     // ? The locate for the hit is still out, so the cursor has no row to compare against the
     // ? viewport — it must still be the step-off point rather than the viewport.
     await user.click(page.getByLabelText('Next match'));
 
     await waitFor(() => {
-      expect(page.getByText('No match')).toBeInTheDocument();
+      expect(locateCalls().length).toBe(located + 1);
     });
-    // ? Stepping off line 2 lands past the end of a three-line file, so the verdict is reached
+    // ? Stepping off line 2 lands past the end of a three-line file, so the hold is reached
     // ? without asking the server at all. Restarting from the viewport would have asked again
     // ? and been handed the same hit.
     expect(searchCalls()).toHaveLength(1);
+    expect(page.queryByText('No match')).not.toBeInTheDocument();
   });
 
   it('should search from the reader position when the filtered rows have no numbers', async () => {
