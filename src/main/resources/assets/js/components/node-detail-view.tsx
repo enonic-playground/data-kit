@@ -6,6 +6,7 @@ import {
   Ellipsis,
   History,
   Info,
+  PanelLeft,
   Pencil,
   Plus,
   Send,
@@ -14,14 +15,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import {
-  type ReactElement,
-  type MouseEvent as ReactMouseEvent,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import { type ReactElement, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { createHighlighterCore } from 'shiki/core';
 import langJson from 'shiki/dist/langs/json.mjs';
@@ -88,10 +82,12 @@ const highlighterPromise = createHighlighterCore({
 // * Types
 //
 
-export type NodeDetailPanelProps = {
+export type NodeDetailViewProps = {
   nodeId: string;
   repoId: string;
   branch: string;
+  railOpen: boolean;
+  onToggleRail: () => void;
   onClose: () => void;
   onNodeMutated?: () => void;
   onNavigateToNode?: (nodeId: string) => void;
@@ -282,17 +278,19 @@ const JsonTab = ({ node }: { node: NodeDetail }): ReactElement => {
 JsonTab.displayName = JSON_TAB_NAME;
 
 //
-// * PanelActions
+// * NodeActions
 //
 
-type PanelActionsProps = {
+const NODE_ACTIONS_NAME = 'NodeActions';
+
+type NodeActionsProps = {
   node: NodeDetail;
   repoId: string;
   branch: string;
   onNodeMutated?: () => void;
 };
 
-const PanelActions = ({ node, repoId, branch, onNodeMutated }: PanelActionsProps): ReactElement => {
+const NodeActions = ({ node, repoId, branch, onNodeMutated }: NodeActionsProps): ReactElement => {
   const { t } = useTranslation();
   const [createOpen, setCreateOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
@@ -811,6 +809,8 @@ const PanelActions = ({ node, repoId, branch, onNodeMutated }: PanelActionsProps
   );
 };
 
+NodeActions.displayName = NODE_ACTIONS_NAME;
+
 //
 // * NodeImagePreview
 //
@@ -860,11 +860,15 @@ const NODE_DETAIL_CONTENT_NAME = 'NodeDetailContent';
 
 const NodeDetailContent = ({
   params,
+  railOpen,
+  onToggleRail,
   onClose,
   onNodeMutated,
   onNavigateToNode,
 }: {
   params: NodeDetailParams;
+  railOpen: boolean;
+  onToggleRail: () => void;
   onClose: () => void;
   onNodeMutated?: () => void;
   onNavigateToNode?: (nodeId: string) => void;
@@ -883,139 +887,157 @@ const NodeDetailContent = ({
     }),
   );
   const versionsTotal = versionsInfinite.data?.pages[0]?.total;
+  const railLabel = t(railOpen ? 'node.rail.hide' : 'node.rail.show');
 
-  if (isLoading) {
-    return (
-      <div data-component={NODE_DETAIL_CONTENT_NAME} className="space-y-4 p-4">
-        <Skeleton className="h-6 w-1/2" />
-        <Skeleton className="h-4 w-3/4" />
-        <Skeleton className="h-32 w-full" />
-      </div>
-    );
-  }
-
-  if (error != null || node == null) {
-    return (
-      <div
-        data-component={NODE_DETAIL_CONTENT_NAME}
-        className="text-destructive py-8 text-center text-sm"
-      >
-        {t('node.error.loadFailed')}
-      </div>
-    );
-  }
-
-  return (
-    <div data-component={NODE_DETAIL_CONTENT_NAME} className="flex h-full flex-col">
-      {/* Panel header */}
-      <div className="border-border flex shrink-0 items-start justify-between border-b p-4">
-        <div className="min-w-0 flex-1">
-          <h3 className="text-foreground truncate text-[15px] font-semibold">{node._name}</h3>
-          <p className="text-muted-foreground mt-0.5 truncate font-mono text-[11px]">
-            {node._path}
-          </p>
+  // Early-returning here would strand a failed node on a surface with no back control or
+  // rail toggle, and remount the tabs on every uncached sibling step.
+  const body = (): ReactElement => {
+    if (isLoading) {
+      return (
+        <div className="space-y-4 p-4">
+          <Skeleton className="h-6 w-1/2" />
+          <Skeleton className="h-4 w-3/4" />
+          <Skeleton className="h-32 w-full" />
         </div>
-        <div className="flex shrink-0 items-center">
-          <PanelActions
+      );
+    }
+
+    if (error != null || node == null) {
+      return <div className="text-destructive py-8 text-center text-sm">{t('node.error.loadFailed')}</div>;
+    }
+
+    return (
+      <>
+        <TabsContent value="properties">
+          <NodePropertiesTab
             node={node}
             repoId={params.repoId}
             branch={params.branch}
-            onNodeMutated={onNodeMutated}
+            image={image ?? undefined}
+            onNavigateToNode={onNavigateToNode}
           />
-          <button
-            type="button"
-            onClick={onClose}
-            className={cn(
-              'ml-1 flex size-7 shrink-0 items-center justify-center rounded-md',
-              'text-muted-foreground transition-colors',
-              'hover:bg-accent hover:text-accent-foreground',
-            )}
-            aria-label={t('node.action.closePanel')}
-          >
-            <X className="size-4" />
-          </button>
-        </div>
-      </div>
+        </TabsContent>
+        <TabsContent value="metadata">
+          <MetadataTab node={node} />
+        </TabsContent>
+        <TabsContent value="permissions">
+          <PermissionsTab permissions={node._permissions ?? []} />
+        </TabsContent>
+        <TabsContent value="versions">
+          <NodeVersionsTab
+            repoId={params.repoId}
+            branch={params.branch}
+            nodeKey={params.key}
+            nodeName={node._name}
+          />
+        </TabsContent>
+        <TabsContent value="json">
+          <JsonTab node={node} />
+        </TabsContent>
+      </>
+    );
+  };
 
-      <NodeImagePreview
-        node={node}
-        repoId={params.repoId}
-        branch={params.branch}
-        image={image ?? undefined}
-      />
+  return (
+    <div data-component={NODE_DETAIL_CONTENT_NAME} className="flex h-full flex-col">
+      {node != null && (
+        <NodeImagePreview
+          node={node}
+          repoId={params.repoId}
+          branch={params.branch}
+          image={image ?? undefined}
+        />
+      )}
 
       {/* Tabs */}
       <Tabs defaultValue="properties" className="flex flex-1 flex-col overflow-hidden">
-        <TabsList className="mx-4 mt-2 w-auto">
-          <TabsTrigger
-            value="properties"
-            title={t('node.tab.properties')}
-            className="px-2 @[576px]:px-3"
-          >
-            <Table2 className="size-3.5" />
-            <span className="ml-1.5 hidden @[576px]:inline">{t('node.tab.properties')}</span>
-          </TabsTrigger>
-          <TabsTrigger
-            value="metadata"
-            title={t('node.tab.metadata')}
-            className="px-2 @[576px]:px-3"
-          >
-            <Info className="size-3.5" />
-            <span className="ml-1.5 hidden @[576px]:inline">{t('node.tab.metadata')}</span>
-          </TabsTrigger>
-          <TabsTrigger
-            value="permissions"
-            title={t('node.tab.permissions')}
-            className="px-2 @[576px]:px-3"
-          >
-            <Shield className="size-3.5" />
-            <span className="ml-1.5 hidden @[576px]:inline">{t('node.tab.permissions')}</span>
-          </TabsTrigger>
-          <TabsTrigger
-            value="versions"
-            title={t('node.tab.versions')}
-            className="px-2 @[576px]:px-3"
-          >
-            <History className="size-3.5" />
-            <span className="ml-1.5 hidden @[576px]:inline">{t('node.tab.versions')}</span>
-            {versionsTotal != null && (
-              <Badge variant="secondary" className="ml-1.5 hidden @[576px]:inline-flex">
-                {versionsTotal}
-              </Badge>
+        <div className="flex shrink-0 items-center gap-2 px-4 pt-2">
+          <button
+            type="button"
+            onClick={onToggleRail}
+            aria-pressed={railOpen}
+            aria-label={railLabel}
+            title={railLabel}
+            className={cn(
+              'flex size-7 shrink-0 items-center justify-center rounded-md',
+              'text-muted-foreground transition-colors',
+              'hover:bg-accent hover:text-accent-foreground',
+              railOpen && 'bg-accent text-accent-foreground',
             )}
-          </TabsTrigger>
-          <TabsTrigger value="json" title={t('node.tab.json')} className="px-2 @[576px]:px-3">
-            <Braces className="size-3.5" />
-            <span className="ml-1.5 hidden @[576px]:inline">{t('node.tab.json')}</span>
-          </TabsTrigger>
-        </TabsList>
-        <div className="flex-1 overflow-auto">
-          <TabsContent value="properties">
-            <NodePropertiesTab
-              node={node}
-              repoId={params.repoId}
-              branch={params.branch}
-              image={image ?? undefined}
-              onNavigateToNode={onNavigateToNode}
-            />
-          </TabsContent>
-          <TabsContent value="metadata">
-            <MetadataTab node={node} />
-          </TabsContent>
-          <TabsContent value="permissions">
-            <PermissionsTab permissions={node._permissions ?? []} />
-          </TabsContent>
-          <TabsContent value="versions">
-            <NodeVersionsTab
-              repoId={params.repoId}
-              branch={params.branch}
-              nodeKey={params.key}
-              nodeName={node._name}
-            />
-          </TabsContent>
-          <TabsContent value="json">
-            <JsonTab node={node} />
-          </TabsContent>
+          >
+            <PanelLeft className="size-4" />
+          </button>
+          <TabsList className="w-auto">
+            <TabsTrigger
+              value="properties"
+              title={t('node.tab.properties')}
+              className="px-2 @[576px]:px-3"
+            >
+              <Table2 className="size-3.5" />
+              <span className="ml-1.5 hidden @[576px]:inline">{t('node.tab.properties')}</span>
+            </TabsTrigger>
+            <TabsTrigger
+              value="metadata"
+              title={t('node.tab.metadata')}
+              className="px-2 @[576px]:px-3"
+            >
+              <Info className="size-3.5" />
+              <span className="ml-1.5 hidden @[576px]:inline">{t('node.tab.metadata')}</span>
+            </TabsTrigger>
+            <TabsTrigger
+              value="permissions"
+              title={t('node.tab.permissions')}
+              className="px-2 @[576px]:px-3"
+            >
+              <Shield className="size-3.5" />
+              <span className="ml-1.5 hidden @[576px]:inline">{t('node.tab.permissions')}</span>
+            </TabsTrigger>
+            <TabsTrigger
+              value="versions"
+              title={t('node.tab.versions')}
+              className="px-2 @[576px]:px-3"
+            >
+              <History className="size-3.5" />
+              <span className="ml-1.5 hidden @[576px]:inline">{t('node.tab.versions')}</span>
+              {versionsTotal != null && (
+                <Badge variant="secondary" className="ml-1.5 hidden @[576px]:inline-flex">
+                  {versionsTotal}
+                </Badge>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="json" title={t('node.tab.json')} className="px-2 @[576px]:px-3">
+              <Braces className="size-3.5" />
+              <span className="ml-1.5 hidden @[576px]:inline">{t('node.tab.json')}</span>
+            </TabsTrigger>
+          </TabsList>
+          <div className="ml-auto flex shrink-0 items-center">
+            {node != null && (
+              <NodeActions
+                node={node}
+                repoId={params.repoId}
+                branch={params.branch}
+                onNodeMutated={onNodeMutated}
+              />
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              className={cn(
+                'ml-1 flex size-7 shrink-0 items-center justify-center rounded-md',
+                'text-muted-foreground transition-colors',
+                'hover:bg-accent hover:text-accent-foreground',
+              )}
+              aria-label={t('node.action.backToList')}
+              title={t('node.action.backToList')}
+            >
+              <X className="size-4" />
+            </button>
+          </div>
+        </div>
+        {/* Remounts per node so a pending version confirm cannot outlive it; the tab shell
+            sits outside, so which tab is open survives. */}
+        <div key={params.key} className="flex-1 overflow-auto">
+          {body()}
         </div>
       </Tabs>
     </div>
@@ -1025,106 +1047,30 @@ const NodeDetailContent = ({
 NodeDetailContent.displayName = NODE_DETAIL_CONTENT_NAME;
 
 //
-// * NodeDetailPanel
+// * NodeDetailView
 //
 
-const NODE_DETAIL_PANEL_NAME = 'NodeDetailPanel';
+const NODE_DETAIL_VIEW_NAME = 'NodeDetailView';
 
-const PANEL_WIDTH_STORAGE_KEY = 'datakit:detail-panel-width';
-const PANEL_MIN_WIDTH = 320;
-const PANEL_MAX_WIDTH = 900;
-const PANEL_DEFAULT_WIDTH = 620;
-
-function readStoredWidth(): number {
-  try {
-    const raw = window.localStorage.getItem(PANEL_WIDTH_STORAGE_KEY);
-    if (raw == null) return PANEL_DEFAULT_WIDTH;
-    const parsed = Number.parseInt(raw, 10);
-    if (!Number.isFinite(parsed)) return PANEL_DEFAULT_WIDTH;
-    return Math.min(PANEL_MAX_WIDTH, Math.max(PANEL_MIN_WIDTH, parsed));
-  } catch {
-    return PANEL_DEFAULT_WIDTH;
-  }
-}
-
-function writeStoredWidth(width: number): void {
-  try {
-    window.localStorage.setItem(PANEL_WIDTH_STORAGE_KEY, String(width));
-  } catch {
-    // ignore quota / disabled storage
-  }
-}
-
-export const NodeDetailPanel = ({
+export const NodeDetailView = ({
   nodeId,
   repoId,
   branch,
+  railOpen,
+  onToggleRail,
   onClose,
   onNodeMutated,
   onNavigateToNode,
-}: NodeDetailPanelProps): ReactElement => {
-  const { t } = useTranslation();
-  const [width, setWidth] = useState<number>(readStoredWidth);
-  const dragStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
-
-  useEffect(() => {
-    const handleMove = (e: MouseEvent) => {
-      const state = dragStateRef.current;
-      if (state == null) return;
-      // Panel is anchored to the right edge — dragging left increases width
-      const delta = state.startX - e.clientX;
-      const next = Math.min(PANEL_MAX_WIDTH, Math.max(PANEL_MIN_WIDTH, state.startWidth + delta));
-      setWidth(next);
-    };
-
-    const handleUp = () => {
-      if (dragStateRef.current == null) return;
-      dragStateRef.current = null;
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    };
-
-    window.addEventListener('mousemove', handleMove);
-    window.addEventListener('mouseup', handleUp);
-    return () => {
-      window.removeEventListener('mousemove', handleMove);
-      window.removeEventListener('mouseup', handleUp);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (dragStateRef.current == null) writeStoredWidth(width);
-  }, [width]);
-
-  const handleDragStart = (e: ReactMouseEvent<HTMLButtonElement>) => {
-    dragStateRef.current = { startX: e.clientX, startWidth: width };
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-  };
-
-  const handleDoubleClick = () => {
-    setWidth(PANEL_DEFAULT_WIDTH);
-  };
-
+}: NodeDetailViewProps): ReactElement => {
   return (
     <div
-      data-component={NODE_DETAIL_PANEL_NAME}
-      style={{ width: `${width}px` }}
-      className="border-border bg-card @container relative flex shrink-0 flex-col border-l"
+      data-component={NODE_DETAIL_VIEW_NAME}
+      className="bg-card @container flex min-w-0 flex-1 flex-col"
     >
-      <button
-        type="button"
-        aria-label={t('node.action.resizePanel')}
-        title={t('node.action.resizePanelHint')}
-        onMouseDown={handleDragStart}
-        onDoubleClick={handleDoubleClick}
-        className={cn(
-          'absolute top-0 left-0 z-10 h-full w-1 -translate-x-1/2 cursor-col-resize',
-          'hover:bg-primary/30 focus-visible:bg-primary/30 bg-transparent transition-colors focus-visible:outline-none',
-        )}
-      />
       <NodeDetailContent
         params={{ repoId, branch, key: nodeId }}
+        railOpen={railOpen}
+        onToggleRail={onToggleRail}
         onClose={onClose}
         onNodeMutated={onNodeMutated}
         onNavigateToNode={onNavigateToNode}
@@ -1133,4 +1079,4 @@ export const NodeDetailPanel = ({
   );
 };
 
-NodeDetailPanel.displayName = NODE_DETAIL_PANEL_NAME;
+NodeDetailView.displayName = NODE_DETAIL_VIEW_NAME;
