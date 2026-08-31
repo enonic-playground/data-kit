@@ -266,7 +266,7 @@ When the node browser is in grid mode (toggled via toolbar icon button):
 - **Non-image nodes**: show file/folder icon centered in the cell instead of a thumbnail
 - **Toggle button**: `LayoutGrid` / `List` Lucide icons, 13px, in the breadcrumb toolbar right side (same row as existing toolbar actions)
 - **Selection**: clicking a grid cell selects it (highlights with `accent-dim` border), double-click navigates into folders
-- **Image in detail sidebar**: full-width image with `object-fit: contain`, max-height 240px, `surface-el` background, shown above the tabs in the detail panel
+- **Image in detail view**: lives in its own `Preview` tab, rendered only when the node resolves a binary — centered, `object-fit: contain`, `surface-el` background. A 24px `object-fit: cover` thumbnail sits at the right of the tab row and selects that tab.
 
 ### Image Caching
 

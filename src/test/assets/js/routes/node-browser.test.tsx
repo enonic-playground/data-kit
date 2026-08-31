@@ -59,6 +59,27 @@ const DOC_NODE = {
   _versionKey: 'ver-ghi',
 };
 
+const SECOND_IMAGE_NODE = {
+  _id: 'img-2',
+  _name: 'banner.png',
+  _path: '/banner.png',
+  hasChildren: false,
+  _nodeType: 'default',
+  _ts: '2026-01-05T00:00:00Z',
+  _versionKey: 'ver-mno',
+  image: { binaryReference: 'banner.png', mimeType: 'image/png', size: 4096 },
+};
+
+const BROKEN_NODE = {
+  _id: 'broken-1',
+  _name: 'gone.png',
+  _path: '/gone.png',
+  hasChildren: false,
+  _nodeType: 'default',
+  _ts: '2026-01-06T00:00:00Z',
+  _versionKey: 'ver-pqr',
+};
+
 const NESTED_NODE = {
   _id: 'nested-1',
   _name: 'beach.jpg',
@@ -145,6 +166,12 @@ function getGridCell(name: string): HTMLElement {
   return el;
 }
 
+function getPreview(): HTMLElement {
+  const el = document.querySelector('[data-component="NodeImagePreview"]');
+  if (!el) throw new Error('NodeImagePreview not found');
+  return el as HTMLElement;
+}
+
 function getRailRow(name: string): HTMLElement {
   const el = within(getRail()).getByText(name).closest('button');
   if (!el) throw new Error(`rail row not found: ${name}`);
@@ -155,6 +182,7 @@ const FAILING_NODE_ID = 'broken-1';
 
 const NODES_BY_ID: Record<string, object> = {
   'img-1': IMAGE_NODE,
+  'img-2': SECOND_IMAGE_NODE,
   'folder-1': FOLDER_NODE,
   'doc-1': DOC_NODE,
   'nested-1': NESTED_NODE,
@@ -163,6 +191,7 @@ const NODES_BY_ID: Record<string, object> = {
 // Only an image node resolves a binary in production, which is what keeps a preview off the rest.
 const IMAGES_BY_ID: Record<string, object> = {
   'img-1': { binaryReference: 'logo.png', mimeType: 'image/png', size: 2048 },
+  'img-2': { binaryReference: 'banner.png', mimeType: 'image/png', size: 4096 },
 };
 
 // `image` decorates a browse-list entry, never a node detail.
@@ -186,6 +215,9 @@ function routeApi(nodesByPath: Record<string, NodeList>, versions: object = EMPT
     if (uri === '/api/versions') return Promise.resolve(versions);
 
     if (uri === '/api/binary') {
+      // Without it the real endpoint streams the bytes rather than the JSON metadata the
+      // caller parses, so a stub that ignores the flag cannot catch dropping it.
+      if (params.resolve !== 'image') throw new Error(`binary request without resolve=image`);
       const image = IMAGES_BY_ID[params.key ?? ''];
       if (image == null) return Promise.reject(new Error(`no binary for ${params.key}`));
       return Promise.resolve(image);
@@ -523,6 +555,216 @@ describe('NodeBrowserPage node detail surface', () => {
     });
     expect(getActiveCrumb()).toHaveTextContent('master');
     expect(document.querySelector(RAIL_SELECTOR)).toBeNull();
+  });
+
+  it('should hold the preview behind its own tab rather than rendering it above them', async () => {
+    const { user } = await renderBrowser();
+    await openNode(user, 'logo.png');
+
+    const previewTab = await within(getDetailView()).findByRole('tab', { name: 'Preview' });
+    expect(document.querySelector('[data-component="NodeImagePreview"]')).toBeNull();
+
+    await user.click(previewTab);
+
+    const img = await waitFor(() => within(getPreview()).getByAltText('logo.png'));
+    const url = new URL((img as HTMLImageElement).src);
+    expect(url.searchParams.get('key')).toBe('img-1');
+    expect(url.searchParams.get('v')).toBe('ver-abc');
+  });
+
+  it('should offer no Preview tab for a node with no binary', async () => {
+    const { user } = await renderBrowser();
+
+    // Resolving one binary first is what makes the absence below mean "settled empty"
+    // rather than "not asked yet" — the same stub answers both nodes.
+    await openNode(user, 'logo.png');
+    await within(getDetailView()).findByRole('tab', { name: 'Preview' });
+    await user.click(within(getDetailView()).getByRole('button', { name: 'Back to the node list' }));
+
+    await openNode(user, 'report.pdf');
+
+    await waitFor(() => {
+      expect(mockedApiFetch).toHaveBeenCalledWith(
+        '/api/binary',
+        expect.objectContaining({
+          params: expect.objectContaining({ key: 'doc-1', resolve: 'image' }),
+        }),
+      );
+    });
+    const detail = within(getDetailView());
+    expect(detail.queryByRole('tab', { name: 'Preview' })).toBeNull();
+    expect(detail.queryByRole('button', { name: 'Preview' })).toBeNull();
+  });
+
+  it('should select the Preview tab from the thumbnail beside the tab row', async () => {
+    const { user } = await renderBrowser();
+    await openNode(user, 'logo.png');
+
+    const detail = within(getDetailView());
+    const thumb = await detail.findByRole('button', { name: 'Preview' });
+    expect(within(thumb).getByRole('presentation')).toHaveAttribute(
+      'src',
+      expect.stringContaining('key=img-1'),
+    );
+
+    await user.click(thumb);
+
+    expect(detail.getByRole('tab', { name: 'Preview' })).toHaveAttribute('aria-selected', 'true');
+    expect(within(getPreview()).getByAltText('logo.png')).toBeInTheDocument();
+  });
+
+  it('should fall back to Properties when the rail steps off an image node', async () => {
+    window.localStorage.setItem('datakit:node-rail-open', 'true');
+    const { user } = await renderBrowser();
+    await openNode(user, 'logo.png');
+    await waitFor(() => {
+      getRail();
+    });
+
+    await user.click(await within(getDetailView()).findByRole('tab', { name: 'Preview' }));
+    expect(within(getDetailView()).getByRole('tab', { name: 'Preview' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+
+    await user.keyboard('{ArrowDown}');
+
+    await waitFor(() => {
+      expect(getRailRow('photos')).toHaveAttribute('data-state', 'selected');
+    });
+    // Holding `preview` here would strand the reader on a tab with no trigger or body.
+    await waitFor(() => {
+      expect(within(getDetailView()).queryByRole('tab', { name: 'Preview' })).toBeNull();
+    });
+    expect(within(getDetailView()).getByRole('tab', { name: 'Properties' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+  });
+
+  it('should hold the Preview tab while the rail steps to another image node', async () => {
+    window.localStorage.setItem('datakit:node-rail-open', 'true');
+    routeApi({ '/': { nodes: [IMAGE_NODE, SECOND_IMAGE_NODE], total: 2 } });
+
+    // Holding the second node in flight makes the gap a state the test can assert in,
+    // rather than a frame it has to win a race against.
+    let arriveSecondNode = (): void => {};
+    const secondNode = new Promise<object>((resolve) => {
+      arriveSecondNode = () => {
+        resolve(detailFor(SECOND_IMAGE_NODE));
+      };
+    });
+    const routed = mockedApiFetch.getMockImplementation();
+    if (routed == null) throw new Error('routeApi did not install an implementation');
+    mockedApiFetch.mockImplementation((uri: string, options?: unknown) => {
+      const params = (options as { params?: Record<string, string> } | undefined)?.params ?? {};
+      if (uri === '/api/nodes' && params.key === 'img-2') return secondNode;
+      return routed(uri, options);
+    });
+
+    const { user } = renderRoute({ initialLocation: '/repositories/my-repo/master' });
+    await waitFor(() => {
+      getBrowserPage();
+    });
+    await openNode(user, 'logo.png');
+    await waitFor(() => {
+      getRail();
+    });
+
+    await user.click(await within(getDetailView()).findByRole('tab', { name: 'Preview' }));
+    await user.keyboard('{ArrowDown}');
+
+    await waitFor(() => {
+      expect(getRailRow('banner.png')).toHaveAttribute('data-state', 'selected');
+    });
+    // Nothing has resolved a binary for this node yet. Reading "not yet" as "no binary"
+    // drops the tab — either closing it outright, or blinking the trigger out and back.
+    expect(within(getDetailView()).getByRole('tab', { name: 'Preview' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+
+    arriveSecondNode();
+
+    await waitFor(() => {
+      expect(within(getPreview()).getByAltText('banner.png')).toBeInTheDocument();
+    });
+    expect(within(getDetailView()).getByRole('tab', { name: 'Preview' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+  });
+
+  it('should show the Preview tab loading rather than empty while the binary is in flight', async () => {
+    window.localStorage.setItem('datakit:node-rail-open', 'true');
+    routeApi({ '/': { nodes: [IMAGE_NODE, SECOND_IMAGE_NODE], total: 2 } });
+
+    // The node settles before its binary does, so the tab is selectable while it has
+    // nothing to show yet — the one window where the panel can come up blank.
+    let arriveSecondImage = (): void => {};
+    const secondImage = new Promise<object>((resolve) => {
+      arriveSecondImage = () => {
+        resolve({ binaryReference: 'banner.png', mimeType: 'image/png', size: 4096 });
+      };
+    });
+    const routed = mockedApiFetch.getMockImplementation();
+    if (routed == null) throw new Error('routeApi did not install an implementation');
+    mockedApiFetch.mockImplementation((uri: string, options?: unknown) => {
+      const params = (options as { params?: Record<string, string> } | undefined)?.params ?? {};
+      if (uri === '/api/binary' && params.key === 'img-2') return secondImage;
+      return routed(uri, options);
+    });
+
+    const { user } = renderRoute({ initialLocation: '/repositories/my-repo/master' });
+    await waitFor(() => {
+      getBrowserPage();
+    });
+    await openNode(user, 'logo.png');
+    await waitFor(() => {
+      getRail();
+    });
+
+    await user.click(await within(getDetailView()).findByRole('tab', { name: 'Preview' }));
+    await user.keyboard('{ArrowDown}');
+
+    await waitFor(() => {
+      expect(getRailRow('banner.png')).toHaveAttribute('data-state', 'selected');
+    });
+    const panel = within(getDetailView()).getByRole('tabpanel');
+    expect(panel).not.toBeEmptyDOMElement();
+
+    arriveSecondImage();
+
+    await waitFor(() => {
+      expect(within(getPreview()).getByAltText('banner.png')).toBeInTheDocument();
+    });
+  });
+
+  it('should close the Preview tab when the rail steps onto a node that fails to load', async () => {
+    window.localStorage.setItem('datakit:node-rail-open', 'true');
+    routeApi({ '/': { nodes: [IMAGE_NODE, BROKEN_NODE], total: 2 } });
+    const { user } = renderRoute({ initialLocation: '/repositories/my-repo/master' });
+    await waitFor(() => {
+      getBrowserPage();
+    });
+    await openNode(user, 'logo.png');
+    await waitFor(() => {
+      getRail();
+    });
+
+    await user.click(await within(getDetailView()).findByRole('tab', { name: 'Preview' }));
+    await user.keyboard('{ArrowDown}');
+
+    await waitFor(() => {
+      expect(within(getDetailView()).getByText('Failed to load node details.')).toBeInTheDocument();
+    });
+    // A failed node leaves the image query disabled, so nothing else ever settles it — the
+    // tab would otherwise advertise the previous node's binary over the error.
+    expect(within(getDetailView()).queryByRole('tab', { name: 'Preview' })).toBeNull();
+    expect(within(getDetailView()).getByRole('tab', { name: 'Properties' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
   });
 
   it('should keep the close control reachable when the node fails to load', async () => {
