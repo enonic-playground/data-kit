@@ -2,10 +2,11 @@ import { ChevronRight, Download, Table2 } from 'lucide-react';
 import { type ReactElement, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import type { NodeDetail, NodeImageDetail } from '../../lib/api/nodes';
+import type { NodeBinaryDetail, NodeDetail } from '../../lib/api/nodes';
 import type { PropertyNode } from './property-tree';
 
 import { buildBinaryDownloadUrl } from '../../lib/api/binary';
+import { formatFileSize } from '../../lib/format';
 import { cn } from '../../lib/utils';
 import { Badge } from '../ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
@@ -25,7 +26,7 @@ export type NodePropertiesTabProps = {
   node: NodeDetail;
   repoId: string;
   branch: string;
-  image?: NodeImageDetail;
+  binary?: NodeBinaryDetail;
   onNavigateToNode?: (nodeId: string) => void;
 };
 
@@ -39,17 +40,6 @@ const NODE_PROPERTIES_TAB_NAME = 'NodePropertiesTab';
 const INDENT_STEP_PX = 14;
 
 //
-// * Helpers
-//
-
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
-}
-
-//
 // * PropertyValueCell
 //
 
@@ -60,7 +50,7 @@ type PropertyValueCellProps = {
   nodeId: string;
   repoId: string;
   branch: string;
-  image?: NodeImageDetail;
+  binary?: NodeBinaryDetail;
   onNavigateToNode?: (nodeId: string) => void;
 };
 
@@ -69,7 +59,7 @@ const PropertyValueCell = ({
   nodeId,
   repoId,
   branch,
-  image,
+  binary,
   onNavigateToNode,
 }: PropertyValueCellProps): ReactElement => {
   const { t } = useTranslation();
@@ -114,8 +104,8 @@ const PropertyValueCell = ({
             </a>
           </TooltipTrigger>
           <TooltipContent>
-            <p>{image?.mimeType ?? t('node.binary.unknownMime')}</p>
-            <p>{image != null ? formatFileSize(image.size) : t('node.binary.unknownSize')}</p>
+            <p>{binary?.mimeType ?? t('node.binary.unknownMime')}</p>
+            <p>{binary != null ? formatFileSize(binary.size) : t('node.binary.unknownSize')}</p>
           </TooltipContent>
         </Tooltip>
       </span>
@@ -156,14 +146,14 @@ export const NodePropertiesTab = ({
   node,
   repoId,
   branch,
-  image,
+  binary,
   onNavigateToNode,
 }: NodePropertiesTabProps): ReactElement => {
   const { t } = useTranslation();
 
   const tree = useMemo(
-    () => buildPropertyTree(node, image?.binaryReference),
-    [node, image?.binaryReference],
+    () => buildPropertyTree(node, binary?.binaryReference),
+    [node, binary?.binaryReference],
   );
   // The panel swaps `node` in place rather than remounting, so without this re-seed the
   // previous node's expanded paths decide what the next one shows. Owned here rather than
@@ -280,7 +270,7 @@ export const NodePropertiesTab = ({
                     nodeId={node._id}
                     repoId={repoId}
                     branch={branch}
-                    image={image}
+                    binary={binary}
                     onNavigateToNode={onNavigateToNode}
                   />
                 </TableCell>

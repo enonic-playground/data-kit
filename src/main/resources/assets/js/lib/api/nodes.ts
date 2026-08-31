@@ -3,12 +3,12 @@ import { queryOptions, useMutation, useQueryClient } from '@tanstack/react-query
 import { getConfig } from '../config';
 import { apiFetch } from './client';
 
-export type NodeImage = {
+export type NodeBinary = {
   binaryReference: string;
   mimeType: string;
 };
 
-export type NodeImageDetail = NodeImage & {
+export type NodeBinaryDetail = NodeBinary & {
   size: number;
 };
 
@@ -20,7 +20,7 @@ export type NodeEntry = {
   _nodeType: string;
   _ts: string;
   _versionKey: string;
-  image?: NodeImage;
+  image?: NodeBinary;
 };
 
 export type NodesResponse = {
@@ -124,29 +124,29 @@ export function nodeDetailQueryOptions(params: NodeDetailParams) {
   });
 }
 
-export type NodeImageParams = {
+export type NodeBinaryParams = {
   repoId: string;
   branch: string;
   key: string;
   versionKey: string;
 };
 
-export function fetchNodeImage(params: NodeImageParams): Promise<NodeImageDetail | null> {
+export function fetchNodeBinary(params: NodeBinaryParams): Promise<NodeBinaryDetail | null> {
   const { apiUris } = getConfig();
-  return apiFetch<NodeImageDetail>(apiUris.binary, {
+  return apiFetch<NodeBinaryDetail>(apiUris.binary, {
     params: {
       repoId: params.repoId,
       branch: params.branch,
       key: params.key,
-      resolve: 'image',
+      resolve: 'binary',
     },
   }).catch(() => null);
 }
 
-export function nodeImageQueryOptions(params: NodeImageParams) {
+export function nodeBinaryQueryOptions(params: NodeBinaryParams) {
   return queryOptions({
-    queryKey: ['node-image', params.repoId, params.branch, params.key, params.versionKey],
-    queryFn: () => fetchNodeImage(params),
+    queryKey: ['node-binary', params.repoId, params.branch, params.key, params.versionKey],
+    queryFn: () => fetchNodeBinary(params),
     // ? Keyed on the version, and a version's binaries never change — so a hit is never stale.
     staleTime: Infinity,
   });

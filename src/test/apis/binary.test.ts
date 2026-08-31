@@ -57,7 +57,10 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockedHasRole.mockReturnValue(true);
   mockedGetMimeType.mockImplementation(byExtension);
-  mockedGetSize.mockReturnValue(2048);
+  mockedGetSize.mockImplementation((source: unknown) => {
+    const ref = (source as { _ref?: string } | null)?._ref;
+    return ref != null ? (SIZE_BY_REFERENCE[ref] ?? 1) : 2048;
+  });
 });
 
 const NODE_WITH_BINARIES = {
@@ -70,12 +73,23 @@ const NODE_WITH_BINARIES = {
 
 const AVAILABLE_BINARIES = ['image.png', 'doc.pdf'];
 
+// Each source carries its own byte count, so a `size` assertion cannot be satisfied by a
+// constant and sizing the wrong source is visible.
+const SIZE_BY_REFERENCE: Record<string, number> = {
+  'image.png': 2048,
+  'doc.pdf': 9001,
+};
+
+function sourceFor(binaryReference: string) {
+  return { _bytes: true, _ref: binaryReference };
+}
+
 function createBinaryConnection(available: string[] = AVAILABLE_BINARIES) {
   return createMockConnection({
     get: vi.fn().mockReturnValue(NODE_WITH_BINARIES),
     getBinary: vi.fn(({ binaryReference }: { binaryReference: string }) => {
       if (!available.includes(binaryReference)) throw new Error('no such binary');
-      return { _bytes: true };
+      return sourceFor(binaryReference);
     }),
   });
 }
@@ -245,7 +259,7 @@ describe('GET /binary?info=true', () => {
     expect(response.status).toBe(200);
     expect(body.data).toEqual({
       mimeType: 'application/pdf',
-      size: 2048,
+      size: 9001,
     });
   });
 
@@ -264,6 +278,7 @@ describe('GET /binary?info=true', () => {
     } as unknown as Request);
 
     expect(response.status).toBe(404);
+    expect(parseBody(response).code).toBe('NOT_FOUND');
   });
 });
 
@@ -284,11 +299,7 @@ describe('GET /binary?resolve=image', () => {
   });
 
   test('returns 404 when the node has no image binary', () => {
-    mockedConnect.mockReturnValue(
-      createMockConnection({
-        get: vi.fn().mockReturnValue({ _id: 'node-1', manual: 'doc.pdf' }),
-      }) as never,
-    );
+    mockedConnect.mockReturnValue(createBinaryConnection(['doc.pdf']) as never);
 
     const response = get({
       params: { repoId: 'my-repo', branch: 'master', key: 'node-1', resolve: 'image' },
@@ -296,5 +307,73 @@ describe('GET /binary?resolve=image', () => {
 
     expect(response.status).toBe(404);
     expect(parseBody(response).code).toBe('NOT_FOUND');
+  });
+});
+
+describe('GET /binary?resolve=binary', () => {
+  test('resolves a PDF where resolve=image returns 404', () => {
+    const pdfOnly = () =>
+      createMockConnection({
+        get: vi.fn().mockReturnValue({ _id: 'node-1', manual: 'doc.pdf' }),
+        getBinary: vi.fn(({ binaryReference }: { binaryReference: string }) => {
+          if (binaryReference !== 'doc.pdf') throw new Error('no such binary');
+          return sourceFor(binaryReference);
+        }),
+      });
+    const params = { repoId: 'my-repo', branch: 'master', key: 'node-1' };
+
+    mockedConnect.mockReturnValue(pdfOnly() as never);
+    const asBinary = get({ params: { ...params, resolve: 'binary' } } as unknown as Request);
+
+    mockedConnect.mockReturnValue(pdfOnly() as never);
+    const asImage = get({ params: { ...params, resolve: 'image' } } as unknown as Request);
+
+    expect(asBinary.status).toBe(200);
+    expect(parseBody(asBinary).data).toEqual({
+      binaryReference: 'doc.pdf',
+      mimeType: 'application/pdf',
+      size: 9001,
+    });
+    expect(asImage.status).toBe(404);
+  });
+
+  test('reports a readable message for each lookup mode', () => {
+    mockedConnect.mockReturnValue(
+      createMockConnection({ get: vi.fn().mockReturnValue({ _id: 'node-1', note: 'nothing' }) }) as never,
+    );
+    const params = { repoId: 'my-repo', branch: 'master', key: 'node-1' };
+
+    const asBinary = get({ params: { ...params, resolve: 'binary' } } as unknown as Request);
+    mockedConnect.mockReturnValue(
+      createMockConnection({ get: vi.fn().mockReturnValue({ _id: 'node-1', note: 'nothing' }) }) as never,
+    );
+    const asImage = get({ params: { ...params, resolve: 'image' } } as unknown as Request);
+
+    expect(parseBody(asBinary).message).toBe("Node 'node-1' has no binary");
+    expect(parseBody(asImage).message).toBe("Node 'node-1' has no image binary");
+  });
+
+  test('returns 404 when the node has no binary at all', () => {
+    mockedConnect.mockReturnValue(
+      createMockConnection({
+        get: vi.fn().mockReturnValue({ _id: 'node-1', note: 'nothing here' }),
+      }) as never,
+    );
+
+    const response = get({
+      params: { repoId: 'my-repo', branch: 'master', key: 'node-1', resolve: 'binary' },
+    } as unknown as Request);
+
+    expect(response.status).toBe(404);
+    expect(parseBody(response).code).toBe('NOT_FOUND');
+  });
+
+  test('still requires a binaryReference when resolve is not a lookup mode', () => {
+    const response = get({
+      params: { repoId: 'my-repo', branch: 'master', key: 'node-1', resolve: 'nonsense' },
+    } as unknown as Request);
+
+    expect(response.status).toBe(400);
+    expect(parseBody(response).code).toBe('VALIDATION_ERROR');
   });
 });
