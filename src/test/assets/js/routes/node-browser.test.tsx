@@ -59,6 +59,16 @@ const DOC_NODE = {
   _versionKey: 'ver-ghi',
 };
 
+const PDF_NODE = {
+  _id: 'pdf-1',
+  _name: 'manual.pdf',
+  _path: '/manual.pdf',
+  hasChildren: false,
+  _nodeType: 'default',
+  _ts: '2026-01-04T00:00:00Z',
+  _versionKey: 'ver-jkl',
+};
+
 const SECOND_IMAGE_NODE = {
   _id: 'img-2',
   _name: 'banner.png',
@@ -167,8 +177,8 @@ function getGridCell(name: string): HTMLElement {
 }
 
 function getPreview(): HTMLElement {
-  const el = document.querySelector('[data-component="NodeImagePreview"]');
-  if (!el) throw new Error('NodeImagePreview not found');
+  const el = document.querySelector('[data-component="NodePreview"]');
+  if (!el) throw new Error('NodePreview not found');
   return el as HTMLElement;
 }
 
@@ -185,13 +195,16 @@ const NODES_BY_ID: Record<string, object> = {
   'img-2': SECOND_IMAGE_NODE,
   'folder-1': FOLDER_NODE,
   'doc-1': DOC_NODE,
+  'pdf-1': PDF_NODE,
   'nested-1': NESTED_NODE,
 };
 
-// Only an image node resolves a binary in production, which is what keeps a preview off the rest.
-const IMAGES_BY_ID: Record<string, object> = {
+// Only a node carrying an attachment resolves a binary in production, which is what keeps
+// a preview off the rest.
+const BINARIES_BY_ID: Record<string, object> = {
   'img-1': { binaryReference: 'logo.png', mimeType: 'image/png', size: 2048 },
   'img-2': { binaryReference: 'banner.png', mimeType: 'image/png', size: 4096 },
+  'pdf-1': { binaryReference: 'manual.pdf', mimeType: 'application/pdf', size: 8192 },
 };
 
 // `image` decorates a browse-list entry, never a node detail.
@@ -217,10 +230,10 @@ function routeApi(nodesByPath: Record<string, NodeList>, versions: object = EMPT
     if (uri === '/api/binary') {
       // Without it the real endpoint streams the bytes rather than the JSON metadata the
       // caller parses, so a stub that ignores the flag cannot catch dropping it.
-      if (params.resolve !== 'image') throw new Error(`binary request without resolve=image`);
-      const image = IMAGES_BY_ID[params.key ?? ''];
-      if (image == null) return Promise.reject(new Error(`no binary for ${params.key}`));
-      return Promise.resolve(image);
+      if (params.resolve !== 'binary') throw new Error(`binary request without resolve=binary`);
+      const binary = BINARIES_BY_ID[params.key ?? ''];
+      if (binary == null) return Promise.reject(new Error(`no binary for ${params.key}`));
+      return Promise.resolve(binary);
     }
 
     if (uri === '/api/nodes' && params.key != null) {
@@ -562,7 +575,7 @@ describe('NodeBrowserPage node detail surface', () => {
     await openNode(user, 'logo.png');
 
     const previewTab = await within(getDetailView()).findByRole('tab', { name: 'Preview' });
-    expect(document.querySelector('[data-component="NodeImagePreview"]')).toBeNull();
+    expect(document.querySelector('[data-component="NodePreview"]')).toBeNull();
 
     await user.click(previewTab);
 
@@ -587,7 +600,7 @@ describe('NodeBrowserPage node detail surface', () => {
       expect(mockedApiFetch).toHaveBeenCalledWith(
         '/api/binary',
         expect.objectContaining({
-          params: expect.objectContaining({ key: 'doc-1', resolve: 'image' }),
+          params: expect.objectContaining({ key: 'doc-1', resolve: 'binary' }),
         }),
       );
     });
@@ -611,6 +624,22 @@ describe('NodeBrowserPage node detail surface', () => {
 
     expect(detail.getByRole('tab', { name: 'Preview' })).toHaveAttribute('aria-selected', 'true');
     expect(within(getPreview()).getByAltText('logo.png')).toBeInTheDocument();
+  });
+
+  it('should offer the Preview tab but no thumbnail for a non-image binary', async () => {
+    routeApi({ '/': { nodes: [IMAGE_NODE, PDF_NODE], total: 2 } });
+    const { user } = renderRoute({ initialLocation: '/repositories/my-repo/master' });
+    await waitFor(() => {
+      getBrowserPage();
+    });
+    await openNode(user, 'manual.pdf');
+
+    const detail = within(getDetailView());
+
+    // The tab reflects "this node has a binary"; the thumbnail is an <img> of that binary,
+    // so it stays image-only or a PDF renders as a broken image beside the tabs.
+    expect(await detail.findByRole('tab', { name: 'Preview' })).toBeInTheDocument();
+    expect(detail.queryByRole('button', { name: 'Preview' })).toBeNull();
   });
 
   it('should fall back to Properties when the rail steps off an image node', async () => {
@@ -731,7 +760,8 @@ describe('NodeBrowserPage node detail surface', () => {
       expect(getRailRow('banner.png')).toHaveAttribute('data-state', 'selected');
     });
     const panel = within(getDetailView()).getByRole('tabpanel');
-    expect(panel).not.toBeEmptyDOMElement();
+    expect(panel.querySelector('[data-component="Skeleton"]')).not.toBeNull();
+    expect(panel.querySelector('[data-component="NodePreview"]')).toBeNull();
 
     arriveSecondImage();
 

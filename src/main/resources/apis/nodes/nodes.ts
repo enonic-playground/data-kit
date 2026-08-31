@@ -4,7 +4,7 @@ import { get as getRepo } from '/lib/xp/repo';
 import type { Request, Response } from '@enonic-types/core';
 
 import { errorResponse, getParam, jsonResponse, requireAdmin } from '../../lib/api';
-import { type NodeImage, resolveNodeImage } from '../../lib/node-image';
+import { type NodeBinary, resolveNodeImage } from '../../lib/node-binary';
 
 type NodeDto = {
   _id: string;
@@ -14,7 +14,7 @@ type NodeDto = {
   _nodeType: string;
   _ts: string;
   _versionKey: string;
-  image?: NodeImage;
+  image?: NodeBinary;
 };
 
 type NodesResult = {

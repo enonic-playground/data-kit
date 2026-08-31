@@ -4,7 +4,7 @@ import { connect } from '/lib/xp/node';
 import type { ByteSource, Request, Response } from '@enonic-types/core';
 
 import { errorResponse, getParam, jsonResponse, requireAdmin } from '../../lib/api';
-import { resolveNodeImage } from '../../lib/node-image';
+import { resolveNodeBinary, resolveNodeImage } from '../../lib/node-binary';
 
 export function get(req: Request): Response {
   const forbidden = requireAdmin();
@@ -25,9 +25,10 @@ export function get(req: Request): Response {
     return errorResponse(400, 'Node key is required', 'VALIDATION_ERROR');
   }
 
-  const isImageLookup = getParam(req, 'resolve') === 'image';
+  const resolveMode = getParam(req, 'resolve');
+  const isLookup = resolveMode === 'image' || resolveMode === 'binary';
   const binaryReference = getParam(req, 'binaryReference');
-  if (binaryReference == null && !isImageLookup) {
+  if (binaryReference == null && !isLookup) {
     return errorResponse(400, 'Binary reference is required', 'VALIDATION_ERROR');
   }
 
@@ -43,13 +44,15 @@ export function get(req: Request): Response {
       return errorResponse(404, `Node '${key}' not found`, 'NOT_FOUND');
     }
 
-    if (isImageLookup) {
-      const image = resolveNodeImage(repo, node);
-      if (image == null) {
-        return errorResponse(404, `Node '${key}' has no image binary`, 'NOT_FOUND');
+    if (isLookup) {
+      const found =
+        resolveMode === 'image' ? resolveNodeImage(repo, node) : resolveNodeBinary(repo, node);
+      if (found == null) {
+        const what = resolveMode === 'image' ? 'image binary' : 'binary';
+        return errorResponse(404, `Node '${key}' has no ${what}`, 'NOT_FOUND');
       }
-      const source = repo.getBinary({ key, binaryReference: image.binaryReference });
-      return jsonResponse({ ...image, size: getSize(source) });
+      const source = repo.getBinary({ key, binaryReference: found.binaryReference });
+      return jsonResponse({ ...found, size: getSize(source) });
     }
 
     let binary: ByteSource;

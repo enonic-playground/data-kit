@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type {
   NodeDetail,
-  NodeImageDetail,
+  NodeBinaryDetail,
 } from '../../../../../main/resources/assets/js/lib/api/nodes';
 import type { ReactElement } from 'react';
 
@@ -56,7 +56,7 @@ function buildNode(properties?: Record<string, unknown>): NodeDetail {
 
 type TabProps = {
   node?: NodeDetail;
-  image?: NodeImageDetail;
+  binary?: NodeBinaryDetail;
   onNavigateToNode?: (nodeId: string) => void;
 };
 
@@ -67,7 +67,7 @@ function tabElement(props?: TabProps): ReactElement {
         node={props?.node ?? buildNode()}
         repoId="com.enonic.cms.default"
         branch="draft"
-        image={props?.image}
+        binary={props?.binary}
         onNavigateToNode={props?.onNavigateToNode}
       />
     </TooltipProvider>
@@ -176,7 +176,7 @@ describe('NodePropertiesTab', () => {
     const user = userEvent.setup();
     renderTab({
       node: buildNode({ data: { media: { attachment: 'logo.png' } } }),
-      image: { binaryReference: 'logo.png', mimeType: 'image/png', size: 2048 },
+      binary: { binaryReference: 'logo.png', mimeType: 'image/png', size: 2048 },
     });
 
     await user.hover(screen.getByLabelText('Download attachment'));
@@ -219,7 +219,7 @@ describe('NodePropertiesTab', () => {
   it('offers a download link on a nested binary reference', () => {
     renderTab({
       node: buildNode({ data: { media: { attachment: 'logo.png' } } }),
-      image: { binaryReference: 'logo.png', mimeType: 'image/png', size: 2048 },
+      binary: { binaryReference: 'logo.png', mimeType: 'image/png', size: 2048 },
     });
 
     const link = screen.getByLabelText('Download attachment') as HTMLAnchorElement;

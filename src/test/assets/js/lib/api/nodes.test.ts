@@ -11,7 +11,7 @@ vi.mock('../../../../../main/resources/assets/js/lib/api/client', () => ({
 }));
 
 import {
-  nodeImageQueryOptions,
+  nodeBinaryQueryOptions,
   nodesQueryOptions,
 } from '../../../../../main/resources/assets/js/lib/api/nodes';
 
@@ -34,10 +34,10 @@ describe('nodesQueryOptions', () => {
   });
 });
 
-describe('nodeImageQueryOptions', () => {
+describe('nodeBinaryQueryOptions', () => {
   it('should key on the version so a new version cannot hit a cached entry', () => {
-    const before = nodeImageQueryOptions({ ...BASE, key: 'node-1', versionKey: 'v1' });
-    const after = nodeImageQueryOptions({ ...BASE, key: 'node-1', versionKey: 'v2' });
+    const before = nodeBinaryQueryOptions({ ...BASE, key: 'node-1', versionKey: 'v1' });
+    const after = nodeBinaryQueryOptions({ ...BASE, key: 'node-1', versionKey: 'v2' });
 
     expect(before.queryKey).not.toEqual(after.queryKey);
     expect(before.staleTime).toBe(Infinity);

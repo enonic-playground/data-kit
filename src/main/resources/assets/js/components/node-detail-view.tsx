@@ -4,8 +4,8 @@ import {
   Braces,
   Copy,
   Ellipsis,
+  Eye,
   History,
-  ImageIcon,
   Info,
   PanelLeft,
   Pencil,
@@ -30,8 +30,8 @@ import {
   type AccessControlEntry,
   type NodeDetail,
   type NodeDetailParams,
+  nodeBinaryQueryOptions,
   nodeDetailQueryOptions,
-  nodeImageQueryOptions,
   useCreateNode,
   useDeleteNode,
   useDuplicateNode,
@@ -42,6 +42,7 @@ import {
 import { versionsInfiniteQueryOptions } from '../lib/api/versions';
 import { cn } from '../lib/utils';
 import { NodePropertiesTab } from './node-properties/node-properties-tab';
+import { isImageMime, NodePreview } from './node-preview/node-preview';
 import { NodeVersionsTab } from './node-versions-tab';
 import { useTheme } from './theme-provider';
 import { Badge } from './ui/badge';
@@ -812,22 +813,6 @@ const NodeActions = ({ node, repoId, branch, onNodeMutated }: NodeActionsProps):
 NodeActions.displayName = NODE_ACTIONS_NAME;
 
 //
-// * NodeImagePreview
-//
-
-const NODE_IMAGE_PREVIEW_NAME = 'NodeImagePreview';
-
-const NodeImagePreview = ({ src, alt }: { src: string; alt: string }): ReactElement => {
-  return (
-    <div data-component={NODE_IMAGE_PREVIEW_NAME} className="bg-muted flex justify-center p-4">
-      <img src={src} alt={alt} className="max-h-[70vh] max-w-full object-contain" />
-    </div>
-  );
-};
-
-NodeImagePreview.displayName = NODE_IMAGE_PREVIEW_NAME;
-
-//
 // * NodeDetailContent
 //
 
@@ -853,8 +838,8 @@ const NodeDetailContent = ({
 }): ReactElement => {
   const { t } = useTranslation();
   const { data: node, isLoading, error } = useQuery(nodeDetailQueryOptions(params));
-  const { data: image } = useQuery({
-    ...nodeImageQueryOptions({ ...params, versionKey: node?._versionKey ?? '' }),
+  const { data: binary } = useQuery({
+    ...nodeBinaryQueryOptions({ ...params, versionKey: node?._versionKey ?? '' }),
     enabled: node?._versionKey != null,
   });
   const versionsInfinite = useInfiniteQuery(
@@ -868,21 +853,22 @@ const NodeDetailContent = ({
   const railLabel = t(railOpen ? 'node.rail.hide' : 'node.rail.show');
 
   // The tab shell outlives a node swap, so a Preview selection can survive onto a node with
-  // no binary. `image` is `undefined` until the query settles and `null` once it settles
-  // empty — only the settled answer may close the tab, or stepping between two image nodes
+  // no binary. `binary` is `undefined` until the query settles and `null` once it settles
+  // empty — only the settled answer may close the tab, or stepping between two binary nodes
   // would drop out of Preview while the second one is still resolving. A failed node never
-  // enables the image query at all, so it has to count as settled too.
+  // enables the binary query at all, so it has to count as settled too.
   const nodeFailed = !isLoading && (error != null || node == null);
   const [tab, setTab] = useState<string>(PROPERTIES_TAB);
-  if (tab === PREVIEW_TAB && (image === null || nodeFailed)) setTab(PROPERTIES_TAB);
-  const showPreview = image != null || tab === PREVIEW_TAB;
-  const previewUrl =
-    node != null && image != null
+  if (tab === PREVIEW_TAB && (binary === null || nodeFailed)) setTab(PROPERTIES_TAB);
+  const showPreview = binary != null || tab === PREVIEW_TAB;
+  // The affordance is an <img> of the binary itself, so it is image-only where the tab is not.
+  const thumbnailUrl =
+    node != null && binary != null && isImageMime(binary.mimeType)
       ? buildBinaryPreviewUrl({
           repoId: params.repoId,
           branch: params.branch,
           key: node._id,
-          binaryReference: image.binaryReference,
+          binaryReference: binary.binaryReference,
           versionKey: node._versionKey,
         })
       : null;
@@ -906,22 +892,22 @@ const NodeDetailContent = ({
 
     return (
       <>
-        <TabsContent value={PROPERTIES_TAB}>
+        <TabsContent value={PROPERTIES_TAB} className="shrink-0">
           <NodePropertiesTab
             node={node}
             repoId={params.repoId}
             branch={params.branch}
-            image={image ?? undefined}
+            binary={binary ?? undefined}
             onNavigateToNode={onNavigateToNode}
           />
         </TabsContent>
-        <TabsContent value="metadata">
+        <TabsContent value="metadata" className="shrink-0">
           <MetadataTab node={node} />
         </TabsContent>
-        <TabsContent value="permissions">
+        <TabsContent value="permissions" className="shrink-0">
           <PermissionsTab permissions={node._permissions ?? []} />
         </TabsContent>
-        <TabsContent value="versions">
+        <TabsContent value="versions" className="shrink-0">
           <NodeVersionsTab
             repoId={params.repoId}
             branch={params.branch}
@@ -929,13 +915,26 @@ const NodeDetailContent = ({
             nodeName={node._name}
           />
         </TabsContent>
-        <TabsContent value="json">
+        <TabsContent value="json" className="shrink-0">
           <JsonTab node={node} />
         </TabsContent>
         {showPreview && (
-          <TabsContent value={PREVIEW_TAB}>
-            {previewUrl != null ? (
-              <NodeImagePreview src={previewUrl} alt={node._name} />
+          // Alone among the tabs this one fits its panel instead of scrolling it, so it
+          // needs a definite height to resolve against — hence flex-1 plus min-h-0 here
+          // and shrink-0 on every sibling that must keep its natural height.
+          <TabsContent value={PREVIEW_TAB} className="flex min-h-0 flex-1 flex-col">
+            {binary != null ? (
+              <NodePreview
+                // Measured dimensions belong to one binary. Two cached versions of the
+                // same node swap without unmounting, so identity has to be the key.
+                key={`${node._versionKey}:${binary.binaryReference}`}
+                repoId={params.repoId}
+                branch={params.branch}
+                nodeId={node._id}
+                nodeName={node._name}
+                versionKey={node._versionKey}
+                binary={binary}
+              />
             ) : (
               <Skeleton className="h-60 w-full" />
             )}
@@ -1013,13 +1012,13 @@ const NodeDetailContent = ({
                 title={t('node.tab.preview')}
                 className="px-2 @[576px]:px-3"
               >
-                <ImageIcon className="size-3.5" />
+                <Eye className="size-3.5" />
                 <span className="ml-1.5 hidden @[576px]:inline">{t('node.tab.preview')}</span>
               </TabsTrigger>
             )}
           </TabsList>
           <div className="ml-auto flex shrink-0 items-center">
-            {previewUrl != null && (
+            {thumbnailUrl != null && (
               <button
                 type="button"
                 onClick={() => setTab(PREVIEW_TAB)}
@@ -1030,7 +1029,7 @@ const NodeDetailContent = ({
                 aria-label={t('node.tab.preview')}
                 title={t('node.tab.preview')}
               >
-                <img src={previewUrl} alt="" className="size-full object-cover" />
+                <img src={thumbnailUrl} alt="" className="size-full object-cover" />
               </button>
             )}
             {node != null && (
@@ -1058,7 +1057,7 @@ const NodeDetailContent = ({
         </div>
         {/* Remounts per node so a pending version confirm cannot outlive it; the tab shell
             sits outside, so which tab is open survives. */}
-        <div key={params.key} className="flex-1 overflow-auto">
+        <div key={params.key} className="flex min-h-0 flex-1 flex-col overflow-auto">
           {body()}
         </div>
       </Tabs>
