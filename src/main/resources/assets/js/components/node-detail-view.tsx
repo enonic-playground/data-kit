@@ -5,6 +5,7 @@ import {
   Copy,
   Ellipsis,
   History,
+  ImageIcon,
   Info,
   PanelLeft,
   Pencil,
@@ -29,7 +30,6 @@ import {
   type AccessControlEntry,
   type NodeDetail,
   type NodeDetailParams,
-  type NodeImageDetail,
   nodeDetailQueryOptions,
   nodeImageQueryOptions,
   useCreateNode,
@@ -817,35 +817,10 @@ NodeActions.displayName = NODE_ACTIONS_NAME;
 
 const NODE_IMAGE_PREVIEW_NAME = 'NodeImagePreview';
 
-const NodeImagePreview = ({
-  node,
-  repoId,
-  branch,
-  image,
-}: {
-  node: NodeDetail;
-  repoId: string;
-  branch: string;
-  image?: NodeImageDetail;
-}): ReactElement | null => {
-  if (image == null) return null;
-
+const NodeImagePreview = ({ src, alt }: { src: string; alt: string }): ReactElement => {
   return (
-    <div
-      data-component={NODE_IMAGE_PREVIEW_NAME}
-      className="border-border bg-muted shrink-0 border-b p-2"
-    >
-      <img
-        src={buildBinaryPreviewUrl({
-          repoId,
-          branch,
-          key: node._id,
-          binaryReference: image.binaryReference,
-          versionKey: node._versionKey,
-        })}
-        alt={node._name}
-        className="max-h-60 w-full object-contain"
-      />
+    <div data-component={NODE_IMAGE_PREVIEW_NAME} className="bg-muted flex justify-center p-4">
+      <img src={src} alt={alt} className="max-h-[70vh] max-w-full object-contain" />
     </div>
   );
 };
@@ -857,6 +832,9 @@ NodeImagePreview.displayName = NODE_IMAGE_PREVIEW_NAME;
 //
 
 const NODE_DETAIL_CONTENT_NAME = 'NodeDetailContent';
+
+const PROPERTIES_TAB = 'properties';
+const PREVIEW_TAB = 'preview';
 
 const NodeDetailContent = ({
   params,
@@ -889,6 +867,26 @@ const NodeDetailContent = ({
   const versionsTotal = versionsInfinite.data?.pages[0]?.total;
   const railLabel = t(railOpen ? 'node.rail.hide' : 'node.rail.show');
 
+  // The tab shell outlives a node swap, so a Preview selection can survive onto a node with
+  // no binary. `image` is `undefined` until the query settles and `null` once it settles
+  // empty — only the settled answer may close the tab, or stepping between two image nodes
+  // would drop out of Preview while the second one is still resolving. A failed node never
+  // enables the image query at all, so it has to count as settled too.
+  const nodeFailed = !isLoading && (error != null || node == null);
+  const [tab, setTab] = useState<string>(PROPERTIES_TAB);
+  if (tab === PREVIEW_TAB && (image === null || nodeFailed)) setTab(PROPERTIES_TAB);
+  const showPreview = image != null || tab === PREVIEW_TAB;
+  const previewUrl =
+    node != null && image != null
+      ? buildBinaryPreviewUrl({
+          repoId: params.repoId,
+          branch: params.branch,
+          key: node._id,
+          binaryReference: image.binaryReference,
+          versionKey: node._versionKey,
+        })
+      : null;
+
   // Early-returning here would strand a failed node on a surface with no back control or
   // rail toggle, and remount the tabs on every uncached sibling step.
   const body = (): ReactElement => {
@@ -908,7 +906,7 @@ const NodeDetailContent = ({
 
     return (
       <>
-        <TabsContent value="properties">
+        <TabsContent value={PROPERTIES_TAB}>
           <NodePropertiesTab
             node={node}
             repoId={params.repoId}
@@ -934,23 +932,23 @@ const NodeDetailContent = ({
         <TabsContent value="json">
           <JsonTab node={node} />
         </TabsContent>
+        {showPreview && (
+          <TabsContent value={PREVIEW_TAB}>
+            {previewUrl != null ? (
+              <NodeImagePreview src={previewUrl} alt={node._name} />
+            ) : (
+              <Skeleton className="h-60 w-full" />
+            )}
+          </TabsContent>
+        )}
       </>
     );
   };
 
   return (
     <div data-component={NODE_DETAIL_CONTENT_NAME} className="flex h-full flex-col">
-      {node != null && (
-        <NodeImagePreview
-          node={node}
-          repoId={params.repoId}
-          branch={params.branch}
-          image={image ?? undefined}
-        />
-      )}
-
       {/* Tabs */}
-      <Tabs defaultValue="properties" className="flex flex-1 flex-col overflow-hidden">
+      <Tabs value={tab} onValueChange={setTab} className="flex flex-1 flex-col overflow-hidden">
         <div className="flex shrink-0 items-center gap-2 px-4 pt-2">
           <button
             type="button"
@@ -969,7 +967,7 @@ const NodeDetailContent = ({
           </button>
           <TabsList className="w-auto">
             <TabsTrigger
-              value="properties"
+              value={PROPERTIES_TAB}
               title={t('node.tab.properties')}
               className="px-2 @[576px]:px-3"
             >
@@ -1009,8 +1007,32 @@ const NodeDetailContent = ({
               <Braces className="size-3.5" />
               <span className="ml-1.5 hidden @[576px]:inline">{t('node.tab.json')}</span>
             </TabsTrigger>
+            {showPreview && (
+              <TabsTrigger
+                value={PREVIEW_TAB}
+                title={t('node.tab.preview')}
+                className="px-2 @[576px]:px-3"
+              >
+                <ImageIcon className="size-3.5" />
+                <span className="ml-1.5 hidden @[576px]:inline">{t('node.tab.preview')}</span>
+              </TabsTrigger>
+            )}
           </TabsList>
           <div className="ml-auto flex shrink-0 items-center">
+            {previewUrl != null && (
+              <button
+                type="button"
+                onClick={() => setTab(PREVIEW_TAB)}
+                className={cn(
+                  'border-border mr-2 size-6 shrink-0 overflow-hidden rounded border',
+                  'hover:border-accent-foreground transition-colors',
+                )}
+                aria-label={t('node.tab.preview')}
+                title={t('node.tab.preview')}
+              >
+                <img src={previewUrl} alt="" className="size-full object-cover" />
+              </button>
+            )}
             {node != null && (
               <NodeActions
                 node={node}
