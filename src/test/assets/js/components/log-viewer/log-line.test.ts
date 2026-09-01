@@ -23,6 +23,35 @@ describe('parseLogLine', () => {
     });
   });
 
+  it('should parse the dated pattern a real server.log is written in', () => {
+    const parsed = parseLogLine(
+      '2026-08-31 00:00:09,261 WARN  c.e.xp.portal.impl.url.UrlGenerator - Portal url build failed',
+    );
+
+    expect(parsed).toEqual({
+      kind: 'entry',
+      time: '2026-08-31 00:00:09,261',
+      level: 'WARN',
+      logger: 'c.e.xp.portal.impl.url.UrlGenerator',
+      message: 'Portal url build failed',
+    });
+  });
+
+  it('should accept either millisecond separator in either layout', () => {
+    expect(parseLogLine('10:23:45,123 INFO  a.b.C - msg')).toMatchObject({
+      time: '10:23:45,123',
+    });
+    expect(parseLogLine('2026-08-31 10:23:45.123 INFO  a.b.C - msg')).toMatchObject({
+      time: '2026-08-31 10:23:45.123',
+    });
+  });
+
+  it('should read a stack frame under a dated entry as a continuation', () => {
+    expect(
+      parseLogLine('\tat com.enonic.xp.portal.impl.url.UrlBuilderHelper.rewriteUri(H.java:1)'),
+    ).toEqual({ kind: 'continuation' });
+  });
+
   it('should parse every level', () => {
     for (const level of ['TRACE', 'DEBUG', 'INFO', 'WARN', 'ERROR']) {
       const parsed = parseLogLine(`00:00:00.000 ${level} a.b.C - msg`);

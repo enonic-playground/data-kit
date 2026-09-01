@@ -1594,6 +1594,81 @@ class LogManagerTest {
     }
 
     @Test
+    fun `info classifies the dated pattern XP writes server log with`() {
+        // ! `server.log` carries Logback's dated default, `yyyy-MM-dd HH:mm:ss,SSS`. Reading only
+        // ! the time-only pattern leaves every line unknown, which empties the view the moment a
+        // ! level is selected and makes a windowed or filtered search find nothing.
+        writeLog(
+            "server.log",
+            at("2026-08-31 00:00:09,261", "WARN", "url build failed") +
+                "com.enonic.xp.portal.impl.exception.OutOfScopeException: URI out of scope\n" +
+                "\tat com.enonic.xp.portal.impl.url.UrlBuilderHelper.rewriteUri(Helper.java:160)\n" +
+                at("2026-08-31 00:01:00,000", "INFO", "recovered"),
+        )
+
+        val json = assertNotNull(manager.info("server.log", 0, 0L))
+
+        assertEquals(4, number(json, "lines"))
+        assertEquals(3, number(json, "warn"))
+        assertEquals(1, number(json, "info"))
+        assertEquals(0, number(json, "unknown"))
+    }
+
+    @Test
+    fun `info classifies a dot separator on the dated pattern too`() {
+        writeLog("server.log", at("2026-08-31 08:00:00.000", "ERROR", "boom"))
+
+        assertEquals(1, number(assertNotNull(manager.info("server.log", 0, 0L)), "error"))
+    }
+
+    @Test
+    fun `info reads a comma separator on the time-only pattern too`() {
+        writeLog("server.log", "08:00:00,000 ERROR c.e.x.Test - boom\n")
+
+        assertEquals(1, number(assertNotNull(manager.info("server.log", 0, 0L)), "error"))
+    }
+
+    @Test
+    fun `info leaves a line carrying an impossible date unclassified`() {
+        // ? Range-checking the date is what lets the epoch-day conversion be total.
+        writeLog("server.log", at("2026-13-31 08:00:00,000", "ERROR", "boom"))
+
+        val json = assertNotNull(manager.info("server.log", 0, 0L))
+
+        assertEquals(0, number(json, "error"))
+        assertEquals(1, number(json, "unknown"))
+    }
+
+    @Test
+    fun `window cuts across midnight on a dated file`() {
+        // ! The undated pattern has to give up here — its times fall rather than rise. A dated
+        // ! one orders the two halves, so the window it asks for is the window it gets.
+        writeLog(
+            "server.log",
+            at("2026-08-30 22:00:00,000", "INFO", "yesterday") +
+                at("2026-08-30 23:30:00,000", "INFO", "yesterday still") +
+                at("2026-08-31 00:10:00,000", "INFO", "today") +
+                at("2026-08-31 00:15:00,000", "INFO", "today later"),
+        )
+
+        assertEquals(
+            """{"line":2,"time":"2026-08-31 00:10:00.000"}""",
+            manager.window("server.log", 30),
+        )
+    }
+
+    @Test
+    fun `window cuts nothing when a dated span covers the whole file`() {
+        writeLog(
+            "server.log",
+            at("2026-08-31 08:00:00,000", "INFO", "a") +
+                at("2026-08-31 08:10:00,000", "INFO", "b"),
+        )
+
+        assertEquals(WHOLE_FILE, manager.window("server.log", 600))
+    }
+
+    @Test
     fun `window cuts nothing when the file declares no entry to anchor to`() {
         writeLog("server.log", "plain text\nmore plain text\n")
 

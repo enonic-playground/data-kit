@@ -1,9 +1,10 @@
 //
 // * Logback line parsing
 //
-// XP's default pattern is `%d{HH:mm:ss.SSS} %-5level %logger{36} - %msg%n`, so
-// the first line of an entry carries time/level/logger and every following line
-// of a stack trace is a continuation.
+// XP's pattern is `%d{...} %-5level %logger{36} - %msg%n`, so the first line of
+// an entry carries time/level/logger and every following line of a stack trace
+// is a continuation. The date part varies: `server.log` carries Logback's dated
+// default, `yyyy-MM-dd HH:mm:ss,SSS`, and a time-only head is the other layout.
 //
 
 import type { LogLevel } from '../../lib/api/logs';
@@ -22,7 +23,8 @@ export type ParsedLogLine =
 // ? can be hundreds of kilobytes and the prefix always fits in far less.
 // ! Must stay in step with `classifyHead` in `LogManager.kt`, which decides the same thing on
 // ! raw bytes. If the two disagree, the gutter numbers stop matching the colouring.
-const ENTRY_PREFIX = /^(\d{2}:\d{2}:\d{2}\.\d{3}) (TRACE|DEBUG|INFO|WARN|ERROR)\s+(\S{1,256}) - /;
+const ENTRY_PREFIX =
+  /^((?:\d{4}-\d{2}-\d{2} )?\d{2}:\d{2}:\d{2}[.,]\d{3}) (TRACE|DEBUG|INFO|WARN|ERROR)\s+(\S{1,256}) - /;
 
 const HEAD_LENGTH = 512;
 

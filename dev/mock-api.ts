@@ -27,13 +27,17 @@ const MAX_MATCH_SCANS = 4;
 const MAX_CACHED_INDEXES = 4;
 const MAX_WINDOW_MINUTES = 7 * 24 * 60;
 const MILLIS_PER_MINUTE = 60_000;
+const MILLIS_PER_DAY = 86_400_000;
+const TIME_LENGTH = 12;
+const DATE_LENGTH = 11;
 const NO_TIME = -1;
 const HEAD_CAPACITY = 512;
 
 // ? Classification decodes the line head and reuses the client's own pattern rather than
 // ? matching bytes the way LogManager.kt does — the harness owes the API parity, not the
 // ? implementation. Codes and bit positions do have to match.
-const ENTRY_PREFIX = /^(\d{2}:\d{2}:\d{2}\.\d{3}) (TRACE|DEBUG|INFO|WARN|ERROR)\s+(\S{1,256}) - /;
+const ENTRY_PREFIX =
+  /^((?:\d{4}-\d{2}-\d{2} )?\d{2}:\d{2}:\d{2}[.,]\d{3}) (TRACE|DEBUG|INFO|WARN|ERROR)\s+(\S{1,256}) - /;
 const LEVEL_CODES: Record<string, number | undefined> = {
   TRACE: 1,
   DEBUG: 2,
@@ -362,27 +366,39 @@ function blockStart(index: LineIndex, end: number): number {
   return end - lines + 1;
 }
 
-// Milliseconds into the day an entry head declares, or NO_TIME when the line is a continuation.
-// Built on ENTRY_PREFIX so the window and the level index cannot disagree about what an entry is.
+// Time an entry head declares, or NO_TIME when the line is a continuation. Dated entries report
+// milliseconds since the epoch, undated ones milliseconds into the day. Built on ENTRY_PREFIX so
+// the window and the level index cannot disagree about what an entry is.
 function entryMillis(line: string): number {
   const match = ENTRY_PREFIX.exec(line);
   if (match == null) return NO_TIME;
 
-  const time = match[1];
-  return (
+  const stamp = match[1];
+  const dated = stamp.length > TIME_LENGTH;
+  const time = dated ? stamp.slice(DATE_LENGTH) : stamp;
+  const ofDay =
     Number(time.slice(0, 2)) * 3_600_000 +
     Number(time.slice(3, 5)) * 60_000 +
     Number(time.slice(6, 8)) * 1000 +
-    Number(time.slice(9, 12))
+    Number(time.slice(9, 12));
+
+  if (!dated) return ofDay;
+  return (
+    Date.UTC(Number(stamp.slice(0, 4)), Number(stamp.slice(5, 7)) - 1, Number(stamp.slice(8, 10))) +
+    ofDay
   );
 }
 
 function timeText(value: number): string {
   const pad = (part: number, width: number): string => String(part).padStart(width, '0');
-  const hours = pad(Math.floor(value / 3_600_000), 2);
-  const minutes = pad(Math.floor(value / 60_000) % 60, 2);
-  const seconds = pad(Math.floor(value / 1000) % 60, 2);
-  return `${hours}:${minutes}:${seconds}.${pad(value % 1000, 3)}`;
+  const ofDay = value % MILLIS_PER_DAY;
+  const hours = pad(Math.floor(ofDay / 3_600_000), 2);
+  const minutes = pad(Math.floor(ofDay / 60_000) % 60, 2);
+  const seconds = pad(Math.floor(ofDay / 1000) % 60, 2);
+  const time = `${hours}:${minutes}:${seconds}.${pad(ofDay % 1000, 3)}`;
+
+  if (value < MILLIS_PER_DAY) return time;
+  return `${new Date(value).toISOString().slice(0, 10)} ${time}`;
 }
 
 // Entry time in effect at `line` — its own, or that of the entry it continues. NO_TIME only
