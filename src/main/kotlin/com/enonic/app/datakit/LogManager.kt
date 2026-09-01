@@ -70,8 +70,13 @@ internal const val LEVEL_MASK_ALL = 0b111110
 // ! colouring of the very lines they label.
 private const val HEAD_CAPACITY = 512
 private const val TIME_LENGTH = 12
+
+// ? `yyyy-MM-dd `, the prefix Logback's dated default puts before the time. XP writes
+// ? `server.log` with it; a time-only head is the other layout, and both have to read.
+private const val DATE_LENGTH = 11
 private const val MAX_LOGGER_LENGTH = 256
 private const val MIN_ENTRY_HEAD = 22
+private const val NO_HEAD = -1
 
 private val LEVEL_TOKENS = arrayOf(
     "TRACE".toByteArray(Charsets.US_ASCII),
@@ -88,6 +93,7 @@ private const val TAB = '\t'.code.toByte()
 private const val DASH = '-'.code.toByte()
 private const val COLON = ':'.code.toByte()
 private const val DOT = '.'.code.toByte()
+private const val COMMA = ','.code.toByte()
 private const val ZERO = '0'.code.toByte()
 private const val NINE = '9'.code.toByte()
 
@@ -95,8 +101,11 @@ private const val NINE = '9'.code.toByte()
 // ? array of a filtered response cannot push it past the cap.
 private const val NUMBER_COST = 12L
 
-private const val NO_TIME = -1
+private const val NO_TIME = -1L
 private const val MILLIS_PER_MINUTE = 60_000L
+private const val MILLIS_PER_DAY = 86_400_000L
+private const val DAYS_PER_ERA = 146_097
+private const val EPOCH_DAY_SHIFT = 719_468
 private const val MAX_WINDOW_MINUTES = 7 * 24 * 60
 
 
@@ -712,12 +721,43 @@ private fun isDigit(byte: Byte): Boolean = byte >= ZERO && byte <= NINE
 
 private fun isBlank(byte: Byte): Boolean = byte == SPACE || byte == TAB
 
-/** `HH:mm:ss.SSS`, the fixed-width head of XP's Logback pattern. */
-private fun hasTimePrefix(head: ByteArray): Boolean {
-    if (!isDigit(head[0]) || !isDigit(head[1]) || head[2] != COLON) return false
-    if (!isDigit(head[3]) || !isDigit(head[4]) || head[5] != COLON) return false
-    if (!isDigit(head[6]) || !isDigit(head[7]) || head[8] != DOT) return false
-    return isDigit(head[9]) && isDigit(head[10]) && isDigit(head[11])
+/** `HH:mm:ss.SSS` at [at]. */
+private fun hasTimePrefix(head: ByteArray, at: Int): Boolean {
+    if (!isDigit(head[at]) || !isDigit(head[at + 1]) || head[at + 2] != COLON) return false
+    if (!isDigit(head[at + 3]) || !isDigit(head[at + 4]) || head[at + 5] != COLON) return false
+    if (!isDigit(head[at + 6]) || !isDigit(head[at + 7])) return false
+    if (head[at + 8] != DOT && head[at + 8] != COMMA) return false
+    return isDigit(head[at + 9]) && isDigit(head[at + 10]) && isDigit(head[at + 11])
+}
+
+/**
+ * `yyyy-MM-dd ` at 0. The month and day are range-checked here so [epochDay] can never be handed
+ * a date it cannot express.
+ */
+private fun hasDatePrefix(head: ByteArray): Boolean {
+    if (!isDigit(head[0]) || !isDigit(head[1]) || !isDigit(head[2]) || !isDigit(head[3])) return false
+    if (head[4] != DASH || !isDigit(head[5]) || !isDigit(head[6])) return false
+    if (head[7] != DASH || !isDigit(head[8]) || !isDigit(head[9])) return false
+    if (head[10] != SPACE) return false
+
+    val month = digitAt(head, 5) * 10 + digitAt(head, 6)
+    val day = digitAt(head, 8) * 10 + digitAt(head, 9)
+    return month in 1..12 && day in 1..31
+}
+
+/**
+ * Offset of the `HH:mm:ss.SSS` this head carries, or [NO_HEAD] for none. A non-zero offset is
+ * also what says the entry is dated — only the dated layout pushes the time past 0.
+ */
+private fun timeOffset(head: ByteArray, length: Int): Int {
+    if (length >= MIN_ENTRY_HEAD && hasTimePrefix(head, 0)) return 0
+    if (length >= MIN_ENTRY_HEAD + DATE_LENGTH &&
+        hasDatePrefix(head) &&
+        hasTimePrefix(head, DATE_LENGTH)
+    ) {
+        return DATE_LENGTH
+    }
+    return NO_HEAD
 }
 
 /** Level code of the token at [at], or `0` when none of the five is there. */
@@ -738,13 +778,16 @@ private fun matchLevelToken(head: ByteArray, at: Int, length: Int): Int {
  * ride along with the offset scan instead of costing a pass of its own.
  */
 private fun classifyHead(head: ByteArray, length: Int): Byte {
-    if (length < MIN_ENTRY_HEAD) return LEVEL_UNKNOWN
-    if (!hasTimePrefix(head) || head[TIME_LENGTH] != SPACE) return LEVEL_UNKNOWN
+    val time = timeOffset(head, length)
+    if (time == NO_HEAD) return LEVEL_UNKNOWN
 
-    val level = matchLevelToken(head, TIME_LENGTH + 1, length)
+    val afterTime = time + TIME_LENGTH
+    if (head[afterTime] != SPACE) return LEVEL_UNKNOWN
+
+    val level = matchLevelToken(head, afterTime + 1, length)
     if (level == 0) return LEVEL_UNKNOWN
 
-    var i = TIME_LENGTH + 1 + LEVEL_TOKENS[level - 1].size
+    var i = afterTime + 1 + LEVEL_TOKENS[level - 1].size
     if (i >= length || !isBlank(head[i])) return LEVEL_UNKNOWN
     while (i < length && isBlank(head[i])) i++
 
@@ -759,37 +802,94 @@ private fun classifyHead(head: ByteArray, length: Int): Byte {
 }
 
 /**
- * Milliseconds into the day the head of an entry declares, or [NO_TIME] when [head] is not an
- * entry head. Built on [classifyHead] so a window and the level index can never disagree about
- * which lines are entries.
+ * Time the head of an entry declares, or [NO_TIME] when [head] is not an entry head. Built on
+ * [classifyHead] so a window and the level index can never disagree about which lines are
+ * entries.
+ *
+ * A dated entry reports milliseconds since the epoch, an undated one milliseconds into the day.
+ * Both ascend down a file, which is all a window asks of them.
  */
-private fun entryMillis(head: ByteArray, length: Int): Int {
+private fun entryMillis(head: ByteArray, length: Int): Long {
     if (classifyHead(head, length) == LEVEL_UNKNOWN) return NO_TIME
-    val hours = digitAt(head, 0) * 10 + digitAt(head, 1)
-    val minutes = digitAt(head, 3) * 10 + digitAt(head, 4)
-    val seconds = digitAt(head, 6) * 10 + digitAt(head, 7)
-    val millis = digitAt(head, 9) * 100 + digitAt(head, 10) * 10 + digitAt(head, 11)
-    return ((hours * 60 + minutes) * 60 + seconds) * 1000 + millis
+
+    val at = timeOffset(head, length)
+    val hours = digitAt(head, at) * 10 + digitAt(head, at + 1)
+    val minutes = digitAt(head, at + 3) * 10 + digitAt(head, at + 4)
+    val seconds = digitAt(head, at + 6) * 10 + digitAt(head, at + 7)
+    val millis = digitAt(head, at + 9) * 100 + digitAt(head, at + 10) * 10 + digitAt(head, at + 11)
+    val ofDay = (((hours * 60 + minutes) * 60 + seconds) * 1000 + millis).toLong()
+
+    if (at == 0) return ofDay
+    val year =
+        digitAt(head, 0) * 1000 + digitAt(head, 1) * 100 + digitAt(head, 2) * 10 + digitAt(head, 3)
+    val month = digitAt(head, 5) * 10 + digitAt(head, 6)
+    val day = digitAt(head, 8) * 10 + digitAt(head, 9)
+    return epochDay(year, month, day) * MILLIS_PER_DAY + ofDay
+}
+
+/**
+ * Days from 1970-01-01 to a civil date, by Hinnant's era arithmetic. Allocates nothing and throws
+ * nothing, which is what the unbounded walk in [effectiveMillis] needs and `LocalDate` is not.
+ */
+private fun epochDay(year: Int, month: Int, day: Int): Long {
+    val y = if (month <= 2) year - 1 else year
+    val era = y / 400
+    val yoe = y - era * 400
+    val doy = (153 * (month + (if (month > 2) -3 else 9)) + 2) / 5 + day - 1
+    val doe = yoe * 365 + yoe / 4 - yoe / 100 + doy
+    return era.toLong() * DAYS_PER_ERA + doe - EPOCH_DAY_SHIFT
+}
+
+/** `yyyy-MM-dd` for a day number, the inverse of [epochDay]. */
+private fun dateText(epochDay: Long): String {
+    val z = epochDay + EPOCH_DAY_SHIFT
+    val era = if (z >= 0) z / DAYS_PER_ERA else (z - DAYS_PER_ERA + 1) / DAYS_PER_ERA
+    val doe = (z - era * DAYS_PER_ERA).toInt()
+    val yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365
+    val doy = doe - (365 * yoe + yoe / 4 - yoe / 100)
+    val mp = (5 * doy + 2) / 153
+    val day = doy - (153 * mp + 2) / 5 + 1
+    val month = mp + (if (mp < 10) 3 else -9)
+    val year = (era * 400 + yoe + (if (month <= 2) 1 else 0)).toInt()
+
+    val out = CharArray(DATE_LENGTH - 1)
+    out[0] = digitChar(year / 1000 % 10)
+    out[1] = digitChar(year / 100 % 10)
+    out[2] = digitChar(year / 10 % 10)
+    out[3] = digitChar(year % 10)
+    out[4] = '-'
+    out[5] = digitChar(month / 10)
+    out[6] = digitChar(month % 10)
+    out[7] = '-'
+    out[8] = digitChar(day / 10)
+    out[9] = digitChar(day % 10)
+    return String(out)
 }
 
 private fun digitAt(head: ByteArray, at: Int): Int = head[at] - ZERO
 
-/** `HH:mm:ss.SSS` for a millisecond-of-day, the same prefix XP's pattern writes. */
-internal fun timeText(value: Int): String {
+/**
+ * How an [entryMillis] value reads, `yyyy-MM-dd ` and all when it carries a date. A
+ * millisecond-of-day is under a day by construction, which is what tells the two apart.
+ */
+internal fun timeText(value: Long): String {
+    val ofDay = (value % MILLIS_PER_DAY).toInt()
     val out = CharArray(TIME_LENGTH)
-    out[0] = digitChar(value / 36_000_000)
-    out[1] = digitChar(value / 3_600_000 % 10)
+    out[0] = digitChar(ofDay / 36_000_000)
+    out[1] = digitChar(ofDay / 3_600_000 % 10)
     out[2] = ':'
-    out[3] = digitChar(value / 600_000 % 6)
-    out[4] = digitChar(value / 60_000 % 10)
+    out[3] = digitChar(ofDay / 600_000 % 6)
+    out[4] = digitChar(ofDay / 60_000 % 10)
     out[5] = ':'
-    out[6] = digitChar(value / 10_000 % 6)
-    out[7] = digitChar(value / 1000 % 10)
+    out[6] = digitChar(ofDay / 10_000 % 6)
+    out[7] = digitChar(ofDay / 1000 % 10)
     out[8] = '.'
-    out[9] = digitChar(value / 100 % 10)
-    out[10] = digitChar(value / 10 % 10)
-    out[11] = digitChar(value % 10)
-    return String(out)
+    out[9] = digitChar(ofDay / 100 % 10)
+    out[10] = digitChar(ofDay / 10 % 10)
+    out[11] = digitChar(ofDay % 10)
+
+    val time = String(out)
+    return if (value < MILLIS_PER_DAY) time else "${dateText(value / MILLIS_PER_DAY)} $time"
 }
 
 private fun digitChar(value: Int): Char = '0' + value
@@ -868,19 +968,20 @@ internal class LogLineIndex(private val path: Path) {
                 val anchor = effectiveMillis(channel, probe, lineCount - 1)
                 if (anchor == NO_TIME) return WINDOW_WHOLE_FILE
 
-                // ! A window reaching back past midnight cannot be resolved: the date that would
-                // ! order two lines across the boundary is not in the file. Cut nothing instead.
+                // ! An undated log reaching back past midnight cannot be resolved: the date that
+                // ! would order two lines across the boundary is not in the file. Cut nothing
+                // ! instead. A dated log measures from the epoch and never trips this.
                 val span = minutes * MILLIS_PER_MINUTE
                 if (span >= anchor) return WINDOW_WHOLE_FILE
 
-                // ! Same reason, the other way round: a file *written* across midnight holds
-                // ! times that fall rather than rise, and the search below is a binary one. An
-                // ! opening entry later in the day than the closing one is that file, and the
+                // ! Same reason, the other way round: an undated file *written* across midnight
+                // ! holds times that fall rather than rise, and the search below is a binary one.
+                // ! An opening entry later in the day than the closing one is that file, and the
                 // ! honest answer is to cut nothing rather than to cut in an arbitrary place.
                 val first = firstEntryMillis(channel, probe)
                 if (first == NO_TIME || first > anchor) return WINDOW_WHOLE_FILE
 
-                val line = firstLineAtOrAfter(channel, probe, (anchor - span).toInt())
+                val line = firstLineAtOrAfter(channel, probe, anchor - span)
                 if (line <= 0) return WINDOW_WHOLE_FILE
 
                 val millis = effectiveMillis(channel, probe, line)
@@ -907,7 +1008,7 @@ internal class LogLineIndex(private val path: Path) {
      * What it lands on is always an entry head — a continuation carries the time of the entry
      * above it, which is earlier in the file and so would have been found first.
      */
-    private fun firstLineAtOrAfter(channel: FileChannel, probe: ByteArray, cutoff: Int): Int {
+    private fun firstLineAtOrAfter(channel: FileChannel, probe: ByteArray, cutoff: Long): Int {
         var low = 0
         var high = lineCount
         while (low < high) {
@@ -927,7 +1028,7 @@ internal class LogLineIndex(private val path: Path) {
      * false in the middle of the sorted array its binary search assumes. Unbounded, [NO_TIME]
      * can only ever be a prefix.
      */
-    private fun effectiveMillis(channel: FileChannel, probe: ByteArray, line: Int): Int {
+    private fun effectiveMillis(channel: FileChannel, probe: ByteArray, line: Int): Long {
         for (at in line downTo 0) {
             val millis = entryMillis(probe, readHead(channel, at, probe))
             if (millis != NO_TIME) return millis
@@ -936,7 +1037,7 @@ internal class LogLineIndex(private val path: Path) {
     }
 
     /** Time of the file's first entry, which is what says whether its times ascend at all. */
-    private fun firstEntryMillis(channel: FileChannel, probe: ByteArray): Int {
+    private fun firstEntryMillis(channel: FileChannel, probe: ByteArray): Long {
         for (at in 0 until lineCount) {
             val millis = entryMillis(probe, readHead(channel, at, probe))
             if (millis != NO_TIME) return millis

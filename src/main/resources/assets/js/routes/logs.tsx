@@ -93,8 +93,10 @@ const GOTO_PATTERN = /^\d+$/;
 // ? state and a window that turned out to cover it are the same value rather than two.
 const NO_CUT: LogWindow = { line: 0, time: null };
 
-// ? The label wants the hour and minute the cut landed on, not the seconds the log records.
+// ? The label wants the hour and minute the cut landed on — not the seconds the log records, and
+// ? not the date a dated log carries.
 const CUT_LABEL_LENGTH = 5;
+const CUT_DATE_PREFIX = /^\d{4}-\d{2}-\d{2} /;
 
 // ? Beyond two names the trigger reads as a list rather than a label; show a count instead.
 const MAX_NAMED_LEVELS = 2;
@@ -787,7 +789,8 @@ const LogsPage = (): ReactElement => {
 
   let cutLabel = t('logs.window.all');
   if (cut.time != null) {
-    cutLabel = t('logs.window.since', { time: cut.time.slice(0, CUT_LABEL_LENGTH) });
+    const clock = cut.time.replace(CUT_DATE_PREFIX, '');
+    cutLabel = t('logs.window.since', { time: clock.slice(0, CUT_LABEL_LENGTH) });
   }
 
   // ? The status counts the rows on screen against the file's own total, so it answers to both
